@@ -120,4 +120,11 @@ Raw runs are stored under `runs/showcase_desktop_150/`; the README-ready animati
 
 Leonardo jobs run headlessly through the templates in `slurm/`; generated frames and metadata are then synchronised to the presentation machine for live playback or a clearly labelled saved-run fallback. Start with [the Leonardo guide](docs/LEONARDO.md), then use the included preflight, submission, and sync scripts.
 
+## Discoverer workflow
+
+The Brain++ Discoverer B200/NVL72 setup is documented separately because its
+ARM64 GPU nodes, CUDA 13 user-space environment, storage policy, and Slurm
+allocation differ from Leonardo. Use the [Discoverer runbook](docs/DISCOVERER.md)
+and its GPU smoke test before submitting a production run.
+
 These are public-engagement demonstrators rather than production research solvers. Model assumptions and limitations are documented in [the scientific notes](docs/SCIENTIFIC_NOTES.md), with per-demo detail under [`docs/demos/`](docs/demos/README.md).

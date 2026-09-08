@@ -1,0 +1,5 @@
+# Discoverer's GB200/B200 nodes use the newer CUDA 13 user-space stack.
+# Keep this separate from requirements-gpu.txt, which deliberately targets
+# Leonardo's CUDA 12 A100 environment.
+-r requirements.txt
+cupy-cuda13x>=13,<15
