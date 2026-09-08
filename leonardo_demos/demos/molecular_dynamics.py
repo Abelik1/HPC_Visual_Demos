@@ -210,8 +210,8 @@ class MolecularDynamicsDemo(Demo):
                 "solvent quality":f"{solvent:.2f}","radius of gyration":f"{rg:.3f}",
                 "close contacts":f"{contacts:,}","integration step":f"{done:,} / {total:,}","pair evaluations":f"{pair_evals:,}"})
 
-        ens = max(4, int(self.settings.get("ensemble", 16)))
-        side = max(2, int(math.ceil(math.sqrt(ens))))
+        ens = max(1, int(self.settings.get("ensemble", 16)))
+        side = max(1, int(math.ceil(math.sqrt(ens))))
         sweep_particles = int(self.settings.get("sweep_particles", max(28, n // 2)))
         sweep_steps = int(self.settings.get("sweep_steps", max(220, total // 2)))
         temperatures = np.linspace(270, 390, side)

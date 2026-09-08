@@ -52,10 +52,12 @@ const legends={
   weather_ensemble:'Cloud colour combines moisture and vorticity on the simulated globe; the bright marker follows the cyclone centre.',
   molecular_dynamics:'Atoms are depth-sorted; bonds and non-bonded forces evolve the coarse-grained chain in 3D.'
 };
-// Reveal cardinality is now the editable `ensemble` profile setting. Keeping
-// a second selector here would produce two controls for the same workload and
-// could make the UI claim one value while the solver used another.
-const parallelDemos=new Set();
+// A reveal is an independent sweep or ensemble. Keep this choice in the main
+// run panel so a visitor can deliberately request a single fast test run.
+const parallelDemos=new Set([
+  'black_hole','pbh','cosmic_web','galaxy_collision','reaction_diffusion',
+  'crystal','fusion_plasma','weather_ensemble','molecular_dynamics'
+]);
 const demoInformation={
   black_hole:['Light paths through the Hubble Deep Field','The 2D observer image and 3D source plane use the same credited Hubble Deep Field crop. Move the primary well, then use binary or triple mode to see multiple deflection centres in both views.','This is a weak-field educational model, not a full Kerr geodesic or GRMHD calculation. The 2D scan moves across recorded source data; the wells remain fixed in the chosen scene. NASA Hubble Deep Field image: PIA12110.'],
   pbh:['A threshold in the young Universe','A small spherical density enhancement either spreads out or concentrates rapidly. The interesting result is the sharp boundary between those outcomes.','This is a reduced radial collapse demonstrator. It visualises critical behaviour but does not replace the project’s validated numerical-relativity solver.'],
@@ -82,6 +84,9 @@ function renderProfileSettings(values=null){
   const chosen=values&&Object.keys(values).length?values:preset;
   host.innerHTML='';
   Object.entries(schema).forEach(([key,rule])=>{
+    // Reveal cardinality has its own prominent, constrained selector in the
+    // run panel. Rendering it here as well would allow two conflicting values.
+    if(key==='ensemble'&&parallelDemos.has(current))return;
     const value=chosen[key]??preset[key],label=settingLabels[key]||key.replaceAll('_',' ');
     const field=document.createElement('label');field.className='profileSetting';
     field.innerHTML=`<span>${escapeHtml(label)} <em>${escapeHtml(key)}</em></span><input id="s_${key}" type="number" min="${rule.min}" max="${rule.max}" step="${rule.step}" value="${value}" required><small>${escapeHtml(settingHelp[key]||'Exact profile value used by the simulation.')}</small>`;
@@ -98,6 +103,7 @@ function updateProfileEditorSummary(){
 function collectProfileSettings(){
   const result={},schema=specs?.profile_setting_schema?.[current]||{};
   for(const key of Object.keys(schema)){
+    if(key==='ensemble'&&parallelDemos.has(current))continue;
     const input=$('#s_'+key);
     if(!input||!input.checkValidity())throw new Error(`${settingLabels[key]||key} must be between ${schema[key].min} and ${schema[key].max}`);
     result[key]=Number(input.value);
@@ -123,7 +129,7 @@ function renderOverlayCards(){
   if((current==='neural_wall'||current==='plasma_guardian')&&overlayEnabled.has('network')&&runId){wanted.add('network');let card=overlayCard('network',current==='plasma_guardian'?'Live policy graph':'Winning network','image');let img=card.querySelector('img'),src=`/runs/${runId}/overlays/network/frame_${String(playbackFrame).padStart(4,'0')}.jpg`;if(img.dataset.src!==src){img.dataset.src=src;img.src=src;}}
   [...layer.children].forEach(card=>{if(!wanted.has(card.dataset.overlayCard))card.remove();});
 }
-function renderViewerDock(){let modes=$('#modeControls'),controls=$('#overlayControls');if(!modes||!controls)return;modes.innerHTML='';let defs=viewModes[current]||[];if(defs.length){modes.innerHTML='<h4>SIMULATION MODE</h4>';defs.forEach(def=>{let b=document.createElement('button');b.textContent=def.label;b.classList.toggle('selected',activeViewMode===def.id);b.onclick=()=>{activeViewMode=def.id;renderViewerDock();if(frameAvailable())showFrame(playbackFrame,playbackTotal);};modes.appendChild(b);});}controls.innerHTML='<h4>OPTIONAL OVERLAYS</h4>';let items=[['story','Explanation'],['data',panelNames[current]||'Live data'],['legend','Legend / method']];if(current==='neural_wall'||current==='plasma_guardian')items.push(['network',current==='plasma_guardian'?'Policy graph':'Network graph']);items.forEach(([id,label])=>{let b=document.createElement('button');b.textContent=label;b.classList.toggle('selected',overlayEnabled.has(id));b.onclick=()=>{overlayEnabled.has(id)?overlayEnabled.delete(id):overlayEnabled.add(id);renderViewerDock();renderOverlayCards();};controls.appendChild(b);});renderOverlayCards();}
+function renderViewerDock(){let modes=$('#modeControls'),controls=$('#overlayControls');if(!modes||!controls)return;modes.innerHTML='';let defs=viewModes[current]||[];if(defs.length){modes.innerHTML='<h4>SIMULATION VIEW</h4>';defs.forEach(def=>{let b=document.createElement('button');b.textContent=def.label;b.setAttribute('aria-label',def.label);b.classList.toggle('selected',activeViewMode===def.id);b.setAttribute('aria-pressed',String(activeViewMode===def.id));b.onclick=()=>{activeViewMode=def.id;renderViewerDock();if(frameAvailable())showFrame(playbackFrame,playbackTotal);};modes.appendChild(b);});}controls.innerHTML='<h4>OPTIONAL OVERLAYS</h4>';let items=[['story','Explanation'],['data',panelNames[current]||'Live data'],['legend','Legend / method']];if(current==='neural_wall'||current==='plasma_guardian')items.push(['network',current==='plasma_guardian'?'Policy graph':'Network graph']);items.forEach(([id,label])=>{let b=document.createElement('button');b.textContent=label;b.setAttribute('aria-label',label);b.classList.toggle('selected',overlayEnabled.has(id));b.setAttribute('aria-pressed',String(overlayEnabled.has(id)));b.onclick=()=>{overlayEnabled.has(id)?overlayEnabled.delete(id):overlayEnabled.add(id);renderViewerDock();renderOverlayCards();};controls.appendChild(b);});renderOverlayCards();}
 async function loadFrameOverlay(frame){if(!runId)return;try{let response=await fetch(`/runs/${runId}/frame_data/frame_${String(frame).padStart(4,'0')}.json?t=${Date.now()}`);if(!response.ok)return;let body=await response.json();if(frame===playbackFrame){frameOverlay=body.values||{};renderOverlayCards();}}catch(_){}}
 function showUiMessage(message){currentStory=String(message);overlayEnabled.add('story');renderViewerDock();}
 
@@ -177,12 +183,12 @@ function updateTimelineHelp(){
   if(match)select.value=match.value;
   else {let custom=[...select.options].find(option=>option.value==='custom');if(!custom){custom=document.createElement('option');custom.value='custom';custom.hidden=true;custom.textContent='Custom';select.appendChild(custom);}select.value='custom';}
 }
-function configureParallelControl(){
+function configureParallelControl(selectedValue=null){
   const control=$('#parallelControl'),select=$('#parallelCount');
   const enabled=parallelDemos.has(current);
   control.classList.toggle('hidden',!enabled);
   if(!enabled)return;
-  const profileValue=Number(specs?.profiles?.[$('#profile').value]?.[current]?.ensemble);
+  const profileValue=Number(selectedValue??specs?.profiles?.[$('#profile').value]?.[current]?.ensemble);
   if([...select.options].some(option=>Number(option.value)===profileValue))select.value=String(profileValue);
 }
 function updateNumericalStepControl(){
@@ -197,7 +203,7 @@ function bindTimelineControls(){
 }
 
 // ---- saved run library ----------------------------------------------
-let library=[];
+let library=[],showAllRuns=false;
 async function loadLibrary(){
   try{library=await (await fetch('/api/runs?limit=120')).json();}catch(e){library=[];}
   renderLibrary();renderStageRuns();
@@ -208,15 +214,17 @@ function runLabel(r){
 }
 function renderLibrary(){
   let el=$('#libList');if(!el)return;el.innerHTML='';
-  if(!library.length){el.innerHTML='<p style="color:#7d93b6;font-size:14px">No saved runs yet. Run a simulation and it will appear here.</p>';return;}
-  library.forEach(r=>{
+  if(!library.length){$('#libMore').classList.add('hidden');el.innerHTML='<p style="color:#7d93b6;font-size:14px">No saved runs yet. Run a simulation and it will appear here.</p>';return;}
+  $('#libMore').classList.toggle('hidden',library.length<=8);
+  $('#libMore').textContent=showAllRuns?'Show fewer saved runs':`Show all ${library.length} saved runs`;
+  (showAllRuns?library:library.slice(0,8)).forEach(r=>{
     let name=(specs.demos[r.demo]||{}).name||r.demo;
     let card=document.createElement('article');card.className='runCard';
     let gpu=/cupy|cuda/i.test(r.backend||'');
-    card.innerHTML=`<img loading="lazy" src="${r.thumb}" alt="">
-      <div class=runMeta><b>${name}</b><span>${runLabel(r)} · ${r.frames} frames</span>
-      <div class=runTags><i>${r.profile||'?'}</i><i class="${gpu?'gpu':''}">${r.backend||'?'}</i>${r.method?`<i>${r.method.replaceAll('_',' ')}</i>`:''}${r.zoom?'<i>zoom</i>':''}</div></div>`;
-    card.onclick=()=>openRun(r);
+    card.innerHTML=`<a class="runLink" href="/?run=${encodeURIComponent(r.id)}"><img loading="lazy" src="${escapeHtml(r.thumb)}" alt="">
+      <div class=runMeta><b>${escapeHtml(name)}</b><span>${runLabel(r)} · ${r.frames} frames</span>
+      <div class=runTags><i>${r.profile||'?'}</i><i class="${gpu?'gpu':''}">${r.backend||'?'}</i>${r.method?`<i>${r.method.replaceAll('_',' ')}</i>`:''}${r.zoom?'<i>zoom</i>':''}</div></div></a>`;
+    card.querySelector('a').onclick=event=>{if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();openRun(r);};
     el.appendChild(card);
   });
 }
@@ -236,9 +244,10 @@ function renderStageRuns(){
 // Replay a finished run straight from disk: no recomputation, and every
 // control (playback, reveal, deep zoom) behaves as it does after a live run.
 function openRun(r){
-  if(r.demo!==current&&openDemo(r.demo)===false)return;
+  if((r.demo!==current||$('#stage').classList.contains('hidden'))&&openDemo(r.demo)===false)return;
   resetRunState();
   runId=r.id;lastFrame=r.frames-1;playbackTotal=r.frames;
+  history.replaceState(null,'',`/?run=${encodeURIComponent(r.id)}`);
   currentMeta=r;frameOverlay={};
   deepManifest=r.zoom||null;
   fusionManifest=r.fusion_view||null;
@@ -249,6 +258,7 @@ function openRun(r){
   $('#metric3').textContent=`backend ${r.backend||'—'}`;
   if(r.profile&&[...$('#profile').options].some(option=>option.value===r.profile))$('#profile').value=r.profile;
   renderProfileSettings(r.settings||null);
+  configureParallelControl(r.params?._parallel_count);
   Object.entries(r.params||{}).forEach(([k,v])=>{
     let inp=$('#p_'+k);if(inp){if(inp.type==='checkbox')inp.checked=Boolean(Number(v));else inp.value=v;let out=$('#v_'+k);if(out)out.textContent=v;}
   });
@@ -261,7 +271,33 @@ function openRun(r){
   renderStageRuns();
 }
 $('#libRefresh').onclick=loadLibrary;
-function renderGallery(){let g=$('#gallery');g.innerHTML='';Object.entries(specs.demos).forEach(([id,d],i)=>{let c=document.createElement('article');c.className='card';c.innerHTML=`<div class=num>${String(i+1).padStart(2,'0')}</div><h3>${d.name}</h3><p>${d.tagline}</p><div class=go>OPEN DEMO →</div>`;c.onclick=()=>openDemo(id);g.appendChild(c);});}
+$('#libMore').onclick=()=>{showAllRuns=!showAllRuns;renderLibrary();if(!showAllRuns)$('#library').scrollIntoView({block:'start'});};
+const demoCategories={black_hole:'Universe',pbh:'Universe',cosmic_web:'Universe',galaxy_collision:'Universe',galaxy_collision_3d:'Universe',fluid:'Physics',fusion_plasma:'Physics',reaction_diffusion:'Patterns & life',crystal:'Patterns & life',molecular_dynamics:'Patterns & life',weather_ensemble:'Physics',neural_wall:'AI & learning',plasma_guardian:'AI & learning'};
+let galleryCategory='All experiments';
+function renderGallery(){
+  const host=$('#gallery'),filters=$('#categoryFilters'),query=$('#demoSearch').value.trim().toLowerCase();
+  host.innerHTML='';filters.innerHTML='';
+  ['All experiments','Universe','Physics','Patterns & life','AI & learning'].forEach(category=>{
+    const button=document.createElement('button');button.textContent=category;
+    button.classList.toggle('selected',category===galleryCategory);button.setAttribute('aria-pressed',String(category===galleryCategory));
+    button.onclick=()=>{galleryCategory=category;renderGallery();[...filters.children].find(item=>item.textContent===category)?.focus();};filters.appendChild(button);
+  });
+  let count=0;
+  Object.entries(specs.demos).forEach(([id,d],index)=>{
+    const category=demoCategories[id]||'Physics';
+    if(galleryCategory!=='All experiments'&&galleryCategory!==category)return;
+    if(query&&!`${d.name} ${d.tagline} ${category}`.toLowerCase().includes(query))return;
+    count++;
+    const card=document.createElement('article');card.className='card';
+    card.innerHTML=`<a class="cardLink" href="/?demo=${encodeURIComponent(id)}"><div class="cardImage"><img src="/static/previews/${encodeURIComponent(id)}.webp" alt="" loading="lazy" width="800" height="450"><span class="num">${String(index+1).padStart(2,'0')}</span></div><div class="cardBody"><span class="cardCategory">${escapeHtml(category)}</span><h3>${escapeHtml(d.name)}</h3><p>${escapeHtml(d.tagline)}</p><div class="go">Explore simulation <span aria-hidden="true">↗</span></div></div></a>`;
+    card.querySelector('a').onclick=event=>{if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();openDemo(id);};host.appendChild(card);
+  });
+  $('#demoCount').textContent=Object.keys(specs.demos).length;
+  $('#galleryResults').textContent=`${count} experiment${count===1?'':'s'}${galleryCategory==='All experiments'?' to explore':` in ${galleryCategory.toLowerCase()}`}`;
+  if(!count)host.innerHTML='<p class="galleryEmpty">No experiments found. Try another search or category.</p>';
+}
+$('#demoSearch').oninput=renderGallery;
+$('#previewReplay').onclick=()=>{const latest=library.find(item=>item.demo===current);if(latest)openRun(latest);};
 function hideReveal(){let sw=$('.screenWrap');sw.classList.remove('revealing');$('#scaleReveal').classList.remove('show');$('#screen').style.opacity=1;}
 function stopPlayback(){if(playbackTimer)clearInterval(playbackTimer);playbackTimer=null;playbackPlaying=false;updatePlaybackButton();}
 function updatePlaybackButton(){$('#playPause').textContent=playbackPlaying?'Pause':'Play';}
@@ -311,7 +347,7 @@ function addFluidBuilder(host){
 }
 function renderDemoInfo(){let info=demoInformation[current]||['Scientific simulation',stories[current]?.[0]||'',''];$('#infoTitle').textContent=info[0];$('#infoSummary').textContent=info[1];$('#infoMethod').textContent=info[2];}
 function clearSimulationSurface(){let wrap=$('.screenWrap'),image=$('#screen');image.onerror=null;image.onload=null;image.removeAttribute('src');image.style.opacity='';wrap.classList.add('empty');}
-function addParameterControl(host,key,param){let el=document.createElement('div'),label=param.label||key.replaceAll('_',' ');el.className='control';if(param.kind==='toggle'){el.classList.add('toggleControl');el.innerHTML=`<span>${escapeHtml(label)}</span><input id="p_${key}" type="checkbox" ${Number(param.value)?'checked':''}>`;el.querySelector('input').onchange=renderOverlayCards;}else if(param.kind==='choice'){let options=Object.entries(param.options||{}).map(([value,text])=>`<option value="${escapeHtml(value)}" ${Number(value)===Number(param.value)?'selected':''}>${escapeHtml(text)}</option>`).join('');el.innerHTML=`<div class=row><span>${escapeHtml(label)}</span></div><select id="p_${key}">${options}</select>`;el.querySelector('select').onchange=renderOverlayCards;}else{el.innerHTML=`<div class=row><span>${escapeHtml(label)}</span><b id="v_${key}">${param.value}</b></div><input id="p_${key}" type=range min="${param.min}" max="${param.max}" step="${param.step}" value="${param.value}">`;el.querySelector('input').oninput=e=>{$('#v_'+key).textContent=e.target.value;renderOverlayCards();};}host.appendChild(el);}
+function addParameterControl(host,key,param){let el=document.createElement('div'),label=param.label||key.replaceAll('_',' ').replace(/^./,letter=>letter.toUpperCase());el.className='control';if(param.kind==='toggle'){el.classList.add('toggleControl');el.innerHTML=`<label for="p_${key}">${escapeHtml(label)}</label><input id="p_${key}" type="checkbox" ${Number(param.value)?'checked':''}>`;el.querySelector('input').onchange=renderOverlayCards;}else if(param.kind==='choice'){let options=Object.entries(param.options||{}).map(([value,text])=>`<option value="${escapeHtml(value)}" ${Number(value)===Number(param.value)?'selected':''}>${escapeHtml(text)}</option>`).join('');el.innerHTML=`<div class=row><label for="p_${key}">${escapeHtml(label)}</label></div><select id="p_${key}">${options}</select>`;el.querySelector('select').onchange=renderOverlayCards;}else{el.innerHTML=`<div class=row><label for="p_${key}">${escapeHtml(label)}</label><b id="v_${key}">${param.value}</b></div><input id="p_${key}" type=range min="${param.min}" max="${param.max}" step="${param.step}" value="${param.value}">`;el.querySelector('input').oninput=e=>{$('#v_'+key).textContent=e.target.value;renderOverlayCards();};}host.appendChild(el);}
 function parameterValue(key){let input=$('#p_'+key);return input?.type==='checkbox'?Number(input.checked):Number(input?.value||0);}
 function openDemo(id){let spec=specs&&specs.demos?specs.demos[id]:null;
   // The collision has rapidly changing pericentre frames; make smooth sampling
@@ -320,9 +356,13 @@ function openDemo(id){let spec=specs&&specs.demos?specs.demos[id]:null;
   // A saved run can name a demo this build no longer ships; refuse to open
   // it rather than throwing on a missing spec and leaving a dead stage.
   if(!spec){alert('This build has no demo called "'+id+'".');return false;}
+  document.body.classList.add('demoOpen');
+  history.replaceState(null,'',`/?demo=${encodeURIComponent(id)}`);
+  $('#demoPreview').src=`/static/previews/${encodeURIComponent(id)}.webp`;
+  $('#previewReplay').classList.toggle('hidden',!library.some(item=>item.demo===id));
   current=id;applyBackends();applyMethods();
-  resetRunState();current=id;activeViewMode='frames';preferFusion3d=id==='fusion_plasma';overlayEnabled=new Set();currentStory=stories[id][0];$('#gallery').classList.add('hidden');$('#library').classList.add('hidden');$('#stage').classList.remove('hidden');let d=specs.demos[id];$('#fusionView').classList.toggle('hidden',id!=='fusion_plasma');$('#galaxy3dView').classList.toggle('hidden',id!=='galaxy_collision_3d');$('#stageTitle').textContent=d.name;$('#stageTag').textContent=d.tagline;$('#stageEyebrow').textContent='VISUAL STORY · '+id.replaceAll('_',' ');let s=$('#sliders');s.innerHTML='';fluidBuilder=null;Object.entries(d.params).forEach(([k,p])=>{if(id==='neural_wall'&&k==='target')return;addParameterControl(s,k,p);});if(id==='neural_wall')addNeuralTargetTools(s,d.params.target.value);if(id==='fluid')addFluidBuilder(s);renderProfileSettings();configureParallelControl();updateTimelineHelp();clearSimulationSurface();renderDemoInfo();renderStageRuns();renderViewerDock();$('#status').textContent='READY';$('#status').style.color='';$('#bar').style.width='0';$('#metric1').textContent='frame —';$('#metric2').textContent='elapsed —';$('#metric3').textContent='backend —';return true;}
-$('#back').onclick=()=>{resetRunState();$('#stage').classList.add('hidden');$('#gallery').classList.remove('hidden');$('#library').classList.remove('hidden');loadLibrary();};
+  resetRunState();current=id;activeViewMode='frames';preferFusion3d=id==='fusion_plasma';overlayEnabled=new Set();currentStory=stories[id][0];$('#gallery').classList.add('hidden');$('#library').classList.add('hidden');$('#stage').classList.remove('hidden');let d=specs.demos[id];$('#fusionView').classList.toggle('hidden',id!=='fusion_plasma');$('#galaxy3dView').classList.toggle('hidden',id!=='galaxy_collision_3d');$('#stageTitle').textContent=d.name;$('#stageTag').textContent=d.tagline;$('#stageEyebrow').textContent=(demoCategories[id]||'Science')+' / INTERACTIVE SIMULATION';let s=$('#sliders');s.innerHTML='';fluidBuilder=null;Object.entries(d.params).forEach(([k,p])=>{if(id==='neural_wall'&&k==='target')return;addParameterControl(s,k,p);});if(id==='neural_wall')addNeuralTargetTools(s,d.params.target.value);if(id==='fluid')addFluidBuilder(s);renderProfileSettings();configureParallelControl();updateTimelineHelp();clearSimulationSurface();renderDemoInfo();renderStageRuns();renderViewerDock();$('#status').textContent='READY';$('#status').style.color='';$('#bar').style.width='0';$('#metric1').textContent='frame —';$('#metric2').textContent='elapsed —';$('#metric3').textContent='backend —';window.scrollTo(0,0);$('#back').focus({preventScroll:true});return true;}
+$('#back').onclick=()=>{document.body.classList.remove('demoOpen');history.replaceState(null,'','/');resetRunState();$('#stage').classList.add('hidden');$('#gallery').classList.remove('hidden');$('#library').classList.remove('hidden');loadLibrary();window.scrollTo(0,0);$('#demoSearch').focus({preventScroll:true});};
 $('#run').onclick=async()=>{if(!current)return;let settings;try{settings=collectProfileSettings();}catch(error){showUiMessage(error.message);return;}resetRunState();let ps={};Object.keys(specs.demos[current].params).forEach(k=>{if(current==='neural_wall'&&k==='target')ps[k]=neuralTarget.kind;else ps[k]=parameterValue(k);});let req={profile:$('#profile').value,frames:Number($('#frames').value),params:ps,settings,backend:$('#backend').value,method:$('#method').value};if(parallelDemos.has(current))req.parallel_count=Number($('#parallelCount').value);if(current==='fluid'&&fluidBuilder)req.obstacle_grid=fluidBuilder.cells;if(current==='neural_wall'&&neuralTarget.custom)req.target_image=$('#targetCanvas').toDataURL('image/png');let response=await fetch('/api/run/'+current,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(req)});if(!response.ok){let detail='Request rejected';try{let body=await response.json();detail=body.detail||detail;}catch(_){ }$('#status').textContent='FAILED TO START';showUiMessage(detail);return;}runId=(await response.json()).id;$('#status').textContent='COMPUTING';$('#status').style.color='#67f0d0';timer=setInterval(poll,300);};
 async function poll(){if(!runId)return;let m=await (await fetch('/api/run/'+runId+'?t='+Date.now())).json();currentMeta=m;let total=Number($('#frames').value);if(m.fusion_view)fusionManifest=m.fusion_view;if(m.galaxy3d_view)galaxy3dManifest=m.galaxy3d_view;if(m.frame!==undefined&&m.frame>=0){lastFrame=m.frame;playbackTotal=total;frameOverlay=m.overlay||frameOverlay;$('#frameSeek').max=Math.max(0,total-1);showFrame(m.frame,total);renderOverlayCards();if(current==='fusion_plasma'&&fusionManifest&&preferFusion3d&&!fusionActive&&!fusionEntering)enterFusion();$('#metric2').textContent=`elapsed ${(m.elapsed||0).toFixed(1)} s`;$('#metric3').textContent=`backend ${m.backend||'—'}`;}if(m.status==='complete'){clearInterval(timer);timer=null;deepManifest=m.zoom||null;fusionManifest=m.fusion_view||fusionManifest;galaxy3dManifest=m.galaxy3d_view||galaxy3dManifest;playbackTotal=Number(m.frames)||total;$('#frameSeek').max=Math.max(0,playbackTotal-1);$('#status').textContent='COMPLETE';loadLibrary();$('#metric3').textContent=`backend ${m.backend||'—'}`;setPlaybackControls(true);startPlayback(0);if(current==='fusion_plasma'&&fusionManifest&&preferFusion3d&&!fusionActive)enterFusion();}if(m.status==='failed'){clearInterval(timer);timer=null;$('#status').textContent='FAILED';showUiMessage(m.error||'Simulation failed');}}
 async function showReveal(){if(!runId)return;exitFusion();exitGalaxy3d();stopPlayback();let m=await (await fetch('/api/run/'+runId)).json();if(m.reveal){let sw=$('.screenWrap');sw.classList.add('revealing');$('#scaleReveal').classList.add('show');$('#screen').style.opacity=.15;setTimeout(()=>{$('#screen').src=`/runs/${runId}/${m.reveal}?t=${Date.now()}`;$('#screen').style.opacity=1;currentStory=stories[current][3];renderOverlayCards();},220);}}

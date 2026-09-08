@@ -54,7 +54,7 @@ class PBHDemo(Demo):
             self.ctx.save_frame(canvas,self.ctx.frame_path(i)); self.ctx.write_status(i,regime,{
                 "regime":regime,"density contrast δ":f"{delta:.5f}","reference threshold":f"{self.delta_c:.5f}",
                 "profile width":f"{width:.2f}","central density":f"{rho[0]:.3f}","evolution":f"{100*t:.0f}%"})
-        ens=int(self.settings.get('ensemble',64)); side=max(2,int(math.ceil(math.sqrt(ens)))); ims=[]
+        ens=max(1,int(self.settings.get('ensemble',64))); side=max(1,int(math.ceil(math.sqrt(ens)))); ims=[]
         ds=np.linspace(self.delta_c-.025,self.delta_c+.025,side)
         ws=np.linspace(.65,1.35,side)
         for j in range(ens):

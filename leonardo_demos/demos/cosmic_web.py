@@ -177,8 +177,8 @@ class CosmicWebDemo(Demo):
                 "mean molecular weight":f"{mu:.3f}","solver step":f"{done:,} / {total:,}"})
         # Reveal: the same initial universe run at different H/He mixes, which
         # is a real composition sweep rather than sixteen random seeds.
-        ens=int(self.ctx.params.get('_parallel_count',self.settings.get('ensemble',16)))
-        side=max(2,int(math.ceil(math.sqrt(ens)))); ims=[]; labels=[]
+        ens=max(1,int(self.ctx.params.get('_parallel_count',self.settings.get('ensemble',16))))
+        side=max(1,int(math.ceil(math.sqrt(ens)))); ims=[]; labels=[]
         m=max(64,n//2); pcount=max(3000,min(9000,Np//4))
         for j in range(ens):
             Yj=j/max(1,ens-1)

@@ -344,8 +344,8 @@ class GalaxyCollisionDemo(Demo):
                 "compute":f"{self.ctx.backend_name}{cpu_note}"})
         # Reveal: the same encounter under the observational uncertainty on the
         # transverse velocity, which is what actually decides the outcome.
-        ens=int(self.ctx.params.get('_parallel_count',self.settings.get('ensemble',16)))
-        side=max(2,int(math.ceil(math.sqrt(ens)))); ims=[]; labels=[]
+        ens=max(1,int(self.ctx.params.get('_parallel_count',self.settings.get('ensemble',16))))
+        side=max(1,int(math.ceil(math.sqrt(ens)))); ims=[]; labels=[]
         reveal_frames=max(10,self.ctx.frames//2)
         reveal_dt=total/(reveal_frames*substeps)
         for j in range(ens):

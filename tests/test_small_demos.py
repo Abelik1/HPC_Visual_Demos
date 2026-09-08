@@ -13,7 +13,7 @@ from leonardo_demos.demos.galaxy_collision_3d import GalaxyCollision3DDemo
 class SmallDemoTests(unittest.TestCase):
     def test_reaction(self):
         with tempfile.TemporaryDirectory() as t:
-            c=RunContext(Path(t),'reaction_diffusion','local',2,{'feed':.0367,'kill':.0649},'numpy'); ReactionDiffusionDemo(c,{'n':48,'total_steps':40,'sweep_steps':20,'ensemble':4}).run(); self.assertTrue((Path(t)/'frames/frame_0001.jpg').exists()); self.assertEqual(json.loads((Path(t)/'meta.json').read_text())['status'],'complete')
+            c=RunContext(Path(t),'reaction_diffusion','local',2,{'feed':.0367,'kill':.0649},'numpy'); ReactionDiffusionDemo(c,{'n':48,'total_steps':40,'sweep_steps':20,'ensemble':1}).run(); self.assertTrue((Path(t)/'frames/frame_0001.jpg').exists()); self.assertEqual(json.loads((Path(t)/'meta.json').read_text())['status'],'complete')
     def test_blackhole(self):
         with tempfile.TemporaryDirectory() as t:
             c=RunContext(Path(t),'black_hole','local',2,{'mass':1.2,'spin':.2,'lens_x':.3,'lens_y':-.2,'lens_count':2,'lens_separation':.45,'lens_angle':35},'numpy'); BlackHoleDemo(c,{'width':120,'height':68,'ensemble':1}).run()
@@ -28,7 +28,7 @@ class SmallDemoTests(unittest.TestCase):
             self.assertNotEqual((Path(t)/'frames/frame_0000.jpg').read_bytes(),(Path(t)/'frames/frame_0001.jpg').read_bytes())
     def test_crystal(self):
         with tempfile.TemporaryDirectory() as t:
-            c=RunContext(Path(t),'crystal','local',2,{'undercooling':.75,'anisotropy':.055},'numpy'); CrystalDemo(c,{'depth':3,'ensemble':4,'zoom_levels':1,'zoom_depth':4,'zoom_tile':64}).run(); self.assertTrue((Path(t)/'frames/frame_0001.jpg').exists()); self.assertEqual(json.loads((Path(t)/'meta.json').read_text())['status'],'complete')
+            c=RunContext(Path(t),'crystal','local',2,{'undercooling':.75,'anisotropy':.055},'numpy'); CrystalDemo(c,{'depth':3,'ensemble':1,'zoom_levels':1,'zoom_depth':4,'zoom_tile':64}).run(); self.assertTrue((Path(t)/'frames/frame_0001.jpg').exists()); self.assertEqual(json.loads((Path(t)/'meta.json').read_text())['status'],'complete')
     def test_fusion_plasma(self):
         with tempfile.TemporaryDirectory() as t:
             c=RunContext(Path(t),'fusion_plasma','local',2,{'magnetic_field':5.0,'heating':25,'density':1.0},'numpy')
@@ -48,7 +48,7 @@ class SmallDemoTests(unittest.TestCase):
     def test_weather_ensemble(self):
         with tempfile.TemporaryDirectory() as t:
             c=RunContext(Path(t),'weather_ensemble','local',2,{'warming':1.5,'jet_stream':1.0,'uncertainty':25},'numpy')
-            WeatherEnsembleDemo(c,{'n':24,'total_steps':4,'ensemble':4,'sweep_n':24,'sweep_steps':3}).run()
+            WeatherEnsembleDemo(c,{'n':24,'total_steps':4,'ensemble':1,'sweep_n':24,'sweep_steps':3}).run()
             self.assertTrue((Path(t)/'frames/frame_0001.jpg').exists())
             self.assertEqual(json.loads((Path(t)/'meta.json').read_text())['status'],'complete')
     def test_plasma_guardian(self):
@@ -62,7 +62,7 @@ class SmallDemoTests(unittest.TestCase):
     def test_molecular_dynamics(self):
         with tempfile.TemporaryDirectory() as t:
             c=RunContext(Path(t),'molecular_dynamics','local',2,{'temperature':310,'attraction':1.0,'solvent':.65,'sequence':0},'numpy')
-            MolecularDynamicsDemo(c,{'particles':18,'total_steps':4,'ensemble':4,'sweep_particles':14,'sweep_steps':3}).run()
+            MolecularDynamicsDemo(c,{'particles':18,'total_steps':4,'ensemble':1,'sweep_particles':14,'sweep_steps':3}).run()
             self.assertTrue((Path(t)/'reveal.jpg').exists())
             self.assertEqual(json.loads((Path(t)/'meta.json').read_text())['status'],'complete')
     def test_self_gravitating_galaxy_3d(self):

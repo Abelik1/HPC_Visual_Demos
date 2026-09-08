@@ -69,6 +69,12 @@ class InputValidationTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             start('fluid', RunReq(obstacle_grid=[[0,1],[1,0]]))
 
+    def test_api_accepts_one_reveal_simulation_for_a_fast_test_run(self):
+        with patch('app.threading.Thread') as thread:
+            result=start('reaction_diffusion', RunReq(parallel_count=1))
+        self.assertTrue(result['id'].startswith('reaction_diffusion_'))
+        thread.return_value.start.assert_called_once()
+
     def test_api_publishes_and_validates_galaxy_solvers(self):
         capability=specs()['capabilities']['galaxy_collision']
         self.assertEqual(capability['default_method'],'leapfrog')

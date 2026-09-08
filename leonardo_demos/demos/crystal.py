@@ -45,7 +45,7 @@ class CrystalDemo(Demo):
         add_progress(im,(i+1)/frames,"MICROSCOPIC SEED","BRANCHED CRYSTAL")
         return im
     def build_reveal(self):
-        ens=int(self.settings.get('ensemble',25)); side=max(2,int(math.ceil(math.sqrt(ens))))
+        ens=max(1,int(self.settings.get('ensemble',25))); side=max(1,int(math.ceil(math.sqrt(ens))))
         base=self.ctx.params
         tasks=[]
         for j in range(ens):

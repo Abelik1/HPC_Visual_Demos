@@ -68,7 +68,7 @@ class ReactionDiffusionDemo(Demo):
                 "grid":f"{nx} × {ny}","backend":self.ctx.backend_name})
         # True parameter sweep (small independent simulations, matured far
         # enough that neighbouring F/K values are visually distinguishable).
-        ens=int(self.settings.get('ensemble',25)); side=max(2,int(math.ceil(math.sqrt(ens))))
+        ens=max(1,int(self.settings.get('ensemble',25))); side=max(1,int(math.ceil(math.sqrt(ens))))
         sweep_steps=int(self.settings.get('sweep_steps',max(2500,total//4)))
         my,mx=self.grid_shape(max(72,ny//3)); ims=[]
         for j in range(ens):
