@@ -4,7 +4,7 @@ This is the runbook for the team allocation on the Brain++ Discoverer NVL72 syst
 
 ## Current status
 
-The source, ARM64 environment recipe, and Slurm launchers have been staged for the `abelik` account. Ordinary CPU execution is working; GPU execution is currently **blocked by a site-side CUDA device-access failure** described in [Known GPU issue](#known-gpu-issue-8-september-2026). Do not submit the 100,000-particle production job until the smoke test passes.
+The source, ARM64 environment recipe, and Slurm launchers have been staged for the `abelik` account. Do not submit the production job: GPU execution is blocked by the CUDA issue below and, as of 9 September, the team Weka filesystem is absent from both reserved compute nodes. See [Known cluster issues](#known-cluster-issues-8-9-september-2026).
 
 ## Access and storage
 
@@ -159,7 +159,7 @@ in the library to play frames or use **Rotate 3D**. It copies the entire run
 and can be rerun to refresh a local copy; transfer after job completion for a
 consistent 70- or 500-frame replay.
 
-## Known GPU issue — 8 September 2026
+## Known cluster issues — 8–9 September 2026
 
 The following validation jobs ran on `gpu-11` under reservation `ehpc-school-2026`:
 
@@ -171,6 +171,10 @@ The following validation jobs ran on `gpu-11` under reservation `ehpc-school-202
 | 5879 | failed CUDA allocation | The same simple allocation failed with CuPy CUDA 13.2, ruling out the Leonardo CUDA 12 wheel as the cause. |
 | 5880 | failed CUDA allocation | A direct, documented single-task/8-CPU/16-GB/one-GPU job failed identically, ruling out the four-GPU team allocation shape and nested `srun` step. |
 | 5881 | passed CPU-only probe | A standard-Python ARM64 calculation completed on `gpu-11` with eight Slurm tasks and `CUDA_VISIBLE_DEVICES` unset. |
+| 5929 | batch launch failure | Fresh one-B200 batch job on `gpu-11` was killed by Slurm signal 53 before the shell script began; no output/error files were created. |
+| 5930 | batch launch failure | The identical job on `gpu-12` was killed identically before script execution. |
+| 5931 | batch launch failure | The organisers' exact `--nodes=1 --ntasks=8 --gres=gpu:4` shape was allocated on `gpu-11`, then killed by signal 53 before its first command. |
+| 5932 | batch launch failure | A CPU-only batch job was also killed by signal 53 before its first command, showing the new failure is not CUDA-specific. |
 
 Job 5879 proves that Slurm granted the requested resources:
 
@@ -197,5 +201,25 @@ Ask the Discoverer operators to check GPU access for the Slurm reservation on `g
 ```text
 /weka/ehpc-school-2026/abelik/Leonardo_Visual_Demos/logs/discoverer-gpu-probe_5879.out
 ```
+
+### New storage / batch-launch failure — 9 September
+
+The direct Slurm route itself still works: the organisers' `srun` form ran an
+eight-task `hostname` command on `gpu-11`. However, direct tasks on **both** of
+the reserved nodes see only an empty `/weka` directory and cannot access
+`/weka/ehpc-school-2026` at all:
+
+```text
+/bin/ls: cannot access '/weka/ehpc-school-2026': No such file or directory
+```
+
+Consequently, direct tasks cannot see the staged source or the ARM64 virtual
+environment, and all newly submitted `sbatch` jobs are terminated by Slurm
+signal 53 before they create their output files. This is a current cluster
+mount/prolog or job-launch problem, separate from the 8 September CUDA error.
+Ask the operators to restore and verify the Weka mount on `gpu-11` and `gpu-12`
+for the `ehpc-school-2026` reservation, and to investigate why its batch jobs
+are being killed before the script starts. Re-run the one-GPU smoke test only
+after that is confirmed fixed.
 
 After they confirm a fix, resubmit the smoke test before submitting either the 10k pilot or the 100k production job.
