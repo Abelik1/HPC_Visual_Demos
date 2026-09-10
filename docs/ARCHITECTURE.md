@@ -6,7 +6,7 @@ The event PC should be a **presentation appliance**, not the scientific compute 
 
 ```text
 runs/<run-id>/
-  meta.json
+  meta.json                 # configuration, timing, and execution resources
   reveal.jpg
   frames/
     frame_0000.jpg
@@ -17,6 +17,12 @@ runs/<run-id>/
     L0/0_0.jpg
     L1/0_0.jpg L1/1_0.jpg ...
 ```
+
+`meta.json` is portable provenance as well as playback state. Every run records
+the actual host and architecture, allocated CPU workers, Slurm job/account/
+partition/node details when present, visible CUDA device identity and memory
+when used, and the final `duration_seconds`. This lets saved Leonardo and
+Discoverer runs be replayed and compared honestly on the local dashboard.
 
 The browser viewer only needs HTTP access to those files. It can therefore:
 

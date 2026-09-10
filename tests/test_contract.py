@@ -17,6 +17,11 @@ class TestContract(unittest.TestCase):
     def test_context_meta(self):
         with tempfile.TemporaryDirectory() as t:
             c=RunContext(Path(t),'x','local',3,{},'numpy'); self.assertTrue((Path(t)/'meta.json').exists()); m=json.loads((Path(t)/'meta.json').read_text()); self.assertEqual(m['status'],'starting')
+            self.assertIn('host',m['resources']); self.assertIn('architecture',m['resources'])
+            self.assertIn('cpu_workers',m['resources']); self.assertIn('slurm',m['resources'])
+            c.finish()
+            m=json.loads((Path(t)/'meta.json').read_text())
+            self.assertIn('duration_seconds',m); self.assertGreaterEqual(m['duration_seconds'],0)
     def test_frame_overlay_is_stored_separately_from_the_image(self):
         with tempfile.TemporaryDirectory() as t:
             c=RunContext(Path(t),'x','local',3,{},'numpy')

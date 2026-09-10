@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
-import io, json, math, os, threading, time, traceback
+import io, json, math, os, platform, socket, threading, time, traceback
 from typing import Any, Callable, Dict
 import numpy as np
 from .backend import choose_backend
@@ -22,6 +22,18 @@ def _cpu_worker_count() -> int:
     except ValueError:
         requested = 1
     return max(1, min(requested, os.cpu_count() or requested))
+
+
+def _environment_value(name: str):
+    """Read an optional scheduler variable without recording empty values."""
+    value = os.getenv(name)
+    return value if value else None
+
+
+def _decode_device_name(value: Any) -> str:
+    if isinstance(value, bytes):
+        return value.decode(errors="replace").rstrip("\0")
+    return str(value)
 
 @dataclass
 class RunContext:
@@ -43,6 +55,7 @@ class RunContext:
     _timings: Dict[str, Dict[str, float]] = field(init=False, default_factory=dict, repr=False)
     _timing_lock: threading.Lock = field(init=False, default_factory=threading.Lock, repr=False)
     started: float = field(default_factory=time.time)
+    _started_monotonic: float = field(default_factory=time.perf_counter, init=False, repr=False)
 
     def __post_init__(self):
         # On Windows the CUDA runtimes bundled by PyTorch and CuPy must be
@@ -73,9 +86,75 @@ class RunContext:
             self._frame_pool=ThreadPoolExecutor(max_workers=2,
                                                  thread_name_prefix="frame-encode")
         self.write_meta({"status":"starting","demo":self.demo,"profile":self.profile,"frames":self.frames,"params":self.params,"backend":self.backend_name,"backend_requested":self.backend_requested,"method":self.method,"created":self.started,
-                         "resources":{"cpu_workers":self.cpu_workers,
-                                      "slurm_job_id":os.getenv("SLURM_JOB_ID"),
-                                      "slurm_partition":os.getenv("SLURM_JOB_PARTITION")}})
+                         "resources":self.resource_metadata()})
+
+    def _cuda_devices(self):
+        """Best-effort CUDA provenance; never make a completed run fail on it."""
+        try:
+            import cupy as cp
+            devices=[]
+            for index in range(int(cp.cuda.runtime.getDeviceCount())):
+                properties=cp.cuda.runtime.getDeviceProperties(index)
+                device={"visible_index":index,
+                        "name":_decode_device_name(properties.get("name","unknown"))}
+                for source,target in (("totalGlobalMem","memory_total_bytes"),
+                                      ("major","compute_capability_major"),
+                                      ("minor","compute_capability_minor")):
+                    if properties.get(source) is not None:
+                        device[target]=int(properties[source])
+                devices.append(device)
+            return {"api":"cupy","cuda_runtime_version":int(cp.cuda.runtime.runtimeGetVersion()),
+                    "cuda_driver_version":int(cp.cuda.runtime.driverGetVersion()),
+                    "visible_devices":devices,
+                    "cuda_visible_devices":_environment_value("CUDA_VISIBLE_DEVICES")}
+        except Exception as exc:
+            return {"api":"cuda","probe_error":f"{type(exc).__name__}: {exc}",
+                    "cuda_visible_devices":_environment_value("CUDA_VISIBLE_DEVICES")}
+
+    def _torch_devices(self):
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                return None
+            return {"api":"torch","cuda_runtime_version":torch.version.cuda,
+                    "visible_devices":[{"visible_index":index,
+                                        "name":torch.cuda.get_device_name(index)}
+                                       for index in range(torch.cuda.device_count())],
+                    "cuda_visible_devices":_environment_value("CUDA_VISIBLE_DEVICES")}
+        except Exception:
+            return None
+
+    def resource_metadata(self):
+        """Describe the machine actually executing this run, not just its preset."""
+        slurm={
+            "job_id":_environment_value("SLURM_JOB_ID"),
+            "job_name":_environment_value("SLURM_JOB_NAME"),
+            "account":_environment_value("SLURM_JOB_ACCOUNT"),
+            "partition":_environment_value("SLURM_JOB_PARTITION"),
+            "node_list":_environment_value("SLURM_JOB_NODELIST"),
+            "cpus_per_task":_environment_value("SLURM_CPUS_PER_TASK"),
+            "tasks":_environment_value("SLURM_NTASKS"),
+            "gpus_on_node":_environment_value("SLURM_GPUS_ON_NODE"),
+        }
+        result={"host":socket.gethostname(),"architecture":platform.machine(),
+                "cpu_workers":self.cpu_workers,"host_cpu_count":os.cpu_count(),
+                "slurm":{key:value for key,value in slurm.items() if value is not None}}
+        # Keep the two legacy top-level fields so older dashboard consumers do
+        # not need to know about the nested scheduler record.
+        result["slurm_job_id"]=slurm["job_id"]
+        result["slurm_partition"]=slurm["partition"]
+        if self.backend_kind == "torch":
+            gpu=self._torch_devices()
+        elif self.xp is not np:
+            gpu=self._cuda_devices()
+        else:
+            gpu=None
+        if gpu is not None:
+            result["gpu"]=gpu
+        return result
+
+    def elapsed_seconds(self) -> float:
+        return max(0.0,time.perf_counter()-self._started_monotonic)
 
     def write_meta(self, update):
         p=self.run_dir/'meta.json'
@@ -186,7 +265,7 @@ class RunContext:
     def write_status(self, frame, message="", overlay=None):
         """Publish live status and optional per-frame HTML-overlay values."""
         update={"status":"running","frame":frame,"message":message,
-                "elapsed":time.time()-self.started}
+                "elapsed":self.elapsed_seconds()}
         if overlay is not None:
             clean={str(k):str(v) for k,v in dict(overlay).items()}
             update["overlay"]=clean
@@ -198,14 +277,21 @@ class RunContext:
     def finish(self, reveal=None):
         self.flush_frames()
         self.shutdown_compute()
-        self.write_meta({"status":"complete","frame":self.frames-1,"elapsed":time.time()-self.started,"reveal":str(reveal.name) if reveal else None,
+        elapsed=self.elapsed_seconds()
+        self.write_meta({"status":"complete","frame":self.frames-1,"elapsed":elapsed,
+                         "duration_seconds":elapsed,"finished":time.time(),
+                         "resources":self.resource_metadata(),
+                         "reveal":str(reveal.name) if reveal else None,
                          "timings":self.timing_summary()})
     def fail(self, exc):
         try: self.flush_frames()
         except Exception: pass
         try: self.shutdown_compute()
         except Exception: pass
-        self.write_meta({"status":"failed","error":str(exc),"traceback":traceback.format_exc()})
+        elapsed=self.elapsed_seconds()
+        self.write_meta({"status":"failed","error":str(exc),"traceback":traceback.format_exc(),
+                         "elapsed":elapsed,"duration_seconds":elapsed,"finished":time.time(),
+                         "resources":self.resource_metadata()})
 
 class Demo:
     id="base"
