@@ -212,6 +212,10 @@ function runLabel(r){
   let d=new Date((r.created||0)*1000);
   return isNaN(d)?r.id:d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
 }
+function resourceLabel(r){
+  let resources=r.resources||{},gpu=resources.gpu?.visible_devices?.[0]?.name;
+  return [resources.host,gpu].filter(Boolean).join(' · ');
+}
 function renderLibrary(){
   let el=$('#libList');if(!el)return;el.innerHTML='';
   if(!library.length){$('#libMore').classList.add('hidden');el.innerHTML='<p style="color:#7d93b6;font-size:14px">No saved runs yet. Run a simulation and it will appear here.</p>';return;}
@@ -255,7 +259,8 @@ function openRun(r){
   $('#frameSeek').max=Math.max(0,r.frames-1);
   $('#status').textContent='REPLAY';$('#status').style.color='#ffc46b';
   $('#metric2').textContent=`elapsed ${(r.elapsed||0).toFixed(1)} s`;
-  $('#metric3').textContent=`backend ${r.backend||'—'}`;
+  let machine=resourceLabel(r);
+  $('#metric3').textContent=`backend ${r.backend||'—'}${machine?` · ${machine}`:''}`;
   if(r.profile&&[...$('#profile').options].some(option=>option.value===r.profile))$('#profile').value=r.profile;
   renderProfileSettings(r.settings||null);
   configureParallelControl(r.params?._parallel_count);

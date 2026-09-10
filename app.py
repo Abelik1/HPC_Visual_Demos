@@ -101,6 +101,7 @@ def list_runs(demo:str|None=None,limit:int=120):
             'params':meta.get('params',{}),
             'settings':meta.get('settings',{}),
             'settings_override':meta.get('settings_override',{}),
+            'resources':meta.get('resources',{}),
             'frames':len(frames),
             'elapsed':meta.get('elapsed'),
             'created':meta.get('created') or d.stat().st_mtime,

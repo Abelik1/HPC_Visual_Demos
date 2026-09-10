@@ -31,5 +31,22 @@ if (-not (Test-Path -LiteralPath (Join-Path $localRun 'meta.json'))) {
     throw "Transfer finished but $localRun does not contain meta.json."
 }
 
+$meta = Get-Content -Raw (Join-Path $localRun 'meta.json') | ConvertFrom-Json
+$expectedFrames = [int]$meta.frames
+$savedFrames = @(Get-ChildItem -LiteralPath (Join-Path $localRun 'frames') -Filter 'frame_*.jpg').Count
+if ($meta.status -eq 'complete' -and $savedFrames -ne $expectedFrames) {
+    throw "Transfer is incomplete: expected $expectedFrames JPEG frames but found $savedFrames in $localRun."
+}
+
+$interactive = $meta.galaxy3d_view
+if ($interactive -and $interactive.folder) {
+    $interactiveDir = Join-Path $localRun $interactive.folder
+    $savedStates = @(Get-ChildItem -LiteralPath $interactiveDir -Filter 'frame_*.json' -ErrorAction SilentlyContinue |
+        Where-Object Length -gt 0).Count
+    if ($meta.status -eq 'complete' -and $savedStates -ne $expectedFrames) {
+        throw "Transfer is incomplete: expected $expectedFrames interactive states but found $savedStates in $interactiveDir."
+    }
+}
+
 Write-Host "Saved Discoverer run to $localRun"
 Write-Host 'Start the local dashboard with: python app.py'
