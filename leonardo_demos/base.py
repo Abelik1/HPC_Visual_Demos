@@ -6,7 +6,7 @@ from contextlib import contextmanager
 import io, json, math, os, platform, socket, threading, time, traceback
 from typing import Any, Callable, Dict
 import numpy as np
-from .backend import choose_backend
+from .backend import choose_backend, resolve_precision
 
 
 def _cpu_worker_count() -> int:
@@ -46,6 +46,7 @@ class RunContext:
     backend_kind: str = "array"
     method: str = "default"
     timings_enabled: bool = False
+    precision: str = "fp32"
     xp: Any = field(init=False, repr=False)
     backend_name: str = field(init=False)
     cpu_workers: int = field(init=False)
@@ -54,6 +55,7 @@ class RunContext:
     _compute_pool: ThreadPoolExecutor | None = field(init=False, default=None, repr=False)
     _timings: Dict[str, Dict[str, float]] = field(init=False, default_factory=dict, repr=False)
     _timing_lock: threading.Lock = field(init=False, default_factory=threading.Lock, repr=False)
+    _meta_lock: threading.RLock = field(init=False, default_factory=threading.RLock, repr=False)
     started: float = field(default_factory=time.time)
     _started_monotonic: float = field(default_factory=time.perf_counter, init=False, repr=False)
 
@@ -79,6 +81,8 @@ class RunContext:
         else:
             self.xp,self.backend_name=choose_backend(self.backend_requested)
         self.cpu_workers=_cpu_worker_count()
+        self.precision,self.precision_spec=resolve_precision(self.precision)
+        self._kernels={}
         if self.backend_requested.lower() in {"hybrid", "cpu+gpu", "cpu_gpu"}:
             # GPU simulation and Pillow's JPEG encoder use different hardware.
             # Keep the queue short so the CPU overlaps the next CUDA update
@@ -86,7 +90,21 @@ class RunContext:
             self._frame_pool=ThreadPoolExecutor(max_workers=2,
                                                  thread_name_prefix="frame-encode")
         self.write_meta({"status":"starting","demo":self.demo,"profile":self.profile,"frames":self.frames,"params":self.params,"backend":self.backend_name,"backend_requested":self.backend_requested,"method":self.method,"created":self.started,
+                         "precision":self.precision,
                          "resources":self.resource_metadata()})
+
+    @property
+    def state_dtype(self):
+        return self.precision_spec["state"]
+
+    @property
+    def on_gpu(self) -> bool:
+        return self.xp is not np
+
+    def record_kernel(self, name: str, info: Dict[str, Any]):
+        """Record the CUDA launch configuration a solver actually used."""
+        self._kernels[name]=info
+        self.write_meta({"kernels":dict(self._kernels)})
 
     def _cuda_devices(self):
         """Best-effort CUDA provenance; never make a completed run fail on it."""
@@ -157,13 +175,17 @@ class RunContext:
         return max(0.0,time.perf_counter()-self._started_monotonic)
 
     def write_meta(self, update):
-        p=self.run_dir/'meta.json'
-        base={}
-        if p.exists():
-            try: base=json.loads(p.read_text())
-            except Exception: pass
-        base.update(update)
-        p.write_text(json.dumps(base,indent=2))
+        # Solvers that render on a worker thread write status concurrently
+        # with the main thread's kernel records; serialise the
+        # read-modify-write so neither update is lost.
+        with self._meta_lock:
+            p=self.run_dir/'meta.json'
+            base={}
+            if p.exists():
+                try: base=json.loads(p.read_text())
+                except Exception: pass
+            base.update(update)
+            p.write_text(json.dumps(base,indent=2))
 
     def frame_path(self,i): return self.run_dir/'frames'/f'frame_{i:04d}.jpg'
     def set_backend_name(self, name: str):
@@ -300,9 +322,16 @@ class Demo:
     supported_backends=("cpu","gpu","hybrid")
     default_method="default"
     methods=("default",)
+    # Precisions a solver genuinely implements; others are rejected up front
+    # rather than silently run in FP32.
+    precisions=("fp32",)
     method_labels={"default":"Default solver"}
     method_descriptions={"default":"The demo's standard numerical method."}
     timing_methods={}
+    # Timed methods that do no GPU work.  Their timers must not synchronise
+    # the device, or a CPU renderer running beside the solver would wait for
+    # the next GPU step and lose the overlap.
+    cpu_only_methods=frozenset()
     def __init__(self, ctx, settings):
         self.ctx=ctx; self.settings=dict(settings)
         # The exhibition viewer can choose the actual width of an ensemble
@@ -322,8 +351,9 @@ class Demo:
             original=getattr(self,name,None)
             if not callable(original):
                 continue
-            def measured(*args,_original=original,_stage=stage_name,**kwargs):
-                with self.ctx.stage(_stage):
+            synchronize=name not in self.cpu_only_methods
+            def measured(*args,_original=original,_stage=stage_name,_sync=synchronize,**kwargs):
+                with self.ctx.stage(_stage,synchronize=_sync):
                     return _original(*args,**kwargs)
             setattr(self,name,measured)
     def run(self): raise NotImplementedError

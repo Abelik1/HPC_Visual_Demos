@@ -2,12 +2,17 @@ from __future__ import annotations
 import argparse, json, time, webbrowser
 from numbers import Integral, Real
 from pathlib import Path
+from leonardo_demos.backend import PRECISIONS, resolve_precision
 from leonardo_demos.base import RunContext
 from leonardo_demos.registry import DEMOS
 
 ROOT=Path(__file__).resolve().parent
 
 def load_profiles(): return json.loads((ROOT/'config/profiles.json').read_text())
+# The supercomputer-scale preset was called "leonardo" before it became "hpc".
+# Saved runs and older job scripts still carry the old name, so keep accepting it.
+PROFILE_ALIASES={'leonardo':'hpc'}
+def canonical_profile(name): return PROFILE_ALIASES.get(name,name)
 def load_specs(): return json.loads((ROOT/'config/demo_specs.json').read_text())
 
 def profile_setting_schema(profiles=None):
@@ -34,7 +39,7 @@ def profile_setting_schema(profiles=None):
             low=min(values); high=max(values)
             # Do not make the named presets the bounds. They are starting
             # points: visitors can deliberately run below benchmark or above
-            # Leonardo. The finite profile-derived envelope still catches an
+            # HPC. The finite profile-derived envelope still catches an
             # accidental extra zero before an O(N²) or high-resolution job is
             # launched.
             if integer:
@@ -65,8 +70,9 @@ def _normalise_backend(value):
     return value
 
 def run(demo,profile='local',frames=80,params=None,backend='auto',run_dir=None,
-        method='default',timings=False,numerical_substeps=None,settings_override=None):
-    profiles=load_profiles(); specs=load_specs()
+        method='default',timings=False,numerical_substeps=None,settings_override=None,
+        precision='fp32'):
+    profiles=load_profiles(); specs=load_specs(); profile=canonical_profile(profile)
     if demo not in DEMOS: raise SystemExit(f"Unknown demo {demo}. Choices: {', '.join(DEMOS)}")
     if profile not in profiles: raise SystemExit(f"Unknown profile {profile}")
     frames=int(frames)
@@ -84,6 +90,10 @@ def run(demo,profile='local',frames=80,params=None,backend='auto',run_dir=None,
         method=demo_class.default_method
     if method not in demo_class.methods:
         raise ValueError(f"{demo} does not support method {method!r}; choices: {', '.join(demo_class.methods)}")
+    precision,_=resolve_precision(precision)
+    if precision not in demo_class.precisions:
+        raise ValueError(f"{demo} does not implement {precision} precision; "
+                         f"choices: {', '.join(demo_class.precisions)}")
     settings=dict(profiles[profile][demo])
     settings.update(settings_override or {})
     if numerical_substeps is not None:
@@ -91,7 +101,7 @@ def run(demo,profile='local',frames=80,params=None,backend='auto',run_dir=None,
             raise ValueError('numerical substeps are only defined for the collision solvers')
         settings['substeps']=int(numerical_substeps)
     ctx=RunContext(run_dir,demo,profile,frames,defaults,backend,
-                   demo_class.backend_kind,method,timings)
+                   demo_class.backend_kind,method,timings,precision)
     ctx.write_meta({'settings':settings,
                     'settings_override':dict(settings_override or {})})
     if numerical_substeps is not None:
@@ -105,7 +115,7 @@ def run(demo,profile='local',frames=80,params=None,backend='auto',run_dir=None,
 
 if __name__=='__main__':
     ap=argparse.ArgumentParser(description='Generate a visual HPC demo run')
-    ap.add_argument('demo',choices=sorted(DEMOS)); ap.add_argument('--profile',choices=sorted(load_profiles()),default='local'); ap.add_argument('--frames',type=int,default=80); ap.add_argument('--backend',default='auto'); ap.add_argument('--method',default='default'); ap.add_argument('--numerical-substeps',type=int); ap.add_argument('--timings',action='store_true'); ap.add_argument('--param',action='append',default=[],help='scientific key=value, repeatable'); ap.add_argument('--setting',action='append',default=[],help='profile/scale key=value, repeatable'); ap.add_argument('--run-dir'); ap.add_argument('--open',action='store_true')
+    ap.add_argument('demo',choices=sorted(DEMOS)); ap.add_argument('--profile',type=canonical_profile,choices=sorted(load_profiles()),default='local'); ap.add_argument('--frames',type=int,default=80); ap.add_argument('--backend',default='auto'); ap.add_argument('--method',default='default'); ap.add_argument('--precision',choices=sorted(PRECISIONS),default='fp32',help='fp32, mixed (FP64 state/sums, FP32 pair maths; 3-D galaxy only) or fp64'); ap.add_argument('--numerical-substeps',type=int); ap.add_argument('--timings',action='store_true'); ap.add_argument('--param',action='append',default=[],help='scientific key=value, repeatable'); ap.add_argument('--setting',action='append',default=[],help='profile/scale key=value, repeatable'); ap.add_argument('--run-dir'); ap.add_argument('--open',action='store_true')
     a=ap.parse_args(); params={}; settings_override={}
     for kv in a.param:
         k,v=kv.split('=',1)
@@ -118,6 +128,6 @@ if __name__=='__main__':
         except ValueError: pass
         settings_override[k]=v
     rd=run(a.demo,a.profile,a.frames,params,a.backend,a.run_dir,a.method,a.timings,
-           a.numerical_substeps,settings_override)
+           a.numerical_substeps,settings_override,a.precision)
     if a.open:
         webbrowser.open(f'file://{(rd/"frames"/"frame_0000.jpg").resolve()}')

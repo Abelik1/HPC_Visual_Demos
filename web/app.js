@@ -98,7 +98,7 @@ function renderProfileSettings(values=null){
 }
 function updateProfileEditorSummary(){
   const changed=document.querySelectorAll('#profileSettings .profileSetting.changed').length;
-  $('#profileEditorSummary').textContent=changed?`${changed} custom value${changed===1?'':'s'}`:`Editable ${$('#profile').value} preset`;
+  $('#profileEditorSummary').textContent=changed?`${changed} custom value${changed===1?'':'s'}`:`Editable ${$('#profile').selectedOptions[0]?.textContent||$('#profile').value} preset`;
 }
 function collectProfileSettings(){
   const result={},schema=specs?.profile_setting_schema?.[current]||{};
@@ -227,7 +227,7 @@ function renderLibrary(){
     let gpu=/cupy|cuda/i.test(r.backend||'');
     card.innerHTML=`<a class="runLink" href="/?run=${encodeURIComponent(r.id)}"><img loading="lazy" src="${escapeHtml(r.thumb)}" alt="">
       <div class=runMeta><b>${escapeHtml(name)}</b><span>${runLabel(r)} · ${r.frames} frames</span>
-      <div class=runTags><i>${r.profile||'?'}</i><i class="${gpu?'gpu':''}">${r.backend||'?'}</i>${r.method?`<i>${r.method.replaceAll('_',' ')}</i>`:''}${r.zoom?'<i>zoom</i>':''}</div></div></a>`;
+      <div class=runTags><i>${r.profile==='hpc'?'HPC':r.profile||'?'}</i><i class="${gpu?'gpu':''}">${r.backend||'?'}</i>${r.method?`<i>${r.method.replaceAll('_',' ')}</i>`:''}${r.zoom?'<i>zoom</i>':''}</div></div></a>`;
     card.querySelector('a').onclick=event=>{if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();openRun(r);};
     el.appendChild(card);
   });

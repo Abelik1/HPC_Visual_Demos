@@ -14,6 +14,10 @@ This file applies to every solver in this directory. Read the matching
   accidentally by the requested frame count.
 - Make CPU, GPU, and hybrid results scientifically equivalent. Never label a
   fallback as GPU or training when it is not.
+- List only precisions a solver genuinely implements in `precisions`; derive
+  array dtypes from `ctx.state_dtype`. Hand-written CUDA kernels need a test
+  against the NumPy path in FP64 and must pick launch shapes through
+  `leonardo_demos/tuning.py`, never a single card's hard-coded optimum.
 - Treat reveals as real independent simulations or parameter sweeps. Honour
   `_parallel_count` when the demo supports a reveal ensemble.
 - Update `config/demo_specs.json`, every relevant profile, viewer explanations,

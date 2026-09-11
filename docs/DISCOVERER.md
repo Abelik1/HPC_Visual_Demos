@@ -134,7 +134,13 @@ sbatch --export=ALL,PARTICLES=100000,FRAMES=500 \
   scripts/run_discoverer_galaxy3d.sbatch
 ```
 
-The production launcher uses the `leonardo` numerical profile only as a high-fidelity parameter preset, then overrides it to 100,000 particles and six substeps. It records detailed timings in `meta.json` and writes each run to:
+Add `PRECISION=mixed` or `PRECISION=fp64` to the `--export` list to change the
+arithmetic (default `fp32`). The B200 runs FP64 at roughly half its FP32 rate,
+so `fp64` costs about 2x on Discoverer rather than the 30-60x it costs on a
+consumer GPU; see `docs/PERFORMANCE.md`. Kernel launch shapes are autotuned on
+the first run and cached in `$TEAM/cupy-cache/kernel_tuning.json`.
+
+The production launcher uses the `hpc` numerical profile only as a high-fidelity parameter preset, then overrides it to 100,000 particles and six substeps. It records detailed timings in `meta.json` and writes each run to:
 
 ```text
 /weka/ehpc-school-2026/abelik/runs/galaxy_collision_3d_JOBID

@@ -41,7 +41,7 @@ about 5.8 s. Its timings now expose `ensemble` and `deep_zoom` separately.
 
 Most tiny CuPy cases are slower than NumPy because process import, CUDA context
 creation, and thousands of small stencil launches dominate. This is why the
-report shows measured workload dimensions and why the `leonardo` profile must
+report shows measured workload dimensions and why the `hpc` profile must
 be benchmarked on an allocated A100 before event claims are made. Black-hole
 lensing already shows the expected kernel benefit in the small profile: about
 0.54 s CPU versus 0.13–0.14 s CUDA for its measured lens stage.
@@ -70,7 +70,7 @@ python tools/merge_benchmarks.py CPU_RESULTS.json GPU_RESULTS.json
 ```
 
 Use the same `BENCH_PROFILE` and `BENCH_FRAMES` for both jobs. Start with the
-fixed benchmark profile, then run the Leonardo profile only after confirming
+fixed benchmark profile, then run the HPC profile only after confirming
 the project allocation and increasing the two-hour template limit if needed.
 
 The authoritative machine, scheduler, filesystem, and container assumptions

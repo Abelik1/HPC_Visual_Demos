@@ -204,7 +204,7 @@
       "sweep_steps": 650
     }
   },
-  "leonardo": {
+  "hpc": {
     "black_hole": {
       "width": 2560,
       "height": 1440,

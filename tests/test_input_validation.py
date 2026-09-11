@@ -29,6 +29,14 @@ class InputValidationTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             start('crystal',RunReq(backend='gpu'))
 
+    def test_api_rejects_a_precision_the_solver_does_not_implement(self):
+        with self.assertRaises(HTTPException):
+            start('fluid',RunReq(precision='mixed'))
+        with self.assertRaises(HTTPException):
+            start('reaction_diffusion',RunReq(precision='fp64'))
+        self.assertEqual(specs()['capabilities']['galaxy_collision_3d']['precisions'],
+                         ['fp32','mixed','fp64'])
+
     def test_api_rejects_unknown_and_out_of_range_parameters(self):
         with self.assertRaises(HTTPException):
             start('reaction_diffusion', RunReq(params={'unexpected': 1}))
@@ -124,6 +132,41 @@ class InputValidationTests(unittest.TestCase):
             context=RunContext(Path(directory),'neural_wall','local',2,{'target':0,'difficulty':1.0},'numpy')
             NeuralWallDemo(context,{'networks':4,'tile':10,'total_steps':4}).run()
             self.assertTrue((Path(directory)/'frames'/'frame_0000.jpg').exists())
+
+    def test_fourier_features_sharpen_a_high_frequency_target(self):
+        torch=__import__('torch')
+        from leonardo_demos.demos.neural_wall import TorchWall
+        y,x=np.mgrid[0:24,0:20]
+        target=np.repeat(((x//2+y//2)%2).astype(np.float32)[...,None],3,-1)  # fine checkerboard, non-square
+        errors={}
+        for fourier in (False,True):
+            torch.manual_seed(0)
+            wall=TorchWall(torch,4,24,target,device='cpu',fourier=fourier)
+            outs,losses,_=wall(300)
+            self.assertEqual(outs[0].shape,(24,20,3))
+            self.assertEqual(wall.visual_state(0)['w1'].shape[0],2)  # diagram still has x,y inputs
+            errors[fourier]=float(losses.min())
+        self.assertLess(errors[True],errors[False]*.5)
+
+    def test_non_square_photo_is_centre_cropped_not_squashed(self):
+        image=Image.new('RGB',(60,20),(255,0,0))              # red side bands
+        image.paste((0,0,255),(20,0,40,20))                     # blue centre square
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'wide.png'; image.save(path)
+            target=NeuralWallDemo(None,{}).drawn_target(10,path)
+        # Squashing would keep the red bands at full strength; the crop leaves
+        # only a trace from the resampling filter at the cut edge.
+        self.assertLess(float(target[...,0].max()),.2)
+        self.assertGreater(float(target[...,2].min()),.8)
+
+    def test_hpc_preset_replaces_leonardo_and_old_name_still_works(self):
+        from run_demo import canonical_profile, load_profiles
+        self.assertIn('hpc',load_profiles())
+        self.assertNotIn('leonardo',load_profiles())
+        self.assertEqual(canonical_profile('leonardo'),'hpc')
+        with patch('app.threading.Thread') as thread:
+            start('neural_wall',RunReq(profile='leonardo'))
+        thread.return_value.start.assert_called_once()
 
 
 if __name__ == '__main__':

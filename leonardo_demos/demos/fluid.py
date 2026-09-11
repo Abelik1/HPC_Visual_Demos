@@ -2,17 +2,80 @@ from __future__ import annotations
 import math
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
+from .. import tuning
 from ..base import Demo
 from ..backend import to_numpy
 from ..render import add_title, add_progress, save_frame, font
 from ..colors import palette
 
 W,H=1280,720
+LBM_TAU=.57
+
+# One fused D2Q9 update per lattice step: pull-stream (with periodic wrap) and
+# full-way bounce-back at solid cells, then BGK collision with the inlet
+# velocity imposed on column 0, writing post-collision populations.  This is
+# the NumPy path's collide -> roll -> bounce-back sequence reordered so that
+# each population is read once and written once per step, instead of the ~60
+# full-lattice array passes the array-expression version needs.
+LBM_KERNEL=r'''
+typedef REAL_T real;
+
+extern "C" __global__ void __launch_bounds__(BX * BY)
+lbm_fused(const real* __restrict__ src, real* __restrict__ dst,
+          const unsigned char* __restrict__ solid, const int nx, const int ny,
+          const real u0, const real omega, const int stream, const int write_macro,
+          real* __restrict__ rho_out, real* __restrict__ ux_out, real* __restrict__ uy_out)
+{
+    const int CX[9] = {0, 1, 0, -1, 0, 1, -1, -1, 1};
+    const int CY[9] = {0, 0, 1, 0, -1, 1, 1, -1, -1};
+    const int OPP[9] = {0, 3, 4, 1, 2, 7, 8, 5, 6};
+    const real W[9] = {(real)4/9, (real)1/9, (real)1/9, (real)1/9, (real)1/9,
+                       (real)1/36, (real)1/36, (real)1/36, (real)1/36};
+    const int x = blockIdx.x * BX + threadIdx.x;
+    const int y = blockIdx.y * BY + threadIdx.y;
+    if (x >= nx || y >= ny) return;
+    const size_t plane = (size_t)nx * ny;
+    const size_t cell = (size_t)y * nx + x;
+    const bool wall = solid[cell] != 0;
+    real f[9];
+#pragma unroll
+    for (int q = 0; q < 9; ++q) {
+        if (!stream) { f[q] = src[q * plane + cell]; continue; }
+        /* streamed value g_q(x) = f*_q(x - c_q); a solid cell swaps
+           directions, g_opp(q)(x) = f*_opp(q)(x + c_q). */
+        const int qs = wall ? OPP[q] : q;
+        int xs = wall ? x + CX[q] : x - CX[q];
+        int ys = wall ? y + CY[q] : y - CY[q];
+        xs += (xs < 0) ? nx : ((xs >= nx) ? -nx : 0);
+        ys += (ys < 0) ? ny : ((ys >= ny) ? -ny : 0);
+        f[q] = src[qs * plane + (size_t)ys * nx + xs];
+    }
+    real rho = 0, mx = 0, my = 0;
+#pragma unroll
+    for (int q = 0; q < 9; ++q) { rho += f[q]; mx += CX[q] * f[q]; my += CY[q] * f[q]; }
+    real ux = mx / (rho + (real)1e-8), uy = my / (rho + (real)1e-8);
+    if (write_macro) {
+        rho_out[cell] = rho;
+        ux_out[cell] = wall ? (real)0 : ux;
+        uy_out[cell] = wall ? (real)0 : uy;
+    }
+    if (x == 0) { ux = u0; uy = 0; }
+    const real usq = ux * ux + uy * uy;
+#pragma unroll
+    for (int q = 0; q < 9; ++q) {
+        const real cu = 3 * (CX[q] * ux + CY[q] * uy);
+        const real feq = W[q] * rho * (1 + cu + (real)0.5 * cu * cu - (real)1.5 * usq);
+        dst[q * plane + cell] = f[q] + omega * (feq - f[q]);
+    }
+}
+'''
 
 
 class FluidDemo(Demo):
     timing_methods={"init":"initialization","step":"simulation","advect":"visualization","render":"render"}
+    precisions=("fp32","fp64")
     id="fluid"; title="Virtual wind tunnel"
+    _lbm_kernels={}
     def build_obstacles(self,nx,ny,preset,custom_grid=None):
         """Build the actual LBM solid mask used by both solver and renderer."""
         yy,xx=np.mgrid[0:ny,0:nx]
@@ -43,17 +106,24 @@ class FluidDemo(Demo):
         return mask
 
     def init(self,nx,ny,u0,preset=0,custom_grid=None):
-        xp=self.ctx.xp
+        """Build the initial lattice.
+
+        On the NumPy path ``f`` holds the pre-collision populations.  On CUDA
+        it holds the post-collision populations instead, because the fused
+        kernel's natural state is "collided, not yet streamed"; ``step``
+        returns identical macroscopic fields either way.
+        """
+        xp=self.ctx.xp; dtype=self.ctx.state_dtype
         # D2Q9 LBM
         c=xp.asarray([[0,0],[1,0],[0,1],[-1,0],[0,-1],[1,1],[-1,1],[-1,-1],[1,-1]],dtype=xp.int32)
-        w=xp.asarray([4/9,1/9,1/9,1/9,1/9,1/36,1/36,1/36,1/36],dtype=xp.float32)
-        rho=xp.ones((ny,nx),dtype=xp.float32); ux=xp.full((ny,nx),u0,dtype=xp.float32); uy=xp.zeros((ny,nx),dtype=xp.float32)
-        f=xp.empty((9,ny,nx),dtype=xp.float32)
+        w=xp.asarray([4/9,1/9,1/9,1/9,1/9,1/36,1/36,1/36,1/36],dtype=dtype)
+        rho=xp.ones((ny,nx),dtype=dtype); ux=xp.full((ny,nx),u0,dtype=dtype); uy=xp.zeros((ny,nx),dtype=dtype)
+        f=xp.empty((9,ny,nx),dtype=dtype)
         # A little transverse noise seeds the wake instability. A perfectly
         # uniform inlet leaves the flow symmetric, so the twin standing eddies
         # never break down into an alternating street.
         rng=np.random.default_rng(5)
-        uy=uy+xp.asarray(rng.normal(0,u0*.05,(ny,nx)).astype(np.float32))
+        uy=uy+xp.asarray(rng.normal(0,u0*.05,(ny,nx)).astype(np.float32),dtype=dtype)
         usq=ux*ux+uy*uy
         for q in range(9):
             cu=3*(c[q,0]*ux+c[q,1]*uy); f[q]=w[q]*rho*(1+cu+.5*cu*cu-1.5*usq)
@@ -61,9 +131,67 @@ class FluidDemo(Demo):
         # point. Without it the wake stays perfectly symmetric for a very long
         # time and the von Karman street never appears.
         mask=xp.asarray(self.build_obstacles(nx,ny,preset,custom_grid))
+        if xp is not np:
+            f=self._gpu_collide_initial(f,mask,u0)
         return f,c,w,mask
+
+    # ---- fused CUDA lattice update ------------------------------------------
+    def _lbm_kernel(self,bx,by):
+        key=(self.ctx.precision,int(bx),int(by))
+        kernel=self._lbm_kernels.get(key)
+        if kernel is None:
+            real="double" if self.ctx.state_dtype==np.float64 else "float"
+            source=(LBM_KERNEL.replace("REAL_T",real)
+                    .replace("BX",str(int(bx))).replace("BY",str(int(by))))
+            kernel=self.ctx.xp.RawKernel(source,"lbm_fused")
+            self._lbm_kernels[key]=kernel
+        return kernel
+
+    def _gpu_launch(self,src,dst,u0,stream,macro,config):
+        xp=self.ctx.xp; real=self.ctx.state_dtype
+        _,ny,nx=src.shape
+        bx,by=int(config["bx"]),int(config["by"])
+        rho,ux,uy=macro if macro is not None else (self._macro_dummy,)*3
+        self._lbm_kernel(bx,by)(((nx+bx-1)//bx,(ny+by-1)//by),(bx,by),
+            (src,dst,self._solid,np.int32(nx),np.int32(ny),real(u0),real(1/LBM_TAU),
+             np.int32(stream),np.int32(macro is not None),rho,ux,uy))
+
+    def _gpu_collide_initial(self,f,mask,u0):
+        xp=self.ctx.xp
+        self._solid=xp.asarray(mask,dtype=xp.uint8)
+        self._macro_dummy=xp.empty(1,dtype=self.ctx.state_dtype)
+        _,ny,nx=f.shape
+        post=xp.empty_like(f); self._spare=xp.empty_like(f)
+        # Tune on the real lattice: the launch is idempotent (dst = F(src)).
+        candidates=[{"bx":bx,"by":by} for bx,by in
+                    ((32,2),(32,4),(32,8),(32,16),(64,2),(64,4),(64,8),(128,1),(128,2),(128,4),(256,1),(256,2))]
+        config,report=tuning.select(
+            xp,"fluid_lbm_d2q9",f"{self.ctx.precision}|{nx}x{ny}",candidates,
+            lambda cfg:self._gpu_launch(f,self._spare,u0,1,None,cfg),default={"bx":128,"by":2})
+        self._lbm_config=config
+        self.ctx.record_kernel("fluid_lbm_d2q9",{**report,"precision":self.ctx.precision,
+                                                 "lattice":f"{nx}x{ny}"})
+        # Collide the initial state in place of streaming (stream=0).
+        self._gpu_launch(f,post,u0,0,None,config)
+        return post
+
+    def _gpu_step(self,f,mask,u0,steps):
+        xp=self.ctx.xp
+        _,ny,nx=f.shape
+        dtype=self.ctx.state_dtype
+        rho=xp.empty((ny,nx),dtype=dtype); ux=xp.empty_like(rho); uy=xp.empty_like(rho)
+        src,dst=f,self._spare
+        for k in range(steps):
+            self._gpu_launch(src,dst,u0,1,(rho,ux,uy) if k==steps-1 else None,self._lbm_config)
+            src,dst=dst,src
+        self._spare=dst
+        vort=xp.roll(uy,-1,1)-xp.roll(uy,1,1) - (xp.roll(ux,-1,0)-xp.roll(ux,1,0))
+        return src,ux,uy,vort,rho
+
     def step(self,f,c,w,mask,u0,steps):
-        xp=self.ctx.xp; tau=.57; omega=1/tau
+        if self.ctx.xp is not np:
+            return self._gpu_step(f,mask,u0,steps)
+        xp=self.ctx.xp; tau=LBM_TAU; omega=1/tau
         opposite=[0,3,4,1,2,7,8,5,6]
         for _ in range(steps):
             rho=xp.sum(f,axis=0); ux=xp.sum(f*c[:,0,None,None],axis=0)/(rho+1e-8); uy=xp.sum(f*c[:,1,None,None],axis=0)/(rho+1e-8)
@@ -225,7 +353,8 @@ class FluidDemo(Demo):
                 "inlet speed":f"{speed:.4f}","Reynolds number":f"{re:,.0f}","grid":f"{nx} × {ny}",
                 "obstacle preset":("single cylinder","twin cylinders","mixed bodies")[preset],
                 "custom blocks":f"{int(np.asarray(custom).sum()) if custom else 0}",
-                "front pressure":f"{front:+.5f}","wake pressure":f"{back:+.5f}","lattice step":f"{done:,} / {total:,}"})
+                "front pressure":f"{front:+.5f}","wake pressure":f"{back:+.5f}","lattice step":f"{done:,} / {total:,}",
+                "precision":self.ctx.precision_spec["label"]})
         rev=im.copy(); d=ImageDraw.Draw(rev,'RGBA')
         cols,rows=4,2
         for r in range(rows):

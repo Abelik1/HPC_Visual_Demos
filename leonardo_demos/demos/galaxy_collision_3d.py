@@ -2,18 +2,86 @@ from __future__ import annotations
 
 import json
 import math
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
-from ..backend import to_numpy
+from .. import tuning
+from ..backend import PRECISIONS, to_numpy
 from ..base import Demo
 from ..render import add_progress, add_title
 from .galaxy_collision import G, MW_M31, TIME_UNIT_GYR
 
 
 OBSERVATIONS = Path(__file__).resolve().parents[2] / "data" / "galaxy_observations.npz"
+HYBRID_REQUESTS = {"hybrid", "cpu+gpu", "cpu_gpu"}
+
+# Softened direct-summation gravity.  REAL_T is the pair-arithmetic type and
+# ACC_T the accumulator/output type; BLOCK and EPT (targets per thread) are the
+# tunable launch shape.  Padding records have zero mass, so the inner loop has
+# no bounds test and unrolls cleanly.  The i == j term vanishes because dx = 0.
+NBODY_KERNEL = r'''
+typedef REAL_T real;
+typedef ACC_T acc_t;
+struct __align__(ALIGN) body_t { real x, y, z, m; };
+
+extern "C" __global__ void __launch_bounds__(BLOCK)
+nbody_accel(const body_t* __restrict__ body, acc_t* __restrict__ out,
+            const int n_targets, const int n_sources,
+            const real soft2, const acc_t grav)
+{
+    __shared__ body_t tile[BLOCK];
+    const body_t zero = {0, 0, 0, 0};
+    const int first = blockIdx.x * (BLOCK * EPT) + threadIdx.x;
+    real xi[EPT], yi[EPT], zi[EPT];
+    acc_t ax[EPT], ay[EPT], az[EPT];
+#pragma unroll
+    for (int k = 0; k < EPT; ++k) {
+        const int i = first + k * BLOCK;
+        const body_t b = i < n_targets ? body[i] : zero;
+        xi[k] = b.x; yi[k] = b.y; zi[k] = b.z;
+        ax[k] = 0; ay[k] = 0; az[k] = 0;
+    }
+    for (int start = 0; start < n_sources; start += BLOCK) {
+        const int j = start + threadIdx.x;
+        tile[threadIdx.x] = j < n_sources ? body[j] : zero;
+        __syncthreads();
+        real px[EPT], py[EPT], pz[EPT];
+#pragma unroll
+        for (int k = 0; k < EPT; ++k) { px[k] = 0; py[k] = 0; pz[k] = 0; }
+#pragma unroll 8
+        for (int t = 0; t < BLOCK; ++t) {
+            const body_t s = tile[t];
+#pragma unroll
+            for (int k = 0; k < EPT; ++k) {
+                const real dx = s.x - xi[k], dy = s.y - yi[k], dz = s.z - zi[k];
+                const real r2 = FMA(dx, dx, FMA(dy, dy, FMA(dz, dz, soft2)));
+                const real inv = RSQRT(r2);
+                const real w = s.m * inv * inv * inv;
+                px[k] = FMA(w, dx, px[k]);
+                py[k] = FMA(w, dy, py[k]);
+                pz[k] = FMA(w, dz, pz[k]);
+            }
+        }
+#pragma unroll
+        for (int k = 0; k < EPT; ++k) {
+            ax[k] += (acc_t)px[k]; ay[k] += (acc_t)py[k]; az[k] += (acc_t)pz[k];
+        }
+        __syncthreads();
+    }
+#pragma unroll
+    for (int k = 0; k < EPT; ++k) {
+        const int i = first + k * BLOCK;
+        if (i < n_targets) {
+            out[3 * i] = grav * ax[k];
+            out[3 * i + 1] = grav * ay[k];
+            out[3 * i + 2] = grav * az[k];
+        }
+    }
+}
+'''
 
 
 class GalaxyCollision3DDemo(Demo):
@@ -39,8 +107,13 @@ class GalaxyCollision3DDemo(Demo):
         "murb_kinematic": "The reference repository's ordinary x += v·dt + ½a·dt² update.",
     }
     timing_methods = {"setup": "initialization", "step": "simulation", "render": "render"}
+    cpu_only_methods = frozenset({"render"})
+    precisions = ("fp32", "mixed", "fp64")
 
-    _gpu_kernel = None
+    _gpu_kernels = {}
+    _body = None          # packed (x, y, z, m) device buffer
+    _launch = None        # (body count, tuned launch configuration)
+    _acc_cache = None     # (positions array, softening, acceleration there)
 
     @staticmethod
     def rotation_x(angle):
@@ -196,53 +269,86 @@ class GalaxyCollision3DDemo(Demo):
         catalogue = np.concatenate((mw[4], m31[4]))
         colour = np.concatenate((mw[5], m31[5]))
         xp = self.ctx.xp
-        return (xp.asarray(pos, dtype=xp.float32), xp.asarray(vel, dtype=xp.float32),
-                xp.asarray(mass, dtype=xp.float32), origin, component, catalogue,
+        dtype = self.ctx.state_dtype
+        return (xp.asarray(pos, dtype=dtype), xp.asarray(vel, dtype=dtype),
+                xp.asarray(mass, dtype=dtype), origin, component, catalogue,
                 colour, metadata)
 
     @classmethod
-    def gpu_kernel(cls, xp):
-        if cls._gpu_kernel is None:
-            cls._gpu_kernel = xp.RawKernel(r'''
-            extern "C" __global__
-            void all_pairs(const float* p, const float* m, float* a,
-                           const int n, const float soft2, const float grav) {
-                const int i = blockDim.x * blockIdx.x + threadIdx.x;
-                __shared__ float sx[256], sy[256], sz[256], sm[256];
-                float ix=0, iy=0, iz=0, ax=0, ay=0, az=0;
-                if (i < n) { ix=p[3*i]; iy=p[3*i+1]; iz=p[3*i+2]; }
-                for (int base=0; base<n; base+=blockDim.x) {
-                    const int j=base+threadIdx.x;
-                    if (j<n) { sx[threadIdx.x]=p[3*j]; sy[threadIdx.x]=p[3*j+1];
-                               sz[threadIdx.x]=p[3*j+2]; sm[threadIdx.x]=m[j]; }
-                    else { sx[threadIdx.x]=sy[threadIdx.x]=sz[threadIdx.x]=sm[threadIdx.x]=0; }
-                    __syncthreads();
-                    if (i<n) {
-                        const int remaining=n-base;
-                        const int width=remaining < blockDim.x ? remaining : blockDim.x;
-                        for (int k=0;k<width;k++) {
-                            const float dx=sx[k]-ix, dy=sy[k]-iy, dz=sz[k]-iz;
-                            const float inv=rsqrtf(dx*dx+dy*dy+dz*dz+soft2);
-                            const float f=grav*sm[k]*inv*inv*inv;
-                            ax+=f*dx; ay+=f*dy; az+=f*dz;
-                        }
-                    }
-                    __syncthreads();
-                }
-                if (i<n) { a[3*i]=ax; a[3*i+1]=ay; a[3*i+2]=az; }
-            }''', "all_pairs")
-        return cls._gpu_kernel
+    def gpu_kernel(cls, xp, precision="fp32", block=256, per_thread=1):
+        """Compile (once) the tiled all-pairs kernel for one launch shape.
+
+        Each block stages ``block`` source bodies in shared memory as packed
+        (x, y, z, m) records; each thread accumulates the force on
+        ``per_thread`` target bodies, so every shared-memory read feeds several
+        interactions (register blocking, as in MUrB's EPT kernels).  Sums are
+        formed per tile in the pair precision and then added to the
+        accumulator, which is FP64 in the ``mixed`` and ``fp64`` modes.
+        """
+        key = (precision, int(block), int(per_thread))
+        kernel = cls._gpu_kernels.get(key)
+        if kernel is None:
+            spec = PRECISIONS[precision]
+            real = "double" if spec["compute"] == np.float64 else "float"
+            acc = "double" if spec["accumulate"] == np.float64 else "float"
+            source = (NBODY_KERNEL
+                      .replace("REAL_T", real).replace("ACC_T", acc)
+                      .replace("ALIGN", "32" if real == "double" else "16")
+                      .replace("FMA", "fma" if real == "double" else "fmaf")
+                      .replace("RSQRT", "rsqrt" if real == "double" else "rsqrtf")
+                      .replace("BLOCK", str(int(block))).replace("EPT", str(int(per_thread))))
+            kernel = xp.RawKernel(source, "nbody_accel")
+            cls._gpu_kernels[key] = kernel
+        return kernel
+
+    def _gpu_launch(self, body, out, count, sources, softening, config):
+        xp = self.ctx.xp
+        block, per_thread = int(config["block"]), int(config["per_thread"])
+        spec = self.ctx.precision_spec
+        grid = (count + block * per_thread - 1) // (block * per_thread)
+        self.gpu_kernel(xp, self.ctx.precision, block, per_thread)(
+            (grid,), (block,),
+            (body, out, np.int32(count), np.int32(sources),
+             spec["compute"](softening * softening), spec["accumulate"](G)))
+
+    def _gpu_config(self, body, count, softening):
+        """Choose block size and targets per thread by timing on this GPU."""
+        if self._launch is not None and self._launch[0] == count:
+            return self._launch[1]
+        xp = self.ctx.xp
+        scratch = xp.empty((count, 3), dtype=self.ctx.precision_spec["accumulate"])
+        # Timing a truncated source loop keeps tuning to a second or two even
+        # for 200k FP64 bodies, while the full target grid still exercises the
+        # real occupancy of the device.
+        sources = min(count, 8192)
+        candidates = [{"block": b, "per_thread": e}
+                      for b in (64, 128, 256, 512) for e in (1, 2, 4, 8)]
+        config, report = tuning.select(
+            xp, "galaxy3d_all_pairs", f"{self.ctx.precision}|n{tuning.size_bucket(count)}",
+            candidates, lambda c: self._gpu_launch(body, scratch, count, sources, softening, c),
+            default={"block": 256, "per_thread": 4})
+        self._launch = (count, config)
+        self.ctx.record_kernel("galaxy3d_all_pairs", {**report, "precision": self.ctx.precision,
+                                                      "bodies": count})
+        return config
 
     def acceleration(self, positions, masses, softening):
         xp = self.ctx.xp
         count = len(positions)
-        acceleration = xp.zeros_like(positions)
         if xp is not np:
-            block = 256
-            self.gpu_kernel(xp)(((count + block - 1) // block,), (block,),
-                                (positions, masses, acceleration, np.int32(count),
-                                 np.float32(softening * softening), np.float32(G)))
+            spec = self.ctx.precision_spec
+            if self._body is None or self._body.shape[0] != count:
+                self._body = xp.empty((count, 4), dtype=spec["compute"])
+            # One packed, coalesced (x, y, z, m) record per body.  In mixed
+            # precision this is also where the FP64 state is rounded once to
+            # FP32 for the pair arithmetic.
+            self._body[:, :3] = positions
+            self._body[:, 3] = masses
+            acceleration = xp.empty((count, 3), dtype=spec["accumulate"])
+            config = self._gpu_config(self._body, count, softening)
+            self._gpu_launch(self._body, acceleration, count, count, softening, config)
             return acceleration
+        acceleration = xp.zeros_like(positions)
         tile = max(32, int(self.settings.get("force_tile", 160)))
         soft2 = float(softening) ** 2
         for i0 in range(0, count, tile):
@@ -262,12 +368,22 @@ class GalaxyCollision3DDemo(Demo):
         method = self.ctx.method
         if method in {"default", "leapfrog"}:
             half = .5 * dt
-            acceleration = self.acceleration(positions, masses, softening)
+            # The closing kick of the previous frame already evaluated the
+            # force at exactly these positions (updated in place).  Reusing it
+            # removes one of every substeps+1 all-pairs evaluations without
+            # changing a single bit of the trajectory.
+            # Callers must not edit ``positions`` between frames.
+            cached = self._acc_cache
+            if cached is not None and cached[0] is positions and cached[1] == softening:
+                acceleration = cached[2]
+            else:
+                acceleration = self.acceleration(positions, masses, softening)
             for _ in range(steps):
                 velocities += half * acceleration
                 positions += dt * velocities
                 acceleration = self.acceleration(positions, masses, softening)
                 velocities += half * acceleration
+            self._acc_cache = (positions, softening, acceleration)
             return positions, velocities
         if method == "murb_kinematic":
             half_dt2 = .5 * dt * dt
@@ -378,26 +494,22 @@ class GalaxyCollision3DDemo(Demo):
                                          "complexity": "O(N^2)", "softening_kpc": softening,
                                          "substeps_per_frame": substeps,
                                          "step_myr": dt * TIME_UNIT_GYR * 1000,
+                                         "precision": self.ctx.precision,
                                          "model_status": "illustrative, catalogue-conditioned super-particle model; not a fitted equilibrium Local Group prediction"}})
-        final_image = None
-        for frame in range(self.ctx.frames):
-            # The first saved state is the actual t=0 initial condition. This
-            # makes the catalogue-conditioned disc morphology inspectable
-            # before the collision disrupts it.
-            if frame:
-                positions, velocities = self.step(positions, velocities, masses, dt, substeps, softening)
-            host_positions = to_numpy(positions)
-            host_masses = to_numpy(masses)
+        host_masses = to_numpy(masses)
+        solver = self.method_labels.get(self.ctx.method, self.ctx.method)
+
+        def publish(frame, host_positions):
+            """All CPU-side work for one saved state: JPEG, 3-D JSON, status."""
             c1, c2 = self.centres(host_positions, host_masses, origin)
             separation = float(np.linalg.norm(c2 - c1))
             extent = float(np.clip(.63 * separation + 145.0, 150.0, 640.0))
             time_gyr = frame / intervals * span_gyr
-            final_image = self.render(host_positions, origin, component, extent)
-            solver = self.method_labels.get(self.ctx.method, self.ctx.method)
-            final_image = add_title(final_image, self.title,
-                                    f"illustrative full 3-D all-pairs gravity · {solver} · {count:,} massive super-particles")
-            add_progress(final_image, frame / intervals, "CURRENT LOCAL GROUP", "MERGER")
-            self.ctx.save_frame(final_image, self.ctx.frame_path(frame))
+            image = self.render(host_positions, origin, component, extent)
+            image = add_title(image, self.title,
+                              f"illustrative full 3-D all-pairs gravity · {solver} · {count:,} massive super-particles")
+            add_progress(image, frame / intervals, "CURRENT LOCAL GROUP", "MERGER")
+            self.ctx.save_frame(image, self.ctx.frame_path(frame))
             self.write_interactive(frame, host_positions, origin, component, catalogue,
                                    colour, extent, time_gyr)
             self.ctx.write_status(frame, f"t=+{time_gyr:.2f} Gyr", {
@@ -406,10 +518,41 @@ class GalaxyCollision3DDemo(Demo):
                 "separation": f"{separation:.0f} kpc", "softening": f"{softening:.1f} kpc",
                 "saved-frame interval": f"{span_gyr / intervals * 1000:.1f} Myr",
                 "solver step": f"{dt * TIME_UNIT_GYR * 1000:.2f} Myr × {substeps}",
+                "precision": self.ctx.precision_spec["label"],
                 "catalogues": f"Gaia DR3 {metadata['gaia']['rows']:,} · PHAT v3 {metadata['phat']['rows']:,}",
                 "model status": "illustrative super-particle N-body; not a fitted equilibrium prediction",
                 "compute": self.ctx.backend_name,
             })
+            return image
+
+        # In the hybrid CPU+GPU mode, drawing frame k (CPU) overlaps the
+        # integration of frame k+1 (GPU); otherwise the two alternate.  One
+        # frame in flight keeps the output ordered and memory bounded.
+        renderer = (ThreadPoolExecutor(max_workers=1, thread_name_prefix="galaxy3d-render")
+                    if self.ctx.on_gpu and self.ctx.backend_requested.lower() in HYBRID_REQUESTS
+                    else None)
+        self.ctx.write_meta({"render_pipeline": "overlapped with GPU integration" if renderer
+                             else "sequential"})
+        final_image, pending = None, None
+        try:
+            for frame in range(self.ctx.frames):
+                # The first saved state is the actual t=0 initial condition. This
+                # makes the catalogue-conditioned disc morphology inspectable
+                # before the collision disrupts it.
+                if frame:
+                    positions, velocities = self.step(positions, velocities, masses, dt, substeps, softening)
+                host_positions = to_numpy(positions)
+                if renderer is None:
+                    final_image = publish(frame, host_positions)
+                    continue
+                if pending is not None:
+                    final_image = pending.result()
+                pending = renderer.submit(publish, frame, host_positions)
+            if pending is not None:
+                final_image = pending.result()
+        finally:
+            if renderer is not None:
+                renderer.shutdown(wait=True)
         reveal = self.ctx.run_dir / "reveal.jpg"
         if final_image is not None:
             self.ctx.save_frame(final_image, reveal)

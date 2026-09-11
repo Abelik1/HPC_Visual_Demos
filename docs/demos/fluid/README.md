@@ -23,3 +23,9 @@ with the selected preset; the browser prevents painting inlet/outlet edge cells.
 
 Vortex shedding needs a substantial fixed lattice-step budget. Frame count is
 presentation resolution and must not silently shorten or multiply the physics.
+
+On CUDA each lattice step is one fused kernel (pull streaming, bounce-back,
+BGK collision with the inlet condition), autotuned for block shape; its
+state is the post-collision populations, and it reproduces the NumPy
+collide/roll/bounce-back reference to rounding error. Precision is `fp32` or
+`fp64`; see `docs/PERFORMANCE.md`.

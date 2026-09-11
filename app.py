@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
-from run_demo import run, load_profiles, load_specs, profile_setting_schema
+from run_demo import run, load_profiles, load_specs, profile_setting_schema, canonical_profile
 from leonardo_demos.registry import DEMOS
 from leonardo_demos.backend import probe as probe_backends
 
@@ -29,6 +29,7 @@ class RunReq(BaseModel):
     settings: dict[str, float] = Field(default_factory=dict)
     backend: Literal['auto', 'numpy', 'cpu', 'cupy', 'cuda', 'gpu', 'hybrid'] = 'auto'
     method: str = Field(default='default', min_length=1, max_length=64)
+    precision: Literal['fp32', 'mixed', 'fp64'] = 'fp32'
     numerical_substeps: int | None = Field(default=None, ge=1, le=32)
     target_image: str | None = Field(default=None, max_length=400_000)
     parallel_count: int | None = Field(default=None, ge=1, le=64)
@@ -63,7 +64,8 @@ def specs():
                                   'methods':list(cls.methods),
                                   'default_method':cls.default_method,
                                   'method_labels':dict(cls.method_labels),
-                                  'method_descriptions':dict(cls.method_descriptions)}
+                                  'method_descriptions':dict(cls.method_descriptions),
+                                  'precisions':list(cls.precisions)}
                             for name,cls in DEMOS.items()}}
 
 @app.get('/api/runs')
@@ -94,9 +96,12 @@ def list_runs(demo:str|None=None,limit:int=120):
         out.append({
             'id':d.name,
             'demo':meta.get('demo'),
-            'profile':meta.get('profile'),
+            'profile':canonical_profile(meta.get('profile')),
             'backend':meta.get('backend'),
             'method':meta.get('method'),
+            # Runs recorded before precision selection existed were FP32.
+            'precision':meta.get('precision','fp32'),
+            'kernels':meta.get('kernels',{}),
             'status':meta.get('status'),
             'params':meta.get('params',{}),
             'settings':meta.get('settings',{}),
@@ -124,12 +129,16 @@ def start(demo:str,req:RunReq):
     if requested!='auto' and requested not in DEMOS[demo].supported_backends:
         allowed=', '.join(DEMOS[demo].supported_backends)
         raise HTTPException(422,f'{demo} supports these compute modes: {allowed}')
+    req.profile=canonical_profile(req.profile)
     if req.profile not in load_profiles():
         raise HTTPException(422, 'unknown profile')
     method=DEMOS[demo].default_method if req.method=='default' else req.method
     if method not in DEMOS[demo].methods:
         allowed=', '.join(DEMOS[demo].methods)
         raise HTTPException(422,f'{demo} supports these solvers: {allowed}')
+    if req.precision not in DEMOS[demo].precisions:
+        allowed=', '.join(DEMOS[demo].precisions)
+        raise HTTPException(422,f'{demo} supports these precisions: {allowed}')
     spec_params=load_specs()[demo]['params']
     unknown=set(req.params)-set(spec_params)
     if unknown:
@@ -176,7 +185,7 @@ def start(demo:str,req:RunReq):
     def worker():
         try: run(demo,req.profile,req.frames,params,req.backend,rd,method=method,
                  numerical_substeps=req.numerical_substeps,
-                 settings_override=clean_settings)
+                 settings_override=clean_settings,precision=req.precision)
         except Exception as e: print('run failed',e)
     threading.Thread(target=worker,daemon=True).start(); return {'id':rid}
 

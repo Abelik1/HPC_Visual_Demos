@@ -10,8 +10,13 @@ fi
 
 DEMO=${1:-galaxy_collision}
 FRAMES=${2:-90}
-PROFILE=${3:-leonardo}
+PROFILE=${3:-hpc}
 MODE=${4:-${LEONARDO_MODE:-hybrid}}
+PRECISION=${5:-${PRECISION:-fp32}}
+case "$PRECISION" in
+  fp32|fp64|mixed) ;;
+  *) echo "Precision must be fp32, fp64, or mixed (got: $PRECISION)" >&2; exit 2 ;;
+esac
 : "${LEONARDO_ACCOUNT:?Set LEONARDO_ACCOUNT to the active CINECA project account}"
 if [[ "$LEONARDO_ACCOUNT" == "YOUR_ACTIVE_PROJECT_ACCOUNT" ]]; then
   echo "Replace the placeholder LEONARDO_ACCOUNT in $CONFIG" >&2
@@ -51,5 +56,5 @@ esac
 mkdir -p "$RUNROOT"
 cd "$ROOT"
 sbatch --account="$LEONARDO_ACCOUNT" --qos="$QOS" \
-  --export=ALL,DEMO="$DEMO",FRAMES="$FRAMES",PROFILE="$PROFILE",RUNROOT="$RUNROOT",LEONARDO_DEMO_BACKEND="$BACKEND" \
+  --export=ALL,DEMO="$DEMO",FRAMES="$FRAMES",PROFILE="$PROFILE",RUNROOT="$RUNROOT",LEONARDO_DEMO_BACKEND="$BACKEND",PRECISION="$PRECISION" \
   "$JOB"

@@ -133,7 +133,7 @@ few generations — see `crystal_growth.generate` and its carrier trick.
 ### 10. Costs are a design parameter
 
 Give all three profiles honest numbers. `local` should finish in tens of
-seconds on a laptop CPU; `desktop` assumes CUDA; `leonardo` is a *starting
+seconds on a laptop CPU; `desktop` assumes CUDA; `hpc` is a *starting
 target* to benchmark, not a promise. Measure before you raise a resolution —
 several demos here spend more time rendering than solving.
 

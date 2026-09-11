@@ -25,4 +25,10 @@ not a fitted equilibrium prediction of the Local Group.
 ## Performance
 
 Force work scales quadratically with particle count. CPU calculation is tiled
-and may use assigned workers; CUDA uses the device array implementation.
+and may use assigned workers. CUDA uses a register-blocked, shared-memory
+tiled all-pairs kernel whose block size and targets-per-thread are autotuned
+on the running GPU. The leapfrog reuses each frame's closing force as the next
+frame's opening force. Precision is `fp32`, `mixed` (FP64 state and force
+accumulation around FP32 pair maths) or `fp64`; see `docs/PERFORMANCE.md`.
+`tools/fidelity_run.py` and `tools/fidelity_compare.py` measure energy,
+momentum and trajectory accuracy between runs.

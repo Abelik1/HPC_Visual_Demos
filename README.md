@@ -127,4 +127,12 @@ ARM64 GPU nodes, CUDA 13 user-space environment, storage policy, and Slurm
 allocation differ from Leonardo. Use the [Discoverer runbook](docs/DISCOVERER.md)
 and its GPU smoke test before submitting a production run.
 
+## Precision and GPU kernels
+
+The 3-D galaxy collision, 2-D galaxy collision, and wind tunnel accept
+`--precision fp32|fp64` (plus `mixed` for the 3-D N-body) and use hand-written
+CUDA kernels whose launch shapes are autotuned on the GPU running the job.
+[The performance guide](docs/PERFORMANCE.md) explains the modes, hardware
+trade-offs, benchmark tool, and accuracy-testing tools.
+
 These are public-engagement demonstrators rather than production research solvers. Model assumptions and limitations are documented in [the scientific notes](docs/SCIENTIFIC_NOTES.md), with per-demo detail under [`docs/demos/`](docs/demos/README.md).

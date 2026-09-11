@@ -3,6 +3,7 @@ import math
 from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
+from .. import tuning
 from ..base import Demo
 from ..backend import to_numpy
 from ..render import add_title, add_progress, save_frame, mosaic, font
@@ -31,6 +32,72 @@ MW_M31=dict(
     note="770 kpc apart, closing at 109 km/s",
 )
 
+# Force evaluations per substep for each tracer integrator, and the fused CUDA
+# kernel that applies them.  ``table`` holds the tabulated galaxy-centre
+# positions (c1x, c1y, c2x, c2y) for every stage of every substep.
+TRACER_STAGES={"leapfrog":2,"symplectic_euler":1,"murb_kinematic":1,"rk4":4}
+TRACER_METHOD_IDS={"leapfrog":0,"symplectic_euler":1,"murb_kinematic":2,"rk4":3}
+TRACER_KERNEL=r'''
+typedef REAL_T real;
+#define S STAGES
+
+__device__ __forceinline__ void pull(real x, real y, const real* __restrict__ c,
+                                     real gm1, real gm2, real eps2, real& ax, real& ay)
+{
+    real dx = c[0] - x, dy = c[1] - y;
+    real r2 = dx * dx + dy * dy + eps2;
+    real w = gm1 / (r2 * SQRT(r2));
+    ax = w * dx; ay = w * dy;
+    dx = c[2] - x; dy = c[3] - y;
+    r2 = dx * dx + dy * dy + eps2;
+    w = gm2 / (r2 * SQRT(r2));
+    ax += w * dx; ay += w * dy;
+}
+
+extern "C" __global__ void __launch_bounds__(BLOCK)
+advance_tracers(real* __restrict__ p, real* __restrict__ v, const real* __restrict__ table,
+                const int n, const int steps, const real dt,
+                const real gm1, const real gm2, const real eps2)
+{
+    const int i = blockIdx.x * BLOCK + threadIdx.x;
+    if (i >= n) return;
+    real x = p[2 * i], y = p[2 * i + 1], vx = v[2 * i], vy = v[2 * i + 1];
+    const real h = (real)0.5 * dt;
+    real ax, ay;
+#if METHOD == 0
+    pull(x, y, table, gm1, gm2, eps2, ax, ay);
+#endif
+    for (int s = 0; s < steps; ++s) {
+        const real* c = table + 4 * S * s;
+#if METHOD == 0   /* leapfrog: kick, drift, kick; closing force reused */
+        vx += h * ax; vy += h * ay;
+        x += dt * vx; y += dt * vy;
+        pull(x, y, c + 4, gm1, gm2, eps2, ax, ay);
+        vx += h * ax; vy += h * ay;
+#elif METHOD == 1 /* symplectic Euler */
+        pull(x, y, c, gm1, gm2, eps2, ax, ay);
+        vx += dt * ax; vy += dt * ay;
+        x += dt * vx; y += dt * vy;
+#elif METHOD == 2 /* MUrB constant acceleration */
+        pull(x, y, c, gm1, gm2, eps2, ax, ay);
+        x += dt * vx + h * dt * ax; y += dt * vy + h * dt * ay;
+        vx += dt * ax; vy += dt * ay;
+#else             /* classical RK4 */
+        real a1x, a1y, a2x, a2y, a3x, a3y, a4x, a4y;
+        pull(x, y, c, gm1, gm2, eps2, a1x, a1y);
+        pull(x + h * vx, y + h * vy, c + 4, gm1, gm2, eps2, a2x, a2y);
+        pull(x + h * (vx + h * a1x), y + h * (vy + h * a1y), c + 8, gm1, gm2, eps2, a3x, a3y);
+        pull(x + dt * (vx + h * a2x), y + dt * (vy + h * a2y), c + 12, gm1, gm2, eps2, a4x, a4y);
+        x += dt * (vx + dt * (a1x + a2x + a3x) / 6);
+        y += dt * (vy + dt * (a1y + a2y + a3y) / 6);
+        vx += dt * (a1x + 2 * a2x + 2 * a3x + a4x) / 6;
+        vy += dt * (a1y + 2 * a2y + 2 * a3y + a4y) / 6;
+#endif
+    }
+    p[2 * i] = x; p[2 * i + 1] = y; v[2 * i] = vx; v[2 * i + 1] = vy;
+}
+'''
+
 
 class GalaxyCollisionDemo(Demo):
     default_method="leapfrog"
@@ -48,7 +115,13 @@ class GalaxyCollisionDemo(Demo):
         "rk4":"Four force evaluations per step; locally fourth-order, but not symplectic.",
     }
     timing_methods={"setup":"initialization","step":"simulation","render":"render"}
+    precisions=("fp32","fp64")
     id="galaxy_collision"; title="Galaxy collision"
+    _tracer_kernels={}
+
+    def __init__(self,ctx,settings):
+        super().__init__(ctx,settings)
+        self._tracer_blocks={}
 
     def setup(self,N,preset,impact,speed,tilt,transverse_velocity=None,
               milky_way_mass=None,andromeda_mass=None):
@@ -90,11 +163,11 @@ class GalaxyCollisionDemo(Demo):
         catalogued=self.catalogue_disc(N-n1,c2,vc2,m2,r2,seed=7)
         p2,v2=catalogued if catalogued is not None else self.disc(
             N-n1,c2,vc2,m2,r2,-tilt*.7,seed=7,arms=2,ring_radius=10.0)
-        xp=self.ctx.xp
-        return (xp.asarray(np.vstack([p1,p2]),dtype=xp.float32),
-                xp.asarray(np.vstack([v1,v2]),dtype=xp.float32),
-                xp.asarray(c1,dtype=xp.float32),xp.asarray(c2,dtype=xp.float32),
-                xp.asarray(vc1,dtype=xp.float32),xp.asarray(vc2,dtype=xp.float32),
+        xp=self.ctx.xp; dtype=self.ctx.state_dtype
+        return (xp.asarray(np.vstack([p1,p2]),dtype=dtype),
+                xp.asarray(np.vstack([v1,v2]),dtype=dtype),
+                xp.asarray(c1,dtype=dtype),xp.asarray(c2,dtype=dtype),
+                xp.asarray(vc1,dtype=dtype),xp.asarray(vc2,dtype=dtype),
                 m1,m2,label,note,sep)
 
     def disc(self,n,centre,vel,mass,scale,tilt,seed,arms=2,ring_radius=None):
@@ -182,81 +255,142 @@ class GalaxyCollisionDemo(Demo):
     def step(self,p,v,c1,c2,vc1,vc2,m1,m2,dt,steps):
         """Advance the coupled tracer/galaxy state with the selected solver.
 
-        The NumPy path divides tracer arrays into disjoint chunks through the
-        RunContext executor.  The CuPy path keeps one device array and lets the
-        CUDA kernels provide the parallelism without host synchronisation.
+        In this restricted N-body model the tracers feel the two galaxy centres
+        but never pull on them, so the centres' own orbit is independent of the
+        tracers.  It is integrated first, in FP64 on the host, with the same
+        scheme, and every centre position a tracer force evaluation needs is
+        stored in a small table.  The tracers are then advanced through all
+        ``steps`` substeps at once: on CUDA by one fused kernel that keeps each
+        tracer in registers, on CPU in disjoint chunks across the allocated
+        cores.  This is mathematically the same coupled update as stepping
+        everything together.
         """
         method=self.ctx.method
-        if method in {"default","leapfrog"}:
-            return self._step_leapfrog(p,v,c1,c2,vc1,vc2,m1,m2,dt,steps)
-        if method in {"euler","symplectic_euler"}:
-            return self._step_symplectic_euler(p,v,c1,c2,vc1,vc2,m1,m2,dt,steps)
-        if method == "murb_kinematic":
-            return self._step_murb_kinematic(p,v,c1,c2,vc1,vc2,m1,m2,dt,steps)
-        if method == "rk4":
-            return self._step_rk4(p,v,c1,c2,vc1,vc2,m1,m2,dt,steps)
-        raise ValueError(f"unknown galaxy-collision solver: {method}")
-
-    def _step_symplectic_euler(self,p,v,c1,c2,vc1,vc2,m1,m2,dt,steps):
-        """Kick then drift: first-order but symplectic and inexpensive."""
-        for _ in range(steps):
-            a=self.particle_accel(p,c1,c2,m1,m2)
-            a1,a2=self.centre_accel(c1,c2,m1,m2)
-            v+=dt*a; p+=dt*v
-            vc1+=dt*a1; vc2+=dt*a2
-            c1+=dt*vc1; c2+=dt*vc2
+        method={"default":"leapfrog","euler":"symplectic_euler"}.get(method,method)
+        if method not in TRACER_STAGES:
+            raise ValueError(f"unknown galaxy-collision solver: {method}")
+        steps=int(steps); dt=float(dt)
+        table,final=self._centre_table(c1,c2,vc1,vc2,m1,m2,dt,steps,method)
+        if self.ctx.xp is not np:
+            self._advance_gpu(p,v,table,m1,m2,dt,method)
+        else:
+            dtype=p.dtype
+            table=table.astype(dtype)
+            self.ctx.parallel_slices(
+                len(p),lambda part:self._advance_cpu(p[part],v[part],table,m1,m2,dt,method))
+        xp=self.ctx.xp
+        for array,value in zip((c1,c2,vc1,vc2),final):
+            array[...]=xp.asarray(value,dtype=array.dtype)
         return p,v,c1,c2,vc1,vc2
 
-    def _step_murb_kinematic(self,p,v,c1,c2,vc1,vc2,m1,m2,dt,steps):
-        """Match MUrB's ordinary constant-acceleration body update exactly."""
-        half_dt2=.5*dt*dt
-        for _ in range(steps):
-            a=self.particle_accel(p,c1,c2,m1,m2)
-            a1,a2=self.centre_accel(c1,c2,m1,m2)
-            p+=dt*v+half_dt2*a
-            c1+=dt*vc1+half_dt2*a1; c2+=dt*vc2+half_dt2*a2
-            v+=dt*a; vc1+=dt*a1; vc2+=dt*a2
-        return p,v,c1,c2,vc1,vc2
+    @staticmethod
+    def _host_centre_accel(c1,c2,m1,m2,eps=EPS_GAL):
+        d=c2-c1; rr=float(d@d)+eps*eps
+        a=G*d/rr**1.5
+        return a*m2,-a*m1
 
-    def _step_leapfrog(self,p,v,c1,c2,vc1,vc2,m1,m2,dt,steps):
-        """Second-order kick-drift-kick leapfrog (velocity Verlet)."""
-        half_dt=.5*dt
-        for _ in range(steps):
-            a=self.particle_accel(p,c1,c2,m1,m2)
-            a1,a2=self.centre_accel(c1,c2,m1,m2)
-            v+=half_dt*a
-            p+=dt*v
-            vc1+=half_dt*a1; vc2+=half_dt*a2
-            c1+=dt*vc1; c2+=dt*vc2
-            a=self.particle_accel(p,c1,c2,m1,m2)
-            a1,a2=self.centre_accel(c1,c2,m1,m2)
-            v+=half_dt*a
-            vc1+=half_dt*a1; vc2+=half_dt*a2
-        return p,v,c1,c2,vc1,vc2
+    def _centre_table(self,c1,c2,vc1,vc2,m1,m2,dt,steps,method):
+        """Integrate the two centres and tabulate every force-evaluation point.
 
-    def _step_rk4(self,p,v,c1,c2,vc1,vc2,m1,m2,dt,steps):
-        """Classical fourth-order Runge-Kutta for the complete coupled state."""
-        def rhs(pp,vv,cc1,cc2,vv1,vv2):
-            aa=self.particle_accel(pp,cc1,cc2,m1,m2)
-            ac1,ac2=self.centre_accel(cc1,cc2,m1,m2)
-            return vv,aa,vv1,vv2,ac1,ac2
-        for _ in range(steps):
-            k1=rhs(p,v,c1,c2,vc1,vc2)
-            k2=rhs(p+.5*dt*k1[0],v+.5*dt*k1[1],
-                   c1+.5*dt*k1[2],c2+.5*dt*k1[3],
-                   vc1+.5*dt*k1[4],vc2+.5*dt*k1[5])
-            k3=rhs(p+.5*dt*k2[0],v+.5*dt*k2[1],
-                   c1+.5*dt*k2[2],c2+.5*dt*k2[3],
-                   vc1+.5*dt*k2[4],vc2+.5*dt*k2[5])
-            k4=rhs(p+dt*k3[0],v+dt*k3[1],c1+dt*k3[2],c2+dt*k3[3],
-                   vc1+dt*k3[4],vc2+dt*k3[5])
-            p+=dt*(k1[0]+2*k2[0]+2*k3[0]+k4[0])/6
-            v+=dt*(k1[1]+2*k2[1]+2*k3[1]+k4[1])/6
-            c1+=dt*(k1[2]+2*k2[2]+2*k3[2]+k4[2])/6
-            c2+=dt*(k1[3]+2*k2[3]+2*k3[3]+k4[3])/6
-            vc1+=dt*(k1[4]+2*k2[4]+2*k3[4]+k4[4])/6
-            vc2+=dt*(k1[5]+2*k2[5]+2*k3[5]+k4[5])/6
-        return p,v,c1,c2,vc1,vc2
+        Returns ``(table, final)``: ``table[s, k]`` holds (c1x, c1y, c2x, c2y)
+        for force stage ``k`` of substep ``s``, and ``final`` the advanced
+        centre positions and velocities.
+        """
+        c1,c2,vc1,vc2=(np.array(to_numpy(x),dtype=np.float64) for x in (c1,c2,vc1,vc2))
+        acc=lambda a,b:self._host_centre_accel(a,b,m1,m2)
+        table=np.empty((steps,TRACER_STAGES[method],4),dtype=np.float64)
+        for s in range(steps):
+            table[s,0]=np.concatenate((c1,c2))
+            if method=="leapfrog":
+                a1,a2=acc(c1,c2)
+                vc1+=.5*dt*a1; vc2+=.5*dt*a2
+                c1+=dt*vc1; c2+=dt*vc2
+                a1,a2=acc(c1,c2)
+                vc1+=.5*dt*a1; vc2+=.5*dt*a2
+                table[s,1]=np.concatenate((c1,c2))
+            elif method=="symplectic_euler":
+                a1,a2=acc(c1,c2)
+                vc1+=dt*a1; vc2+=dt*a2
+                c1+=dt*vc1; c2+=dt*vc2
+            elif method=="murb_kinematic":
+                a1,a2=acc(c1,c2)
+                c1+=dt*vc1+.5*dt*dt*a1; c2+=dt*vc2+.5*dt*dt*a2
+                vc1+=dt*a1; vc2+=dt*a2
+            else:  # classical RK4 on (c1, c2, vc1, vc2)
+                k1=(vc1,vc2,*acc(c1,c2))
+                s2=(c1+.5*dt*k1[0],c2+.5*dt*k1[1],vc1+.5*dt*k1[2],vc2+.5*dt*k1[3])
+                k2=(s2[2],s2[3],*acc(s2[0],s2[1]))
+                s3=(c1+.5*dt*k2[0],c2+.5*dt*k2[1],vc1+.5*dt*k2[2],vc2+.5*dt*k2[3])
+                k3=(s3[2],s3[3],*acc(s3[0],s3[1]))
+                s4=(c1+dt*k3[0],c2+dt*k3[1],vc1+dt*k3[2],vc2+dt*k3[3])
+                k4=(s4[2],s4[3],*acc(s4[0],s4[1]))
+                for k,stage in enumerate((s2,s3,s4),start=1):
+                    table[s,k]=np.concatenate(stage[:2])
+                c1=c1+dt*(k1[0]+2*k2[0]+2*k3[0]+k4[0])/6
+                c2=c2+dt*(k1[1]+2*k2[1]+2*k3[1]+k4[1])/6
+                vc1=vc1+dt*(k1[2]+2*k2[2]+2*k3[2]+k4[2])/6
+                vc2=vc2+dt*(k1[3]+2*k2[3]+2*k3[3]+k4[3])/6
+        return table,(c1,c2,vc1,vc2)
+
+    def _advance_cpu(self,p,v,table,m1,m2,dt,method):
+        """Advance one contiguous chunk of tracers in place (NumPy path)."""
+        accel=lambda pp,c:self.accel(pp,c[0:2],c[2:4],m1,m2)
+        a=None
+        for stages in table:
+            if method=="leapfrog":
+                # A substep's closing force is the next one's opening force:
+                # same positions and, exactly, the same tabulated centres.
+                if a is None: a=accel(p,stages[0])
+                v+=.5*dt*a; p+=dt*v
+                a=accel(p,stages[1]); v+=.5*dt*a
+            elif method=="symplectic_euler":
+                v+=dt*accel(p,stages[0]); p+=dt*v
+            elif method=="murb_kinematic":
+                a=accel(p,stages[0]); p+=dt*v+.5*dt*dt*a; v+=dt*a
+            else:
+                a1=accel(p,stages[0])
+                a2=accel(p+.5*dt*v,stages[1])
+                a3=accel(p+.5*dt*(v+.5*dt*a1),stages[2])
+                a4=accel(p+dt*(v+.5*dt*a2),stages[3])
+                p+=dt*(v+dt*(a1+a2+a3)/6)
+                v+=dt*(a1+2*a2+2*a3+a4)/6
+        return None
+
+    def _advance_gpu(self,p,v,table,m1,m2,dt,method):
+        xp=self.ctx.xp; n=len(p)
+        real=self.ctx.state_dtype
+        table=xp.asarray(table,dtype=real)
+        args=lambda pp,vv:(pp,vv,table,np.int32(n),np.int32(len(table)),real(dt),
+                           real(G*m1),real(G*m2),real(EPS_GAL*EPS_GAL))
+        key=(method,tuning.size_bucket(n))
+        if key not in self._tracer_blocks:
+            # The kernel updates in place, so candidates are timed on copies.
+            sp,sv=p.copy(),v.copy()
+            config,report=tuning.select(
+                xp,f"galaxy2d_tracers_{method}",f"{self.ctx.precision}|n{key[1]}",
+                [{"block":b} for b in (64,128,256,512,1024)],
+                lambda c:self._tracer_kernel(method,c["block"])(
+                    ((n+c["block"]-1)//c["block"],),(c["block"],),args(sp,sv)),
+                default={"block":256})
+            self._tracer_blocks[key]=int(config["block"])
+            self.ctx.record_kernel(f"galaxy2d_tracers_n{n}",{**report,"precision":self.ctx.precision,
+                                                             "method":method,"tracers":n})
+        block=self._tracer_blocks[key]
+        self._tracer_kernel(method,block)(((n+block-1)//block,),(block,),args(p,v))
+
+    def _tracer_kernel(self,method,block):
+        key=(self.ctx.precision,method,int(block))
+        kernel=self._tracer_kernels.get(key)
+        if kernel is None:
+            real="double" if self.ctx.state_dtype==np.float64 else "float"
+            source=(TRACER_KERNEL.replace("REAL_T",real)
+                    .replace("SQRT",("sqrt" if real=="double" else "sqrtf"))
+                    .replace("METHOD",str(TRACER_METHOD_IDS[method]))
+                    .replace("STAGES",str(TRACER_STAGES[method]))
+                    .replace("BLOCK",str(int(block))))
+            kernel=self.ctx.xp.RawKernel(source,"advance_tracers")
+            self._tracer_kernels[key]=kernel
+        return kernel
 
     def render(self,p,half,n1,m1,m2,size=(1280,720)):
         pts=to_numpy(p); W,H=size
@@ -341,6 +475,7 @@ class GalaxyCollisionDemo(Demo):
                 "solver":solver,"tracers":f"{N:,}","view width":f"{2*half:,.0f} kpc",
                 "saved-frame interval":f"{span_gyr/self.ctx.frames*1000:.1f} Myr",
                 "solver step":f"{dt*TIME_UNIT_GYR*1000:.2f} Myr × {substeps}",
+                "precision":self.ctx.precision_spec["label"],
                 "compute":f"{self.ctx.backend_name}{cpu_note}"})
         # Reveal: the same encounter under the observational uncertainty on the
         # transverse velocity, which is what actually decides the outcome.

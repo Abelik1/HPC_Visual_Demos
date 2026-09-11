@@ -36,7 +36,7 @@ well-contained slice of that node for one hybrid demo:
 
 ```bash
 sbatch --account="$LEONARDO_ACCOUNT" \
-  --export=ALL,DEMO=reaction_diffusion,FRAMES=90,PROFILE=leonardo,LEONARDO_DEMO_BACKEND=hybrid \
+  --export=ALL,DEMO=reaction_diffusion,FRAMES=90,PROFILE=hpc,LEONARDO_DEMO_BACKEND=hybrid \
   slurm/run_demo.sbatch
 ```
 

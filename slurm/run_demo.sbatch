@@ -16,8 +16,11 @@ set -euo pipefail
 
 DEMO=${DEMO:-galaxy_collision}
 FRAMES=${FRAMES:-90}
-PROFILE=${PROFILE:-leonardo}
+PROFILE=${PROFILE:-hpc}
 BACKEND=${LEONARDO_DEMO_BACKEND:-hybrid}
+# fp32 (default), fp64, or mixed (galaxy_collision_3d only).  The A100 runs
+# FP64 at half its FP32 rate, so fp64 is affordable here, unlike on consumer GPUs.
+PRECISION=${PRECISION:-fp32}
 if [[ -z "${RUNROOT:-}" ]]; then
   : "${FAST:?FAST is not set; choose a shared Leonardo output filesystem}"
   RUNROOT=$FAST/leonardo_visual_demos
@@ -60,6 +63,7 @@ fi
 srun --cpu-bind=cores "${PYTHON[@]}" tools/leonardo_preflight.py \
   --backend "$BACKEND" --demo "$DEMO" --run-root "$RUNROOT"
 srun --cpu-bind=cores "${PYTHON[@]}" run_demo.py "$DEMO" \
-  --profile "$PROFILE" --backend "$BACKEND" --frames "$FRAMES" --run-dir "$RUN_DIR"
+  --profile "$PROFILE" --backend "$BACKEND" --frames "$FRAMES" --precision "$PRECISION" \
+  --run-dir "$RUN_DIR"
 
 echo "Run written to $RUN_DIR"

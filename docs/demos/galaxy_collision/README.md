@@ -21,6 +21,14 @@ Galaxy centres drive the restricted potential while tracer stars expose tidal
 structure. This is not a self-consistent live dark-matter simulation; use the
 separate `galaxy_collision_3d` demo for direct super-particle gravity.
 
+## Performance
+
+Because tracers never pull on the galaxy centres, the centres' orbit is
+integrated first (FP64, host) and tabulated per force stage; one fused CUDA
+kernel then advances every tracer through a whole frame's substeps in
+registers. The CPU path advances disjoint tracer chunks on the assigned cores.
+Both honour `fp32` or `fp64` precision; see `docs/PERFORMANCE.md`.
+
 ## Units
 
 Working units are kpc, km/s, and solar masses. Simulation time converts using

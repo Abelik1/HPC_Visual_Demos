@@ -23,9 +23,18 @@ radial velocity, transverse-velocity estimate, and barycentric bulk motion.
 
 The CPU implementation evaluates identical equations in bounded NumPy tiles,
 so memory is O(N) plus one tile pair rather than O(N^2). The CUDA implementation
-uses a CuPy raw kernel with shared-memory source tiles, following the core
-optimisation pattern in NBody-EuroHPC's `SimulationNBodyCUDATileFullDevice`.
+uses a CuPy raw kernel with shared-memory source tiles and several target
+bodies per thread (register blocking), following the core optimisation pattern
+in NBody-EuroHPC's `SimulationNBodyCUDATileFullDevice`. Bodies are packed as
+coalesced (x, y, z, m) records, and the block size and targets per thread are
+autotuned on the GPU running the job rather than fixed for one card.
 The reference is MIT-licensed; no OpenGL renderer or source file is copied.
+
+`--precision fp32|mixed|fp64` selects the arithmetic. `mixed` keeps positions,
+velocities and force sums in FP64 but evaluates each pair in FP32, removing the
+float32 summation bias that otherwise produces a slow spurious momentum drift
+(about 1.5 km/s of centre-of-mass motion over 7.5 Gyr at 200k bodies). See
+`docs/PERFORMANCE.md` for measurements and hardware guidance.
 
 The particles are galaxy-scale super-particles and the generated initial
 conditions are **not** fitted equilibrium models of the Milky Way and M31.
@@ -65,7 +74,7 @@ hide/show halo particles while timeline playback continues.
 The generic headless launch works unchanged:
 
 ```bash
-python run_demo.py galaxy_collision_3d --profile leonardo --backend gpu --frames 80
+python run_demo.py galaxy_collision_3d --profile hpc --backend gpu --frames 80
 sbatch --export=ALL,DEMO=galaxy_collision_3d,BACKEND=gpu slurm/run_demo.sbatch
 ```
 

@@ -107,10 +107,10 @@ echo %DEMO%
 echo.
 echo  1. Local     - recommended; low-resolution and fast
 echo  2. Desktop   - larger simulation; use when local looks good
-echo  3. Leonardo  - HPC-sized settings; use on a suitable machine or cluster
+echo  3. HPC       - supercomputer-sized settings; use on a suitable machine or cluster
 echo.
 choice /c 123 /n /m "Choose a profile"
-if errorlevel 3 goto :leonardo_profile
+if errorlevel 3 goto :hpc_profile
 if errorlevel 2 goto :desktop_profile
 if errorlevel 1 goto :local_profile
 
@@ -120,8 +120,8 @@ goto :frame_count
 :desktop_profile
 set "PROFILE=desktop"
 goto :frame_count
-:leonardo_profile
-set "PROFILE=leonardo"
+:hpc_profile
+set "PROFILE=hpc"
 
 :frame_count
 set "FRAMES="

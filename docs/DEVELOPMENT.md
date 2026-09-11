@@ -29,7 +29,7 @@ Use `local` until the story is visually convincing. Then measure:
 python run_demo.py DEMO --profile desktop --frames 20
 ```
 
-Only then test `leonardo`.
+Only then test `hpc`.
 
 Profiles are presets, not hard-coded modes. Every numeric key present for a
 demo in `config/profiles.json` is published by `/api/specs`, rendered as an

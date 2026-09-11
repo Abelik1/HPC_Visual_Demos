@@ -29,6 +29,32 @@ def choose_backend(requested: str = "auto"):
     return np, "numpy"
 
 
+# Numerical precision of a run.  ``state`` is the dtype of the evolving
+# solution (positions, velocities, lattice populations); ``compute`` is the
+# dtype of the hot arithmetic inside the CUDA kernels.  ``mixed`` keeps an
+# FP64 state and FP64 force accumulation around FP32 pair arithmetic: on
+# consumer GPUs FP64 runs at 1/32–1/64 of FP32, while A100/H100/B200-class HPC
+# GPUs run it at half rate, so the choice is hardware dependent.
+PRECISIONS = {
+    "fp32": {"state": np.float32, "compute": np.float32, "accumulate": np.float32,
+             "label": "FP32"},
+    "mixed": {"state": np.float64, "compute": np.float32, "accumulate": np.float64,
+              "label": "mixed (FP64 state and sums, FP32 pair maths)"},
+    "fp64": {"state": np.float64, "compute": np.float64, "accumulate": np.float64,
+             "label": "FP64"},
+}
+
+
+def resolve_precision(name: str = "fp32"):
+    key = str(name or "fp32").lower()
+    aliases = {"single": "fp32", "float32": "fp32", "float": "fp32",
+               "double": "fp64", "float64": "fp64"}
+    key = aliases.get(key, key)
+    if key not in PRECISIONS:
+        raise ValueError(f"unknown precision {name!r}; choices: {', '.join(PRECISIONS)}")
+    return key, PRECISIONS[key]
+
+
 def to_numpy(a):
     try:
         import cupy as cp
