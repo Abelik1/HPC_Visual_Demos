@@ -1,0 +1,62 @@
+/* AI game demos: the brain builder and the smooth arena replay. */
+.brainBuilder{--bb-accent:#ffc45c;grid-column:1/-1;flex:1 1 100%;display:flex;flex-direction:column;gap:12px;padding:16px;border:1px solid #2a3b4d;border-radius:16px;background:linear-gradient(180deg,#0a1320,#070d17)}
+.bbHead{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.bbHead>div:first-child{flex:1 1 260px}.bbHead b{display:block;color:#f2f7fc;font-size:18px}.bbHead small{display:block;margin-top:3px;color:#8ea3ba;font-size:13px;line-height:1.4}
+.bbBudget{display:flex;align-items:center;gap:10px;min-width:260px}
+.bbBudget span{color:#e7eef6;font-weight:800;font-size:15px;white-space:nowrap}
+.bbMeter{flex:1;height:14px;border-radius:8px;background:#172333;overflow:hidden;border:1px solid #2c3d51}
+.bbMeter i{display:block;height:100%;width:0;background:linear-gradient(90deg,#5fd6ff,var(--bb-accent));transition:width .25s}
+.bbMeter i.full{background:linear-gradient(90deg,var(--bb-accent),#ff9a5c)}
+.bbBudget.over span{color:#ff7a7a}
+.bbShake{animation:bbShake .4s}@keyframes bbShake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+.bbPresets{display:flex;gap:6px;flex-wrap:wrap}
+.bbPresets button{border:1px solid #2d4258;border-radius:10px;padding:8px 12px;background:#0e1a29;color:#cfe0f2;font-weight:750}
+.bbPresets button:hover{border-color:var(--bb-accent);color:#fff}
+.bbBody{display:grid;grid-template-columns:minmax(210px,250px) minmax(0,1fr) minmax(200px,300px);gap:14px;align-items:start}
+.bbPalette,.bbSide{padding:12px;border:1px solid #223347;border-radius:12px;background:#08111d}
+.bbPalette h5,.bbCol h5{margin:0 0 10px;color:#dfe9f4;font-size:13px;letter-spacing:.02em}
+.bbPalette h5 small,.bbCol h5 small{display:block;margin-top:2px;color:#7c91a8;font-weight:500}
+.bbGroup{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}.bbGroup>span{color:#7c91a8;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+.bbTile{position:relative;display:flex;align-items:center;gap:9px;padding:10px 12px;border:1px solid #2d4258;border-radius:11px;background:#0f1c2c;color:#e1ecf7;font-weight:750;font-size:14px;cursor:grab;user-select:none;touch-action:none;transition:transform .12s,border-color .12s}
+.bbTile:hover{border-color:var(--bb-accent);transform:translateY(-1px)}
+.bbTile em{margin-left:auto;padding:2px 8px;border-radius:999px;background:#1b2a3c;color:var(--bb-accent);font-style:normal;font-size:12px}
+.bbTile.blocked{opacity:.38}.bbTile.dragging{opacity:.3}
+.bbIcon{width:24px;text-align:center;font-size:17px}
+.bbKind-sensor{box-shadow:inset 4px 0 #5fd6ff}.bbKind-hidden{box-shadow:inset 4px 0 #c9d7ea}.bbKind-action{box-shadow:inset 4px 0 var(--bb-accent)}
+.bbTile.placed{cursor:grab;background:#132236}.bbTile.locked{cursor:default;opacity:.85}
+.bbTile.locked:after{content:"🔒";margin-left:auto;font-size:12px;opacity:.7}
+.gameStage{display:flex;flex-direction:column;gap:10px;margin:18px 0}
+.bbDots{display:block;color:#9fb4ca;font-style:normal;letter-spacing:1px;font-size:11px;line-height:1}
+.bbLabel{display:flex;flex-direction:column;gap:3px}
+.bbX{margin-left:auto;width:26px;height:26px;border:1px solid #3a4f66;border-radius:8px;background:#0a1421;color:#ffb0b0;font-size:16px;line-height:1}
+.bbX:hover{border-color:#ff7a7a;background:#2a1116}
+.bbGhost{position:fixed;z-index:100;pointer-events:none;transform:translate(-50%,-50%) rotate(-3deg);box-shadow:0 12px 30px #000a;border-color:var(--bb-accent);opacity:.95}
+.bbBoard{display:grid;grid-template-columns:minmax(0,1.25fr) 18px minmax(0,1fr) 18px minmax(0,.9fr);gap:8px;align-items:stretch}
+.bbArrow{display:flex;align-items:center;justify-content:center;color:#51667d;font-size:18px}
+.bbCol{min-height:230px;padding:12px;border:1px dashed #2f4459;border-radius:12px;background:#0a1420;transition:border-color .15s,background .15s}
+.bbCol.bbTarget{border-color:var(--bb-accent);background:#111f30}
+.bbDrop{display:flex;flex-direction:column;gap:7px}
+.bbEmpty{margin:4px 0;color:#7c91a8;font-size:12px;line-height:1.45}
+.bbFan svg{display:block;width:100%;max-width:280px;margin:0 auto}
+.bbFan small{display:block;margin:2px 0 8px;color:#7c91a8;font-size:11px;text-align:center}
+.bbSpoke{cursor:pointer}.bbSpoke line{stroke:#2c3f55;stroke-width:3}.bbSpoke circle{fill:#132236;stroke:#3f5a77;stroke-width:2}
+.bbSpoke:hover circle,.bbSpoke:focus circle{stroke:var(--bb-accent)}
+.bbSpoke.on line{stroke:#5fd6ff;stroke-width:4}.bbSpoke.on circle{fill:#5fd6ff;stroke:#e9fbff}
+.bbSpoke.on.long line{stroke:var(--bb-accent)}.bbSpoke.on.long circle{fill:var(--bb-accent)}
+.bbSpoke:focus{outline:none}
+.bbAgentShape{fill:var(--bb-accent);stroke:#fff;stroke-width:1.5}.bbAgent{font-size:22px;text-anchor:middle}
+.bbPreview{display:block;width:100%;height:auto;border-radius:9px;background:#050b14}
+.bbStats{margin:10px 0 6px;color:#9fb4ca;font-size:13px;line-height:1.5}.bbStats b{color:var(--bb-accent);font-size:20px}
+.bbHint{margin:0;color:#b8c9da;font-size:13px;line-height:1.45}.bbHint.bbError{color:#ff9a9a;font-weight:700}
+.gameOptions{grid-column:1/-1;display:flex;gap:18px;align-items:center;flex-wrap:wrap;color:#9fb4ca;font-size:13px}
+.gameOptions label{display:flex;align-items:center;gap:8px;color:#dfe9f4;font-weight:700}
+.duoBuilders{grid-column:1/-1;display:grid;grid-template-columns:1fr;gap:14px}
+/* Below #overlayLayer (z-index 2) so the readout and brain cards stay visible. */
+.arenaCanvas{position:absolute;inset:0;width:100%;height:100%;display:block;background:#030813;z-index:1}
+.arenaCanvas.hidden{display:none}
+.arenaTools{position:absolute;right:22px;top:20px;z-index:6;display:flex;align-items:center;gap:7px;padding:7px;border:1px solid #315477;border-radius:13px;background:#030815d9;backdrop-filter:blur(12px)}
+.arenaTools.hidden{display:none}
+.arenaTools button{border:1px solid #294461;border-radius:9px;padding:8px 11px;background:#0b1629;color:#c9dcf5;font-weight:800}
+.arenaTools button.selected{background:linear-gradient(135deg,#4a3a12,#3d2a12);border-color:#ffc45c;color:#fff}
+@media(max-width:1200px){.bbBody{grid-template-columns:1fr 1fr}.bbBoard{grid-column:1/-1;order:-1}}
+@media(max-width:760px){.bbBody,.bbBoard{grid-template-columns:1fr}.bbArrow{display:none}}
