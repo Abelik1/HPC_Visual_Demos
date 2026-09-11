@@ -1,7 +1,7 @@
 from __future__ import annotations
 import math, warnings
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 from ..base import Demo
 from ..backend import torch_device
 from ..render import add_title, add_progress, save_frame, mosaic, font
@@ -11,6 +11,35 @@ from ..render import add_title, add_progress, save_frame, mosaic, font
 # readable as an experiment rather than as a random scatter of thumbnails.
 LR_LOG_RANGE=(-3.2,-1.4)
 WIDTH_RANGE=(6,40)
+# Fourier features: (x,y) is expanded into sin/cos waves at FOURIER_FEATURES
+# random 2-D frequencies before it reaches the network. Plain tanh layers fed
+# raw coordinates can only build smooth blobs ("spectral bias"); the waves give
+# them ready-made high-frequency building blocks, so edges and texture appear.
+# FOURIER_SIGMA is the spread of those frequencies in cycles per unit of the
+# [-1,1] coordinate. Measured on a 131x161 photo with a width-40 network: plain
+# x,y 22.6 dB PSNR, sigma 0.8-2.8 gave 31.4-32.2 dB, sigma 8 fell to 25.5 dB.
+# Too wide a spread hands a small network waves it cannot combine and the
+# reconstruction turns to noise. It depends on image content, not pixel count.
+FOURIER_FEATURES=32
+FOURIER_SIGMA=1.6
+
+
+def fourier_matrix(features,seed=0):
+    """Fixed random frequencies (cycles per unit of the [-1,1] coordinate)."""
+    return (np.random.default_rng(seed).normal(size=(2,features))*FOURIER_SIGMA).astype(np.float32)
+
+
+def encode(coords,B):
+    """Map (..., 2) coordinates to their (..., 2*features) Fourier encoding."""
+    if B is None: return coords.astype(np.float32)
+    phase=2*np.pi*coords@B
+    return np.concatenate([np.sin(phase),np.cos(phase)],-1).astype(np.float32)
+
+
+def parameter_count(width,fourier=True):
+    """Learned numbers in one network: its size as a compressed image."""
+    inputs=2*FOURIER_FEATURES if fourier else 2
+    return inputs*width+width + width*width+width + width*3+3
 
 
 def grid_shape(networks):
@@ -39,9 +68,12 @@ class TorchWall:
     matmuls, which is exactly the structure that maps onto a GPU and the story
     the exhibition is trying to tell.
     """
-    def __init__(self,torch,networks,tile,target,seed=0,device=None):
+    def __init__(self,torch,networks,tile,target,seed=0,device=None,fourier=True):
         self.torch=torch; self.n=networks; self.tile=tile
+        # The demo passes a tile x tile target, but any (h, w, 3) image works.
+        self.shape=target.shape[:2]
         self.lrs,self.widths,_,_=hyperparameters(networks)
+        self.B=fourier_matrix(FOURIER_FEATURES,seed) if fourier else None
         self.maxw=int(self.widths.max())
         # Honour the run's compute request. Taking CUDA whenever it happened to
         # be present meant a run explicitly asked to stay on the CPU reported a
@@ -53,20 +85,25 @@ class TorchWall:
             t=((torch.rand(*shape,generator=g)*2-1)*gain).to(dev)
             t.requires_grad_(True); return t
         w=self.maxw
+        inputs=2 if self.B is None else 2*FOURIER_FEATURES
+        # Keep first-layer pre-activations near unit scale whatever the input
+        # width, otherwise 64 Fourier inputs would saturate every tanh.
+        gain=.9 if self.B is None else math.sqrt(6/inputs)
         # The final layer produces red, green and blue rather than a single
         # brightness. A coordinate now maps (x,y) -> (r,g,b).
-        self.params=[par(networks,2,w,gain=.9),par(networks,1,w,gain=.1),
+        self.params=[par(networks,inputs,w,gain=gain),par(networks,1,w,gain=.1),
                      par(networks,w,w,gain=.35),par(networks,1,w,gain=.1),
                      par(networks,w,3,gain=.6),par(networks,1,3,gain=.1)]
         # Unused hidden units are masked off, so a "width 6" network really has
         # the capacity of six neurons even though every network shares tensors.
         self.mask=(torch.arange(w,device=dev)[None,:]<torch.tensor(self.widths,device=dev)[:,None]).float()
-        coords=np.stack(np.meshgrid(np.linspace(-1,1,tile),np.linspace(-1,1,tile),indexing='xy'),-1)
+        h,wd=self.shape
+        coords=np.stack(np.meshgrid(np.linspace(-1,1,wd),np.linspace(-1,1,h),indexing='xy'),-1)
         # ``expand`` gives every network a zero-stride batch dimension.  That is
         # normally harmless, but CUDA's strided batched GEMM rejects it on some
         # driver/cuBLAS combinations.  Materialise the small teaching batch so
         # GPU and CPU runs follow the same path reliably.
-        self.X=torch.tensor(coords.reshape(-1,2).astype(np.float32),device=dev)[None].repeat(networks,1,1).contiguous()
+        self.X=torch.tensor(encode(coords.reshape(-1,2),self.B),device=dev)[None].repeat(networks,1,1).contiguous()
         self.Y=torch.tensor(target.reshape(-1,3).astype(np.float32),device=dev)[None].repeat(networks,1,1).contiguous()
         self.lr=torch.tensor(self.lrs,device=dev)[:,None,None]
         self.m=[torch.zeros_like(p) for p in self.params]
@@ -93,7 +130,7 @@ class TorchWall:
                     p-=self.lr*mh/(vh.sqrt()+1e-8)
                     p.grad=None
         with torch.no_grad():
-            out=self.forward().reshape(self.n,self.tile,self.tile,3).cpu().numpy()
+            out=self.forward().reshape(self.n,*self.shape,3).cpu().numpy()
             losses=((self.forward()-self.Y)**2).mean(dim=(1,2)).cpu().numpy()
         return list(out),np.asarray(losses),f"torch·{self.device}"
     def visual_state(self,index):
@@ -102,7 +139,13 @@ class TorchWall:
             w1=self.params[0][index].detach().cpu().numpy()
             w2=self.params[2][index].detach().cpu().numpy()
             w3=self.params[4][index].detach().cpu().numpy()
-        return {'width':int(self.widths[index]),'w1':w1,'w2':w2,'w3':w3}
+        if self.B is not None:
+            # The diagram draws two input nodes, x and y. Through the Fourier
+            # layer the true x->hidden link is the derivative of each hidden
+            # pre-activation with respect to x (and y) at the image centre:
+            # d/dx sum_k W_sin[k]*sin(2*pi*B_k.v) = 2*pi*sum_k B[0,k]*W_sin[k].
+            w1=2*np.pi*self.B@w1[:FOURIER_FEATURES]
+        return {'width':int(self.widths[index]),'w1':w1,'w2':w2,'w3':w3,'fourier':self.B is not None}
 
 
 class SurrogateWall:
@@ -147,7 +190,8 @@ class NeuralWallDemo(Demo):
     def drawn_target(self,n,path):
         """Load a visitor's canvas drawing as the coordinate-network target."""
         with Image.open(path) as image:
-            image=image.convert('RGB').resize((n,n),Image.Resampling.LANCZOS)
+            # Centre-crop to a square rather than squashing a non-square photo.
+            image=ImageOps.fit(image.convert('RGB'),(n,n),Image.Resampling.LANCZOS)
             return np.asarray(image,dtype=np.float32)/255.0
     def target(self,n,kind=0,difficulty=1.0):
         y,x=np.mgrid[-1:1:complex(n),-1:1:complex(n)]
@@ -168,7 +212,8 @@ class NeuralWallDemo(Demo):
         try:
             import torch
             req=getattr(self.ctx,'backend_requested','auto') if self.ctx else 'auto'
-            trainer=TorchWall(torch,networks,tile,target,device=torch_device(req))
+            fourier=bool(int(self.ctx.params.get('fourier',1))) if self.ctx else True
+            trainer=TorchWall(torch,networks,tile,target,device=torch_device(req),fourier=fourier)
             self.ctx.set_backend_name(f"torch·{trainer.device}")
             return trainer
         except Exception as e:
@@ -204,7 +249,9 @@ class NeuralWallDemo(Demo):
         """Draw the current winning MLP using its actual learned connection weights."""
         d.rounded_rectangle((x0,y0,x1,y1),radius=18,fill=(5,13,29,238),outline=(55,110,154,190),width=2)
         d.text((x0+18,y0+16),"LIVE NETWORK",font=font(15,True),fill=(121,231,255))
-        d.text((x0+18,y0+39),"connection colour and brightness = learned weight",font=font(11),fill=(145,169,203))
+        caption=("x,y enter through Fourier waves · shown as local sensitivity" if state.get('fourier')
+                 else "connection colour and brightness = learned weight")
+        d.text((x0+18,y0+39),caption,font=font(11),fill=(145,169,203))
         width=state['width']; shown=min(12,width)
         indices=np.unique(np.round(np.linspace(0,width-1,shown)).astype(int))
         shown=len(indices)

@@ -329,10 +329,13 @@ function addNeuralTargetTools(host,defaultKind){
   el.querySelectorAll('[data-kind]').forEach(button=>button.onclick=()=>choose(button.dataset.kind));
   el.querySelector('#clearDrawing').onclick=()=>{clear();choose(neuralTarget.kind);};
   function useCustom(label){neuralTarget.custom=true;el.querySelectorAll('[data-kind]').forEach(b=>b.classList.remove('selected'));el.querySelector('#targetMode').textContent=label;}
-  el.querySelector('#targetUpload').onchange=event=>{const file=event.target.files&&event.target.files[0];if(!file)return;const image=new Image();image.onload=()=>{clear();ctx.drawImage(image,0,0,canvas.width,canvas.height);useCustom('Photo selected — RGB target');URL.revokeObjectURL(image.src);};image.src=URL.createObjectURL(file);};
+  // Photos are rarely square: take the largest centred square instead of
+  // stretching the whole frame onto the square training canvas.
+  const drawCentreCrop=(source,width,height)=>{const side=Math.min(width,height);clear();ctx.drawImage(source,(width-side)/2,(height-side)/2,side,side,0,0,canvas.width,canvas.height);};
+  el.querySelector('#targetUpload').onchange=event=>{const file=event.target.files&&event.target.files[0];if(!file)return;const image=new Image();image.onload=()=>{drawCentreCrop(image,image.naturalWidth,image.naturalHeight);useCustom('Photo selected — centre-cropped RGB target');URL.revokeObjectURL(image.src);};image.src=URL.createObjectURL(file);};
   const video=el.querySelector('#targetCamera'),capture=el.querySelector('#captureCamera');
   el.querySelector('#openCamera').onclick=async()=>{try{stopTargetCamera();neuralTarget.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false});video.srcObject=neuralTarget.stream;video.classList.remove('hidden');capture.classList.remove('hidden');el.querySelector('#targetMode').textContent='Camera live — capture when ready';}catch(error){el.querySelector('#targetMode').textContent='Camera unavailable — upload a photo instead';}};
-  capture.onclick=()=>{if(!video.videoWidth)return;clear();ctx.drawImage(video,0,0,canvas.width,canvas.height);stopTargetCamera();video.classList.add('hidden');capture.classList.add('hidden');useCustom('Camera photo selected — RGB target');};
+  capture.onclick=()=>{if(!video.videoWidth)return;drawCentreCrop(video,video.videoWidth,video.videoHeight);stopTargetCamera();video.classList.add('hidden');capture.classList.add('hidden');useCustom('Camera photo selected — RGB target');};
   let drawing=false,last=null;
   const point=event=>{const r=canvas.getBoundingClientRect();return {x:(event.clientX-r.left)*canvas.width/r.width,y:(event.clientY-r.top)*canvas.height/r.height};};
   function paint(event){const p=point(event);ctx.strokeStyle='#fff';ctx.lineCap='round';ctx.lineJoin='round';ctx.lineWidth=9;ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(p.x,p.y);ctx.stroke();last=p;useCustom('Your drawing selected — RGB target');}

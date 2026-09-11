@@ -267,6 +267,14 @@
         "max": 2.0,
         "step": 0.1,
         "value": 1.0
+      },
+      "fourier": {
+        "min": 0,
+        "max": 1,
+        "step": 1,
+        "value": 1,
+        "kind": "toggle",
+        "label": "Fourier features (sharper detail)"
       }
     }
   },
