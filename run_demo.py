@@ -116,7 +116,13 @@ def run(demo,profile='local',frames=80,params=None,backend='auto',run_dir=None,
 if __name__=='__main__':
     ap=argparse.ArgumentParser(description='Generate a visual HPC demo run')
     ap.add_argument('demo',choices=sorted(DEMOS)); ap.add_argument('--profile',type=canonical_profile,choices=sorted(load_profiles()),default='local'); ap.add_argument('--frames',type=int,default=80); ap.add_argument('--backend',default='auto'); ap.add_argument('--method',default='default'); ap.add_argument('--precision',choices=sorted(PRECISIONS),default='fp32',help='fp32, mixed (FP64 state/sums, FP32 pair maths; 3-D galaxy only) or fp64'); ap.add_argument('--numerical-substeps',type=int); ap.add_argument('--timings',action='store_true'); ap.add_argument('--param',action='append',default=[],help='scientific key=value, repeatable'); ap.add_argument('--setting',action='append',default=[],help='profile/scale key=value, repeatable'); ap.add_argument('--run-dir'); ap.add_argument('--open',action='store_true')
+    ap.add_argument('--brain',help='JSON brain spec from the block builder (AI game demos)')
     a=ap.parse_args(); params={}; settings_override={}
+    if a.brain:
+        from leonardo_demos.neuroevo import brain_catalogue, validate_brains
+        catalogue=brain_catalogue(load_specs(),a.demo)
+        if catalogue is None: raise SystemExit(f'{a.demo} has no brain builder')
+        params['_brain']=validate_brains(json.loads(Path(a.brain).read_text()),catalogue)
     for kv in a.param:
         k,v=kv.split('=',1)
         try: v=float(v)

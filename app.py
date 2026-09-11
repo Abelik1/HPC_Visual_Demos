@@ -12,6 +12,7 @@ from PIL import Image, UnidentifiedImageError
 from run_demo import run, load_profiles, load_specs, profile_setting_schema, canonical_profile
 from leonardo_demos.registry import DEMOS
 from leonardo_demos.backend import probe as probe_backends
+from leonardo_demos.neuroevo import BrainError, brain_catalogue, validate_brains
 
 ROOT=Path(__file__).resolve().parent; RUNS=ROOT/'runs'; RUNS.mkdir(exist_ok=True)
 app=FastAPI(title='Leonardo Visual Demos')
@@ -34,6 +35,10 @@ class RunReq(BaseModel):
     target_image: str | None = Field(default=None, max_length=400_000)
     parallel_count: int | None = Field(default=None, ge=1, le=64)
     obstacle_grid: list[list[int]] | None = None
+    # Visitor-built network for the AI game demos; validated against the
+    # demo's block catalogue in config/demo_specs.json.
+    brain: dict | None = None
+    ghosts: list[str] | None = Field(default=None, max_length=5)
 
 def save_target_image(data_url: str, destination: Path) -> None:
     """Validate a canvas PNG and save a bounded RGB target image."""
@@ -93,6 +98,9 @@ def list_runs(demo:str|None=None,limit:int=120):
             if not (d/str(fusion.get('folder','_missing'))).is_dir(): fusion=None
         elif not (isinstance(fusion,str) and (d/fusion).exists()):
             fusion=None
+        arena=meta.get('arena_view')
+        if not (isinstance(arena,dict) and (d/str(arena.get('folder','_missing'))).is_dir()):
+            arena=None
         out.append({
             'id':d.name,
             'demo':meta.get('demo'),
@@ -115,6 +123,8 @@ def list_runs(demo:str|None=None,limit:int=120):
             'zoom':meta.get('zoom'),
             'fusion_view':fusion,
             'galaxy3d_view':galaxy3d,
+            'arena_view':arena,
+            'summary':meta.get('summary'),
             'view_modes':meta.get('view_modes'),
             'default_view_mode':meta.get('default_view_mode'),
             'frame_data':bool(meta.get('frame_data')),
@@ -175,6 +185,22 @@ def start(demo:str,req:RunReq):
                 all(cell in (0,1) for row in rows for cell in row)):
             raise HTTPException(422, 'obstacle grid must be a rectangular 0/1 grid between 8×6 and 40×24')
         params['_obstacle_grid']=rows
+    if req.brain is not None:
+        catalogue=brain_catalogue(load_specs(),demo)
+        if catalogue is None:
+            raise HTTPException(422, 'a custom brain is only supported by the AI game demos')
+        try: params['_brain']=validate_brains(req.brain,catalogue)
+        except BrainError as error: raise HTTPException(422, str(error))
+    if req.ghosts:
+        if demo != 'neuro_racers':
+            raise HTTPException(422, 'ghost races are only supported by Neuro-Racers')
+        ghost_dirs=[]
+        for ghost in req.ghosts:
+            gd=(RUNS/ghost).resolve()
+            if RUNS.resolve() not in gd.parents or not (gd/'champion.npz').exists():
+                raise HTTPException(422, f'ghost run {ghost} has no saved champion')
+            ghost_dirs.append(str(gd))
+        params['_ghosts']=ghost_dirs
     if req.target_image is not None:
         if demo != 'neural_wall':
             raise HTTPException(422, 'a custom drawing is only supported by the neural-network wall')
