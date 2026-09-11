@@ -278,28 +278,38 @@ function openRun(r){
 $('#libRefresh').onclick=loadLibrary;
 $('#libMore').onclick=()=>{showAllRuns=!showAllRuns;renderLibrary();if(!showAllRuns)$('#library').scrollIntoView({block:'start'});};
 const demoCategories={black_hole:'Universe',pbh:'Universe',cosmic_web:'Universe',galaxy_collision:'Universe',galaxy_collision_3d:'Universe',fluid:'Physics',fusion_plasma:'Physics',reaction_diffusion:'Patterns & life',crystal:'Patterns & life',molecular_dynamics:'Patterns & life',weather_ensemble:'Physics',neural_wall:'AI & learning',plasma_guardian:'AI & learning'};
+// Demos that still run but are not ready for visitors. They are hidden from
+// the main gallery and listed only under the Archive tab; saved runs and
+// direct ?demo= links keep working.
+const archivedDemos=new Set(['pbh','crystal','molecular_dynamics','weather_ensemble','reaction_diffusion']);
+const ARCHIVE='Archive';
 let galleryCategory='All experiments';
 function renderGallery(){
   const host=$('#gallery'),filters=$('#categoryFilters'),query=$('#demoSearch').value.trim().toLowerCase();
+  const archiveView=galleryCategory===ARCHIVE;
   host.innerHTML='';filters.innerHTML='';
-  ['All experiments','Universe','Physics','Patterns & life','AI & learning'].forEach(category=>{
+  // A category whose demos are all archived would only ever show an empty grid.
+  const activeCategories=new Set(Object.keys(specs.demos).filter(id=>!archivedDemos.has(id)).map(id=>demoCategories[id]||'Physics'));
+  ['All experiments','Universe','Physics','Patterns & life','AI & learning'].filter(category=>category==='All experiments'||activeCategories.has(category)).concat(ARCHIVE).forEach(category=>{
     const button=document.createElement('button');button.textContent=category;
+    if(category===ARCHIVE){button.classList.add('archiveTab');button.title='Demos that are not ready for visitors yet';}
     button.classList.toggle('selected',category===galleryCategory);button.setAttribute('aria-pressed',String(category===galleryCategory));
     button.onclick=()=>{galleryCategory=category;renderGallery();[...filters.children].find(item=>item.textContent===category)?.focus();};filters.appendChild(button);
   });
   let count=0;
-  Object.entries(specs.demos).forEach(([id,d],index)=>{
-    const category=demoCategories[id]||'Physics';
-    if(galleryCategory!=='All experiments'&&galleryCategory!==category)return;
+  Object.entries(specs.demos).forEach(([id,d])=>{
+    const category=demoCategories[id]||'Physics',archived=archivedDemos.has(id);
+    if(archived!==archiveView)return;
+    if(!archiveView&&galleryCategory!=='All experiments'&&galleryCategory!==category)return;
     if(query&&!`${d.name} ${d.tagline} ${category}`.toLowerCase().includes(query))return;
     count++;
-    const card=document.createElement('article');card.className='card';
-    card.innerHTML=`<a class="cardLink" href="/?demo=${encodeURIComponent(id)}"><div class="cardImage"><img src="/static/previews/${encodeURIComponent(id)}.webp" alt="" loading="lazy" width="800" height="450"><span class="num">${String(index+1).padStart(2,'0')}</span></div><div class="cardBody"><span class="cardCategory">${escapeHtml(category)}</span><h3>${escapeHtml(d.name)}</h3><p>${escapeHtml(d.tagline)}</p><div class="go">Explore simulation <span aria-hidden="true">↗</span></div></div></a>`;
+    const card=document.createElement('article');card.className='card'+(archived?' archived':'');
+    card.innerHTML=`<a class="cardLink" href="/?demo=${encodeURIComponent(id)}"><div class="cardImage"><img src="/static/previews/${encodeURIComponent(id)}.webp" alt="" loading="lazy" width="800" height="450"><span class="num">${String(count).padStart(2,'0')}</span>${archived?'<span class="archiveBadge">Archived</span>':''}</div><div class="cardBody"><span class="cardCategory">${escapeHtml(category)}</span><h3>${escapeHtml(d.name)}</h3><p>${escapeHtml(d.tagline)}</p><div class="go">${archived?'Open work in progress':'Explore simulation'} <span aria-hidden="true">↗</span></div></div></a>`;
     card.querySelector('a').onclick=event=>{if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();openDemo(id);};host.appendChild(card);
   });
-  $('#demoCount').textContent=Object.keys(specs.demos).length;
-  $('#galleryResults').textContent=`${count} experiment${count===1?'':'s'}${galleryCategory==='All experiments'?' to explore':` in ${galleryCategory.toLowerCase()}`}`;
-  if(!count)host.innerHTML='<p class="galleryEmpty">No experiments found. Try another search or category.</p>';
+  $('#demoCount').textContent=Object.keys(specs.demos).filter(id=>!archivedDemos.has(id)).length;
+  $('#galleryResults').textContent=archiveView?`${count} archived experiment${count===1?'':'s'} · not yet ready for visitors`:`${count} experiment${count===1?'':'s'}${galleryCategory==='All experiments'?' to explore':` in ${galleryCategory.toLowerCase()}`}`;
+  if(!count)host.innerHTML=`<p class="galleryEmpty">${archiveView?'No archived experiments match.':'No experiments found. Try another search or category.'}</p>`;
 }
 $('#demoSearch').oninput=renderGallery;
 $('#previewReplay').onclick=()=>{const latest=library.find(item=>item.demo===current);if(latest)openRun(latest);};
