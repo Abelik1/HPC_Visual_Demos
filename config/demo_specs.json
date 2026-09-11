@@ -487,5 +487,109 @@
                   "sensors": [{"block": "speed"}]}
       }
     }
+  },
+  "bat_vs_moth": {
+    "name": "Bat vs Moth",
+    "tagline": "Two visitors, two brains: a sonar-hunting bat and a moth that learns to jam it.",
+    "params": {
+      "cave": {
+        "min": 1,
+        "max": 999,
+        "step": 1,
+        "value": 11,
+        "label": "Cave layout"
+      },
+      "moths": {
+        "min": 2,
+        "max": 6,
+        "step": 1,
+        "value": 4,
+        "label": "Moths per cave"
+      },
+      "mutation": {
+        "min": 0.1,
+        "max": 1.0,
+        "step": 0.05,
+        "value": 0.45,
+        "label": "Mutation strength"
+      }
+    },
+    "brain": {
+      "roles": {
+        "bat": {
+          "budget": 30,
+          "default_preset": "two_ears",
+          "hidden": {"max_layers": 2, "costs": {"4": 3, "8": 5, "16": 9}},
+          "blocks": {
+            "ear_left": {"kind": "sensor", "label": "Left ear", "short": "L ear", "icon": "ear", "cost": 4, "max": 1,
+                         "inputs": 2, "input_names": ["L echo", "L delay"],
+                         "desc": "Hears echoes from the left: how loud, and how long they took."},
+            "ear_right": {"kind": "sensor", "label": "Right ear", "short": "R ear", "icon": "ear", "cost": 4, "max": 1,
+                          "inputs": 2, "input_names": ["R echo", "R delay"],
+                          "desc": "Hears echoes from the right. One ear alone cannot tell left from right."},
+            "whiskers": {"kind": "sensor", "label": "Whiskers", "short": "whiskers", "icon": "whisker", "cost": 3, "max": 1,
+                         "inputs": 3, "input_names": ["whisker L", "whisker ahead", "whisker R"],
+                         "desc": "Feels rock walls that are very close."},
+            "doppler": {"kind": "sensor", "label": "Doppler sense", "short": "doppler", "icon": "doppler", "cost": 6, "max": 1,
+                        "inputs": 1, "input_names": ["closing speed"],
+                        "desc": "Hears the pitch shift: is the echo getting closer or flying away?"},
+            "memory": {"kind": "sensor", "label": "Memory neuron", "short": "memory", "icon": "memory", "cost": 4, "max": 1,
+                       "inputs": "actions", "input_names": ["last"],
+                       "desc": "Feeds the bat's previous decision back in, so it can keep a plan between chirps."},
+            "steer": {"kind": "action", "label": "Steer", "short": "steer", "icon": "wheel", "cost": 0, "required": true,
+                      "desc": "Bank left or right."},
+            "speed": {"kind": "action", "label": "Wing power", "short": "speed", "icon": "wing", "cost": 0, "required": true,
+                      "desc": "Fly faster or slower (bats cannot hover)."},
+            "chirp": {"kind": "action", "label": "Chirp", "short": "chirp", "icon": "sonar", "cost": 0, "required": true,
+                      "desc": "Send a sonar call. More calls mean more echoes, but every moth hears them too."}
+          },
+          "presets": {
+            "two_ears": {"label": "Two ears", "hidden": [], "actions": ["steer", "speed", "chirp"],
+                         "sensors": [{"block": "ear_left"}, {"block": "ear_right"}, {"block": "whiskers"}]},
+            "one_ear": {"label": "One ear", "hidden": [], "actions": ["steer", "speed", "chirp"],
+                        "sensors": [{"block": "ear_left"}, {"block": "whiskers"}]},
+            "deluxe": {"label": "Deluxe", "hidden": [8, 4], "actions": ["steer", "speed", "chirp"],
+                       "sensors": [{"block": "ear_left"}, {"block": "ear_right"}, {"block": "whiskers"},
+                                   {"block": "doppler"}, {"block": "memory"}]},
+            "deaf": {"label": "Deaf", "hidden": [4], "actions": ["steer", "speed", "chirp"],
+                     "sensors": [{"block": "whiskers"}]}
+          }
+        },
+        "moth": {
+          "budget": 20,
+          "default_preset": "full_kit",
+          "hidden": {"max_layers": 2, "costs": {"4": 3, "8": 5, "16": 9}},
+          "blocks": {
+            "tympanum": {"kind": "sensor", "label": "Bat-detector ear", "short": "chirp heard", "icon": "ear", "cost": 3, "max": 1,
+                         "inputs": 1, "input_names": ["chirp heard"],
+                         "desc": "Hears bat calls from further away than the bat can hear its echo."},
+            "direction": {"kind": "sensor", "label": "Direction ears", "short": "bat direction", "icon": "compass", "cost": 5, "max": 1,
+                          "inputs": 2, "input_names": ["bat sin", "bat cos"],
+                          "desc": "A pair of ears tells which way the call came from."},
+            "feelers": {"kind": "sensor", "label": "Feelers", "short": "feelers", "icon": "whisker", "cost": 2, "max": 1,
+                        "inputs": 2, "input_names": ["feeler L", "feeler R"],
+                        "desc": "Antennae that touch nearby rock."},
+            "steer": {"kind": "action", "label": "Steer", "short": "steer", "icon": "wheel", "cost": 0, "required": true,
+                      "desc": "Turn left or right."},
+            "speed": {"kind": "action", "label": "Wing power", "short": "speed", "icon": "wing", "cost": 0, "required": true,
+                      "desc": "Flutter faster or slower."},
+            "dive": {"kind": "action", "label": "Power dive", "short": "dive", "icon": "dive", "cost": 3,
+                     "desc": "A sudden, erratic escape burst. Tiring, so it needs a rest afterwards."},
+            "jam": {"kind": "action", "label": "Jamming click", "short": "jam", "icon": "click", "cost": 5,
+                    "desc": "Clicks that put fake echoes into a nearby bat's ears, like real tiger moths. Costs energy."}
+          },
+          "presets": {
+            "full_kit": {"label": "Full kit", "hidden": [4], "actions": ["steer", "speed", "dive", "jam"],
+                         "sensors": [{"block": "tympanum"}, {"block": "direction"}]},
+            "dodger": {"label": "Dodger", "hidden": [4], "actions": ["steer", "speed", "dive"],
+                       "sensors": [{"block": "tympanum"}, {"block": "direction"}, {"block": "feelers"}]},
+            "jammer": {"label": "Jammer", "hidden": [4], "actions": ["steer", "speed", "jam"],
+                       "sensors": [{"block": "tympanum"}, {"block": "feelers"}]},
+            "clueless": {"label": "Clueless", "hidden": [], "actions": ["steer", "speed"],
+                         "sensors": [{"block": "feelers"}]}
+          }
+        }
+      }
+    }
   }
 }

@@ -13,7 +13,8 @@
     "plasma_guardian": {"batch": 32, "horizon": 12, "train_updates": 10, "display_steps": 40},
     "weather_ensemble": {"n": 48, "total_steps": 160, "ensemble": 9, "sweep_n": 30, "sweep_steps": 90},
     "molecular_dynamics": {"particles": 56, "total_steps": 240, "ensemble": 9, "sweep_particles": 28, "sweep_steps": 100},
-    "neuro_racers": {"population": 48, "generations": 6, "sim_steps": 450, "record_every": 3, "record_cars": 24, "ensemble": 4, "reveal_population": 24, "reveal_generations": 4}
+    "neuro_racers": {"population": 48, "generations": 6, "sim_steps": 450, "record_every": 3, "record_cars": 24, "ensemble": 4, "reveal_population": 24, "reveal_generations": 4},
+    "bat_vs_moth": {"population": 32, "generations": 6, "hunt_steps": 300, "record_every": 2, "moth_head_start": 3, "ensemble": 4, "reveal_population": 16, "reveal_generations": 3}
   },
   "local": {
     "black_hole": {
@@ -118,6 +119,16 @@
       "ensemble": 9,
       "reveal_population": 40,
       "reveal_generations": 10
+    },
+    "bat_vs_moth": {
+      "population": 160,
+      "generations": 60,
+      "hunt_steps": 450,
+      "record_every": 2,
+      "moth_head_start": 27,
+      "ensemble": 9,
+      "reveal_population": 48,
+      "reveal_generations": 8
     }
   },
   "desktop": {
@@ -223,6 +234,16 @@
       "ensemble": 16,
       "reveal_population": 128,
       "reveal_generations": 20
+    },
+    "bat_vs_moth": {
+      "population": 1024,
+      "generations": 80,
+      "hunt_steps": 600,
+      "record_every": 2,
+      "moth_head_start": 32,
+      "ensemble": 16,
+      "reveal_population": 256,
+      "reveal_generations": 15
     }
   },
   "hpc": {
@@ -328,6 +349,16 @@
       "ensemble": 64,
       "reveal_population": 512,
       "reveal_generations": 30
+    },
+    "bat_vs_moth": {
+      "population": 8192,
+      "generations": 100,
+      "hunt_steps": 750,
+      "record_every": 2,
+      "moth_head_start": 40,
+      "ensemble": 64,
+      "reveal_population": 1024,
+      "reveal_generations": 25
     }
   }
 }
