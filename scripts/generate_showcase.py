@@ -28,6 +28,8 @@ DEMOS = (
     "plasma_guardian",
     "weather_ensemble",
     "molecular_dynamics",
+    "neuro_racers",
+    "bat_vs_moth",
 )
 
 

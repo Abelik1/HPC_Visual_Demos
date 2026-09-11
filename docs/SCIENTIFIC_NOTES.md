@@ -227,3 +227,61 @@ electrostatics, chemical bonding, force-field parameterisation or physical
 time calibration, and the model must not be presented as a drug-binding or
 protein-structure prediction. Its role is to visualise molecular ensembles and
 the computational structure of pair forces.
+
+## Neuro-Racers
+
+The learning is real: every car's steering, throttle and brake come from a
+tanh multilayer perceptron with the visitor's architecture, and the weights are
+found by a genetic algorithm (per-generation elitism, tournament selection,
+uniform crossover and Gaussian mutation with decaying strength). No gradients,
+human driving data or hand-written driving rules are used. Fitness is the net
+distance driven along the track centre line in a fixed time, with a small
+crash penalty.
+
+The car is a reduced top-down kinematic bicycle model: speed with drag,
+engine braking and brakes, curvature proportional to steering, and a lateral
+acceleration limit above which the car skids and loses speed. It is not tyre,
+suspension or vehicle-dynamics modelling, and lap times are in simulated
+seconds of this model only. Distance sensors are sphere-traced through a
+precomputed signed-distance grid of the walls (1/24 world-unit cells), so a
+ray's reading is accurate to about that resolution. The track compass reports
+the bearing to a point 1.6 units ahead on the centre line.
+
+CPU (NumPy) and CUDA (fused CuPy kernels) execute the same arithmetic; small
+float differences can change which car finishes a lap first, so runs are
+scientifically, not bitwise, equivalent. Reveal tiles are independent
+evolutions of the same architecture from different seeds. Ghost cars are
+earlier champions re-simulated deterministically on the current track.
+
+## Bat vs Moth
+
+Two populations with visitor-built architectures co-evolve with the same
+genetic algorithm as Neuro-Racers (stronger tournaments for these noisier
+rewards). The behaviours are learned, not scripted: nothing tells a bat to
+turn toward the louder ear or a moth to click when a bat is close.
+
+The sonar is a **reduced exhibition model, not acoustics**. When a bat calls,
+each moth within 6 units returns an echo whose loudness falls linearly with
+distance and with a cardioid gain for ears pointing 40° left and right; its
+delay input is proportional to distance. Rock does not block or reflect sound
+in the echo model (rock is sensed only by short whisker rays), there is no
+frequency content, and "Doppler" is simply the closing speed of the strongest
+echo. Moths hear calls within 9 units, reflecting that real moths detect bats
+before bats detect them, and hold the call's loudness and bearing for a few
+steps.
+
+Jamming is modelled on tiger-moth (e.g. *Bertholdia trigona*) clicks: a
+jamming moth within 3 units of a calling bat replaces its own echo with a
+phantom of random loudness and delay. Jamming costs survival fitness in
+proportion to how long it is used. A power dive is a short, erratic burst of
+speed with a rest period. Moths only begin evolving after a head start, and
+start with jam and dive switched off; both are presentation choices so the
+arms race can be seen within an exhibition run, and they are stated in the
+viewer. "Jamming evolved" is reported only for selective jamming (much more
+often with a bat near than far).
+
+Bat fitness counts catches (earlier is better) plus a term for flying toward
+the nearest audible moth, minus small costs for calls and wall hits. Moth
+fitness is survival time minus time spent close to the bat and energy spent
+jamming or diving. Speeds and ranges are in abstract cave units and seconds;
+they are not calibrated to any bat or moth species.

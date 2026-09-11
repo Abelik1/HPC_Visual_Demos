@@ -20,3 +20,5 @@ defines the clean-frame and output contracts.
 | AI Plasma Guardian | [plasma_guardian](plasma_guardian/README.md) |
 | Storm Factory | [weather_ensemble](weather_ensemble/README.md) |
 | Molecular Machine | [molecular_dynamics](molecular_dynamics/README.md) |
+| Neuro-Racers | [neuro_racers](neuro_racers/README.md) |
+| Bat vs Moth | [bat_vs_moth](bat_vs_moth/README.md) |

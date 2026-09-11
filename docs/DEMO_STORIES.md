@@ -99,3 +99,33 @@ As the storm moves: "Vorticity carries rotating weather systems while moisture i
 As the chain rearranges: "This is one trajectory through an enormous space of possible shapes."
 
 **Reveal:** "Change temperature, attraction or sequence and the answer changes. A supercomputer turns one slow experiment into a virtual laboratory of molecular trajectories."
+
+## 13. Neuro-Racers
+
+**Invite:** "Come and build a brain. You have 40 LEGO points: which senses does your car get? How many neurons? Can it brake?"
+
+**Opening (generation 1):** "Every car has your brain, but random wiring. Watch: most spin in circles or hit the wall."
+
+As laps appear: "Nobody told them how to drive. The furthest cars became parents; their children got slightly mutated copies of the wiring. Now look at generation ten."
+
+**Brain graph:** "These are the actual weights your car evolved. A sensor that stays dark is one evolution decided to ignore."
+
+**Challenges for the next visitor:** "Can a brain with no hidden layer win? Can you beat the ghost of the last visitor? What happens if every sensor points left?"
+
+**Reveal:** "That was one search. Here is the same brain evolved from different random starts: some find a fast lap, some never do. Leonardo runs thousands of these searches at once, and that is how real AI research explores designs."
+
+## 14. Bat vs Moth
+
+**Invite (two visitors):** "One of you builds a bat, the other a moth. Bat: you are blind, but you can hear the echoes of your own calls. Moth: you can hear the bat coming. And you have a secret weapon."
+
+**Opening (bat's senses):** "This is all the bat knows. It shouts, and the echoes come back: that ring lights up the rock, and those glows are moths."
+
+During the head start: "Only the bats are evolving so far. The ones that turn toward the louder ear catch more moths. Look at the arms-race chart climbing."
+
+When moths start evolving: "Now the moths fight back. Watch for magenta: a moth clicking so that its echo appears somewhere it isn't."
+
+**Challenge:** "Bat visitor: try taking an ear away. Moth visitor: what happens without the jamming block?"
+
+**Punchline:** "Real tiger moths jam bat sonar with ultrasonic clicks. Evolution found that trick millions of years ago. Here it has to rediscover it inside a supercomputer."
+
+**Reveal:** "Now the same bats and moths are released into caves they have never seen. Does the jamming survive? Every tile is its own evolving world, and Leonardo runs thousands of them side by side."

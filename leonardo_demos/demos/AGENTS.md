@@ -51,6 +51,13 @@ This file applies to every solver in this directory. Read the matching
   policy topology are overlays. Amber is tearing-risk proxy; red is baseline.
 - `weather_ensemble.py`: the reveal must remain an initial-condition ensemble,
   with uncertainty affecting members rather than only their labels.
+- `neuro_racers.py`: the NumPy `RaceSim` path is the reference and the fused
+  CuPy kernels must match it; no cuBLAS in `neuroevo.Population.forward`; the
+  brain catalogue lives only in `demo_specs.json`. See
+  `docs/demos/neuro_racers/AGENTS.md`.
+- `bat_vs_moth.py`: main frames are the bat's senses only; "jamming evolved"
+  means selective jamming; keep jamming a private benefit and the moth head
+  start/quiet start. See `docs/demos/bat_vs_moth/AGENTS.md`.
 - `molecular_dynamics.py`: preserve stable integration, bounded all-pairs work,
   and the coarse-grained—not atomistic—description.
 
