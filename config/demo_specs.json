@@ -411,5 +411,81 @@
         "value": 0
       }
     }
+  },
+  "neuro_racers": {
+    "name": "Neuro-Racers",
+    "tagline": "Build a car brain from blocks, then evolve a whole grid of racers to drive it.",
+    "params": {
+      "track": {
+        "min": 0,
+        "max": 3,
+        "step": 1,
+        "value": 0,
+        "kind": "choice",
+        "label": "Track",
+        "options": {
+          "0": "Oval",
+          "1": "Kidney",
+          "2": "Hairpin",
+          "3": "Grand Prix"
+        }
+      },
+      "mutation": {
+        "min": 0.1,
+        "max": 1.0,
+        "step": 0.05,
+        "value": 0.5,
+        "label": "Mutation strength"
+      },
+      "seed": {
+        "min": 1,
+        "max": 999,
+        "step": 1,
+        "value": 7,
+        "label": "Random start"
+      }
+    },
+    "brain": {
+      "budget": 40,
+      "default_preset": "balanced",
+      "hidden": {
+        "max_layers": 3,
+        "costs": {"4": 3, "8": 5, "16": 9}
+      },
+      "blocks": {
+        "ray": {"kind": "sensor", "label": "Distance ray", "short": "ray", "icon": "ray", "cost": 3, "max": 9,
+                "angles": [-90, -60, -45, -30, -15, 0, 15, 30, 45, 60, 90],
+                "desc": "Measures how far the wall is in one direction (3 car-lengths)."},
+        "long_ray": {"kind": "sensor", "label": "Long-range ray", "short": "far ray", "icon": "ray", "cost": 5, "max": 3,
+                     "angles": [-30, -15, 0, 15, 30],
+                     "desc": "Sees twice as far, so the car can spot corners early."},
+        "speed": {"kind": "sensor", "label": "Speedometer", "short": "speed", "icon": "gauge", "cost": 2, "max": 1,
+                  "desc": "How fast the car is going right now."},
+        "grip": {"kind": "sensor", "label": "Skid sensor", "short": "skid", "icon": "skid", "cost": 2, "max": 1,
+                 "desc": "Feels the tyres sliding when a turn is too fast."},
+        "compass": {"kind": "sensor", "label": "Track compass", "short": "compass", "icon": "compass", "cost": 8, "max": 1,
+                    "inputs": 2, "input_names": ["gate sin", "gate cos"],
+                    "desc": "Points at the track ahead. Powerful, so it is expensive."},
+        "steer": {"kind": "action", "label": "Steering", "short": "steer", "icon": "wheel", "cost": 0, "required": true,
+                  "desc": "Turn left or right."},
+        "throttle": {"kind": "action", "label": "Throttle", "short": "throttle", "icon": "pedal", "cost": 0, "required": true,
+                     "desc": "Accelerate; letting off only coasts."},
+        "brake": {"kind": "action", "label": "Brakes", "short": "brake", "icon": "brake", "cost": 2,
+                  "desc": "Slow down hard before a tight corner."}
+      },
+      "presets": {
+        "balanced": {"label": "Balanced", "hidden": [8], "actions": ["steer", "throttle", "brake"],
+                     "sensors": [{"block": "ray", "angle": -90}, {"block": "ray", "angle": -45}, {"block": "ray", "angle": 0},
+                                 {"block": "ray", "angle": 45}, {"block": "ray", "angle": 90}, {"block": "speed"}]},
+        "tiny": {"label": "Tiny brain", "hidden": [], "actions": ["steer", "throttle"],
+                 "sensors": [{"block": "ray", "angle": -45}, {"block": "ray", "angle": 0}, {"block": "ray", "angle": 45}]},
+        "big": {"label": "Big brain", "hidden": [8, 4], "actions": ["steer", "throttle", "brake"],
+                "sensors": [{"block": "ray", "angle": -90}, {"block": "ray", "angle": -45}, {"block": "ray", "angle": -15},
+                            {"block": "ray", "angle": 15}, {"block": "ray", "angle": 45}, {"block": "ray", "angle": 90},
+                            {"block": "long_ray", "angle": 0}, {"block": "speed"}]},
+        "blind": {"label": "Blind", "hidden": [4], "actions": ["steer", "throttle"],
+                  "sensors": [{"block": "speed"}]}
+      }
+    }
   }
 }

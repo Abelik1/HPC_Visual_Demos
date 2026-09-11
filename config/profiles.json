@@ -12,7 +12,8 @@
     "fusion_plasma": {"n": 64, "total_steps": 180, "ensemble": 9, "sweep_n": 36, "sweep_steps": 90, "tracers": 90, "trail": 8},
     "plasma_guardian": {"batch": 32, "horizon": 12, "train_updates": 10, "display_steps": 40},
     "weather_ensemble": {"n": 48, "total_steps": 160, "ensemble": 9, "sweep_n": 30, "sweep_steps": 90},
-    "molecular_dynamics": {"particles": 56, "total_steps": 240, "ensemble": 9, "sweep_particles": 28, "sweep_steps": 100}
+    "molecular_dynamics": {"particles": 56, "total_steps": 240, "ensemble": 9, "sweep_particles": 28, "sweep_steps": 100},
+    "neuro_racers": {"population": 48, "generations": 6, "sim_steps": 450, "record_every": 3, "record_cars": 24, "ensemble": 4, "reveal_population": 24, "reveal_generations": 4}
   },
   "local": {
     "black_hole": {
@@ -107,6 +108,16 @@
       "ensemble": 16,
       "sweep_particles": 32,
       "sweep_steps": 280
+    },
+    "neuro_racers": {
+      "population": 160,
+      "generations": 25,
+      "sim_steps": 900,
+      "record_every": 3,
+      "record_cars": 32,
+      "ensemble": 9,
+      "reveal_population": 40,
+      "reveal_generations": 10
     }
   },
   "desktop": {
@@ -202,6 +213,16 @@
       "ensemble": 25,
       "sweep_particles": 72,
       "sweep_steps": 650
+    },
+    "neuro_racers": {
+      "population": 1024,
+      "generations": 40,
+      "sim_steps": 1200,
+      "record_every": 3,
+      "record_cars": 48,
+      "ensemble": 16,
+      "reveal_population": 128,
+      "reveal_generations": 20
     }
   },
   "hpc": {
@@ -297,6 +318,16 @@
       "ensemble": 64,
       "sweep_particles": 160,
       "sweep_steps": 1400
+    },
+    "neuro_racers": {
+      "population": 8192,
+      "generations": 60,
+      "sim_steps": 1500,
+      "record_every": 3,
+      "record_cars": 64,
+      "ensemble": 64,
+      "reveal_population": 512,
+      "reveal_generations": 30
     }
   }
 }
