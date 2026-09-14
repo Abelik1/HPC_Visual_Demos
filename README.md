@@ -111,6 +111,23 @@ To generate an individual run directly:
 python run_demo.py reaction_diffusion --profile desktop --frames 150
 ```
 
+## Carry saved runs to another machine
+
+`runs/` is not in git (a showcase run can be gigabytes of frames). To move the
+runs worth keeping (every starred run, every showcase pick and every run made
+on Discoverer or Leonardo), pack them into one zip:
+
+```bash
+python tools/export_runs.py
+```
+
+On Windows, double-click `Export_Saved_Runs.bat`. The zip lands in `exports/`
+(`--list` previews the selection; `--run RUN_ID` adds more). Copy it by Google
+Drive or USB, put it in `runs/_import/` (or the project root) on the other
+machine, and start the viewer: the runs are unpacked in the background and the
+stars and showcase picks come with them. Runs that already exist are never
+overwritten, and a zip is only imported once, so it can be deleted afterwards.
+
 ## Recreate this showcase
 
 The showcase command is resumable: complete runs are reused and missing or incomplete demos are rendered again. GIF creation requires `ffmpeg` on `PATH`.

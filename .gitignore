@@ -12,3 +12,7 @@ tmp/
 
 # Gaia DR3 sky for the black-hole demo (35 MB): python tools/fetch_gaia_sky.py
 data/gaia_sky.npz
+
+# Saved-run bundles (tools/export_runs.py); carried by Drive/USB, never committed
+exports/
+/leonardo_runs_*.zip

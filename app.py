@@ -13,6 +13,7 @@ from run_demo import run, load_profiles, load_specs, profile_setting_schema, can
 from leonardo_demos.registry import DEMOS
 from leonardo_demos.backend import probe as probe_backends
 from leonardo_demos.neuroevo import BrainError, brain_catalogue, validate_brains
+from leonardo_demos import run_bundles
 
 ROOT=Path(__file__).resolve().parent; RUNS=ROOT/'runs'; RUNS.mkdir(exist_ok=True)
 app=FastAPI(title='Leonardo Visual Demos')
@@ -213,6 +214,19 @@ def set_showcase(demo:str,req:ShowcaseReq):
         else: data['showcase'].pop(demo,None)
         save_library(data)
     return {'demo':demo,'runs':runs}
+
+# ---- run bundles: saved runs carried between machines as one zip ---------
+# tools/export_runs.py packs favourites, showcase picks and cluster runs into a
+# zip. Drop it into runs/_import/ (or the project root) and the viewer unpacks
+# it on start, favourites and showcase included.
+IMPORT_DIR=RUNS/run_bundles.IMPORT_DIR_NAME; IMPORT_DIR.mkdir(exist_ok=True)
+
+def update_library(change):
+    with LIBRARY_LOCK: save_library(change(load_library()))
+
+def import_run_bundles():
+    try: run_bundles.import_pending(RUNS,[IMPORT_DIR,ROOT],update_library)
+    except Exception as exc: print(f'Importing run bundles failed: {exc}')
 
 @app.post('/api/run/{demo}')
 def start(demo:str,req:RunReq):
@@ -710,6 +724,8 @@ if __name__=='__main__':
         print(f'  demo it launches will fail.')
         print('=' * 68)
     print(f'Leonardo Visual Demos -> {url}')
+    # Large bundles take minutes to unpack; runs appear in the list as each lands.
+    threading.Thread(target=import_run_bundles,name='run-bundle-import',daemon=True).start()
     try: webbrowser.open(url)
     except Exception: pass
     uvicorn.run(app,host='127.0.0.1',port=port)
