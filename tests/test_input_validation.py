@@ -77,6 +77,26 @@ class InputValidationTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             start('fluid', RunReq(obstacle_grid=[[0,1],[1,0]]))
 
+    def test_custom_only_wind_tunnel_uses_just_the_drawing(self):
+        from leonardo_demos.demos.fluid import FluidDemo
+        demo=FluidDemo(None,{})
+        grid=[[0]*24 for _ in range(12)]
+        for row in range(4,8): grid[row][10]=1
+        drawn=demo.build_obstacles(96,48,3,grid)
+        combined=demo.build_obstacles(96,48,0,grid)
+        # The cylinder sits left of the drawn bar; only the combined mask has it.
+        self.assertFalse(drawn[24,24:30].any())
+        self.assertTrue(combined[24,24:30].any())
+        self.assertTrue(drawn.any())
+        with self.assertRaises(ValueError):
+            demo.build_obstacles(96,48,3,None)
+
+    def test_api_rejects_custom_only_wind_tunnel_without_a_drawing(self):
+        with self.assertRaisesRegex(HTTPException,'draw at least one block'):
+            start('fluid',RunReq(params={'obstacle':3}))
+        with self.assertRaisesRegex(HTTPException,'draw at least one block'):
+            start('fluid',RunReq(params={'obstacle':3},obstacle_grid=[[0]*8 for _ in range(6)]))
+
     def test_api_accepts_one_reveal_simulation_for_a_fast_test_run(self):
         with patch('app.threading.Thread') as thread:
             result=start('reaction_diffusion', RunReq(parallel_count=1))
@@ -119,19 +139,40 @@ class InputValidationTests(unittest.TestCase):
     def test_neural_targets_are_rgb(self):
         self.assertEqual(NeuralWallDemo(None,{}).target(16,kind=2).shape,(16,16,3))
 
-    def test_neural_hero_renders_live_weight_view(self):
-        demo=NeuralWallDemo(None,{})
-        state={'width':6,'w1':np.ones((2,6),dtype=np.float32),
-               'w2':np.eye(6,dtype=np.float32),'w3':np.ones((6,1),dtype=np.float32)}
-        image=demo.hero_image(np.zeros((16,16)),np.ones((16,16)),np.array([.1]),0,
-                              [.5,.1],1,'torch·cpu',1.0,20,100,True,state)
-        self.assertEqual(image.size,(1280,720))
+    def test_compression_accounting_never_overclaims(self):
+        from leonardo_demos.demos.neural_wall import (image_bytes, network_bytes, parameter_count,
+                                                      compression_champion, jpeg_at_size)
+        self.assertEqual(image_bytes(40), 40*40*3)
+        self.assertEqual(network_bytes(40), parameter_count(40)*4)
+        # At 40 px the widest network is bigger than the picture it redraws.
+        self.assertGreater(network_bytes(40), image_bytes(40))
+        widths=np.array([40, 6]); losses=np.array([.001, .02])
+        best, compresses=compression_champion(losses, widths, 40)
+        self.assertEqual((best, compresses), (1, True))       # the smaller-than-picture one wins
+        best, compresses=compression_champion(losses, np.array([40, 40]), 40)
+        self.assertFalse(compresses)
+        picture=(np.random.default_rng(0).random((32,32,3))*255).astype(np.uint8)
+        fitted=jpeg_at_size(picture, 1500)
+        self.assertLessEqual(fitted[0], 1500)
+        self.assertIsNone(jpeg_at_size(picture, 10))
 
     def test_neural_demo_renders_network_view(self):
         with tempfile.TemporaryDirectory() as directory:
             context=RunContext(Path(directory),'neural_wall','local',2,{'target':0,'difficulty':1.0},'numpy')
             NeuralWallDemo(context,{'networks':4,'tile':10,'total_steps':4}).run()
-            self.assertTrue((Path(directory)/'frames'/'frame_0000.jpg').exists())
+            root=Path(directory)
+            # Both views for every frame: nothing switches automatically mid-run.
+            for path in ('frames/frame_0001.jpg','modes/wall/frame_0000.jpg','modes/wall/frame_0001.jpg',
+                         'recon/frame_0001.png','target_reduced.png','target_source.png','overlays/network/frame_0001.jpg'):
+                self.assertTrue((root/path).exists(), path)
+            import json
+            meta=json.loads((root/'meta.json').read_text())
+            self.assertEqual([m['id'] for m in meta['view_modes']],['frames','wall'])
+            self.assertEqual(meta['compression']['picture_bytes'],10*10*3)
+            self.assertEqual(len(meta['compression']['networks']),4)
+            values=json.loads((root/'frame_data'/'frame_0001.json').read_text())['values']
+            for key in ('picture in','network size','compression','quality','same-size JPEG'):
+                self.assertIn(key, values)
 
     def test_fourier_features_sharpen_a_high_frequency_target(self):
         torch=__import__('torch')
@@ -158,6 +199,21 @@ class InputValidationTests(unittest.TestCase):
         # only a trace from the resampling filter at the cut edge.
         self.assertLess(float(target[...,0].max()),.2)
         self.assertGreater(float(target[...,2].min()),.8)
+
+    def test_a_crashed_run_process_is_reported_as_failed(self):
+        from app import record_crashed_run
+        import json
+        with tempfile.TemporaryDirectory() as directory:
+            rd=Path(directory)
+            (rd/'meta.json').write_text(json.dumps({'status':'starting','demo':'neural_wall'}))
+            record_crashed_run(rd,0xC0000005)                  # Windows access violation
+            meta=json.loads((rd/'meta.json').read_text())
+            self.assertEqual(meta['status'],'failed')
+            self.assertIn('0xC0000005',meta['error'])
+            self.assertEqual(meta['demo'],'neural_wall')        # existing metadata kept
+            (rd/'meta.json').write_text(json.dumps({'status':'complete'}))
+            record_crashed_run(rd,1)                            # a finished run is left alone
+            self.assertEqual(json.loads((rd/'meta.json').read_text())['status'],'complete')
 
     def test_hpc_preset_replaces_leonardo_and_old_name_still_works(self):
         from run_demo import canonical_profile, load_profiles

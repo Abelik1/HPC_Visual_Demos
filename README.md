@@ -62,15 +62,15 @@ A real batched coordinate-network training workload that reveals many networks a
 
 ### Star in a Bottle
 
-A reduced nonlinear plasma-wave lattice projected onto a rotatable tokamak torus.
+A reduced nonlinear plasma-wave lattice projected onto a rotatable tokamak torus,
+in two selectable modes. *Passive confinement* advects tracers through the drift
+the field produces. *AI plasma guardian* hands the coils to a neural policy
+trained through virtual plasma shots, fills the torus with confined markers, and
+sparks the ones the policy fails to hold against the wall.
 
 <img src="docs/assets/demos/fusion_plasma.gif" alt="Fusion plasma demo" width="480">
 
-### AI Plasma Guardian
-
-A trainable neural controller learns to suppress a reduced plasma instability.
-
-<img src="docs/assets/demos/plasma_guardian.gif" alt="AI Plasma Guardian demo" width="480">
+<img src="docs/assets/demos/plasma_guardian.gif" alt="AI Plasma Guardian mode" width="480">
 
 ### Storm Factory
 
@@ -99,6 +99,11 @@ python app.py
 ```
 
 Open the address printed by the server, normally `http://127.0.0.1:8000`. On Windows, `Run_Leonardo_Demos.bat` provides a simple demo menu.
+
+For a public stand, open `http://127.0.0.1:8000/demo` instead: a stripped-back
+walk-up viewer with large controls, the explanation printed under the picture
+and every advanced setting behind one presenter panel. See
+[docs/DEMO_MODE.md](docs/DEMO_MODE.md).
 
 To generate an individual run directly:
 

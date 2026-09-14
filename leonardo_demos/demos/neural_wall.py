@@ -1,10 +1,10 @@
 from __future__ import annotations
-import math, warnings
+import io, math, warnings
 import numpy as np
 from PIL import Image, ImageDraw, ImageOps
 from ..base import Demo
 from ..backend import torch_device
-from ..render import add_title, add_progress, save_frame, mosaic, font
+from ..render import font
 
 # Networks are laid out as a 2-D hyperparameter grid: learning rate varies
 # along a row, hidden width varies down a column. That makes the reveal wall
@@ -40,6 +40,71 @@ def parameter_count(width,fourier=True):
     """Learned numbers in one network: its size as a compressed image."""
     inputs=2*FOURIER_FEATURES if fourier else 2
     return inputs*width+width + width*width+width + width*3+3
+
+
+# ---- image compression accounting ------------------------------------------
+# A coordinate network is a lossy image codec: its weights are the file. These
+# helpers keep the demo's claims honest. The picture is counted as raw 8-bit
+# RGB, the network as the float32 weights it actually stores (the Fourier
+# frequencies come from a fixed seed, so a decoder would regenerate them).
+
+def image_bytes(side):
+    """Raw size of a side x side 8-bit RGB picture."""
+    return int(side)*int(side)*3
+
+
+def network_bytes(width,fourier=True):
+    return parameter_count(int(width),fourier)*4
+
+
+def psnr(mse):
+    """Peak signal-to-noise ratio in dB for values in [0, 1]."""
+    return 10*math.log10(1/max(float(mse),1e-10))
+
+
+def quality_words(db):
+    if db>=35: return "almost identical"
+    if db>=30: return "very close"
+    if db>=25: return "clearly recognisable"
+    if db>=20: return "blurry"
+    return "barely recognisable"
+
+
+def format_bytes(n):
+    n=float(n)
+    return f"{n:,.0f} B" if n<1024 else f"{n/1024:,.1f} KB" if n<1024*1024 else f"{n/1024/1024:,.2f} MB"
+
+
+def jpeg_at_size(rgb_uint8,max_bytes):
+    """The best JPEG of the same picture that fits in max_bytes.
+
+    Returns (bytes, quality setting, PSNR) or None when even the lowest
+    quality is bigger. A network that loses to this is not a good codec, and
+    the viewer says so rather than implying neural compression is magic.
+    """
+    image=Image.fromarray(rgb_uint8); reference=rgb_uint8.astype(np.float32)/255
+    best=None; lo,hi=1,95
+    while lo<=hi:
+        q=(lo+hi)//2; buf=io.BytesIO(); image.save(buf,'JPEG',quality=q); size=buf.tell()
+        if size<=max_bytes:
+            buf.seek(0); decoded=np.asarray(Image.open(buf).convert('RGB'),dtype=np.float32)/255
+            best=(size,q,psnr(np.mean((decoded-reference)**2))); lo=q+1
+        else:
+            hi=q-1
+    return best
+
+
+def compression_champion(losses,widths,side,fourier=True):
+    """Best reconstruction among networks that are smaller than the picture.
+
+    Returns (index, any_network_compresses). If no network is smaller, the
+    overall best is returned and the caller must say it is not compressing.
+    """
+    sizes=np.array([network_bytes(w,fourier) for w in widths])
+    pool=np.flatnonzero(sizes<image_bytes(side))
+    compresses=bool(len(pool))
+    if not compresses: pool=np.arange(len(losses))
+    return int(pool[np.argmin(np.asarray(losses)[pool])]),compresses
 
 
 def grid_shape(networks):
@@ -184,9 +249,10 @@ class SurrogateWall:
 
 
 class NeuralWallDemo(Demo):
-    id="neural_wall"; title="Neural-network wall"
+    # The id stays neural_wall so saved runs and links keep working.
+    id="neural_wall"; title="Neural image compression"
     backend_kind="torch"
-    timing_methods={"hero_image":"render","wall_image":"render"}
+    timing_methods={"compose_frame":"render","wall_image":"render"}
     def drawn_target(self,n,path):
         """Load a visitor's canvas drawing as the coordinate-network target."""
         with Image.open(path) as image:
@@ -230,21 +296,45 @@ class NeuralWallDemo(Demo):
             return Image.fromarray((np.clip(a,0,1)*255).astype(np.uint8),'RGB')
         rgb=np.stack([.15+.7*a,.08+.85*a**1.3,.28+.7*np.sqrt(a)],axis=-1)
         return Image.fromarray((np.clip(rgb,0,1)*255).astype(np.uint8))
-    def wall_image(self,outs,losses,networks,training):
-        cols,_=grid_shape(networks)
-        tiles=[self.shade(a).resize((150,150),Image.Resampling.NEAREST) for a in outs]
-        order=np.argsort(losses)
-        labels=[f"{losses[i]:.4f}" for i in range(len(outs))]
-        im=mosaic(tiles,cols,size=(1280,720),gap=5,top=5,labels=labels,
-                  label_fill=(210,232,255))
-        # Mark the winner of the search; without it the wall is just texture.
-        best=int(order[0]); r,c=divmod(best,cols)
-        gap=5; rows=math.ceil(len(tiles)/cols)
-        tw=(1280-gap*(cols+1))//cols; th=(720-100-gap*(rows+1))//rows
-        x=gap+c*(tw+gap); y=100+r*(th+gap)
-        d=ImageDraw.Draw(im,'RGBA')
-        d.rectangle((x-2,y-2,x+tw+2,y+th+2),outline=(120,255,190,255),width=3)
-        return im,best
+    def wall_image(self,outs,losses,widths,net_bytes,picture_bytes,best):
+        """Every network's reconstruction, labelled with its size and quality.
+
+        A red label means that network is bigger than the picture it redraws,
+        so it is not compressing anything at all.
+        """
+        networks=len(outs); cols,rows=grid_shape(networks); W,H=1280,720; gap=6
+        tile_w=(W-gap*(cols+1))//cols; tile_h=(H-gap*(rows+1))//rows
+        im=Image.new("RGB",(W,H),(3,6,15)); d=ImageDraw.Draw(im,"RGBA")
+        size=max(9,min(15,tile_h//9))
+        for i,a in enumerate(outs):
+            r,c=divmod(i,cols); x=gap+c*(tile_w+gap); y=gap+r*(tile_h+gap)
+            side=min(tile_w,tile_h)
+            thumb=self.shade(a).resize((side,side),Image.Resampling.NEAREST)
+            im.paste(thumb,(x+(tile_w-side)//2,y+(tile_h-side)//2))
+            ratio=picture_bytes/net_bytes[i]
+            label=f"w{int(widths[i])} · {ratio:.1f}× · {psnr(losses[i]):.0f} dB" if ratio>=1 else f"w{int(widths[i])} · bigger than picture"
+            d.rectangle((x,y+tile_h-size-8,x+tile_w,y+tile_h),fill=(2,5,15,210))
+            d.text((x+5,y+tile_h-size-5),label,font=font(size,True),fill=(170,235,205) if ratio>=1 else (255,130,120))
+            if i==best:
+                d.rectangle((x-3,y-3,x+tile_w+2,y+tile_h+2),outline=(120,255,190,255),width=3)
+        return im
+    def compose_frame(self,target_u8,recon_u8,side,net_size,picture_size,db):
+        """The picture that goes in beside the one the network draws back out."""
+        W,H=1280,720; panel=560; top=112
+        im=Image.new("RGB",(W,H),(3,6,15)); d=ImageDraw.Draw(im,"RGBA")
+        lx=(W//2-panel)//2+20; rx=W//2+(W//2-panel)//2-20
+        for x,img in ((lx,target_u8),(rx,recon_u8)):
+            im.paste(Image.fromarray(img).resize((panel,panel),Image.Resampling.NEAREST),(x,top))
+            d.rectangle((x-1,top-1,x+panel,top+panel),outline=(60,90,120,255),width=2)
+        ratio=picture_size/net_size
+        d.text((lx,top-72),"IN",font=font(30,True),fill=(235,242,250))
+        d.text((lx,top-34),f"{side} x {side} px · {format_bytes(picture_size)}",font=font(20),fill=(160,184,205))
+        d.text((rx,top-72),"OUT",font=font(30,True),fill=(235,242,250))
+        d.text((rx,top-34),(f"network {format_bytes(net_size)} · {ratio:.1f}x smaller · {db:.1f} dB" if ratio>=1
+                            else f"network {format_bytes(net_size)} · bigger than the picture"),
+               font=font(20),fill=(170,235,205) if ratio>=1 else (255,130,120))
+        d.text((W//2-18,top+panel//2-26),"→",font=font(46,True),fill=(120,150,180))
+        return im
     def draw_network_view(self,d,state,progress,x0,y0,x1,y1):
         """Draw the current winning MLP using its actual learned connection weights."""
         d.rounded_rectangle((x0,y0,x1,y1),radius=18,fill=(5,13,29,238),outline=(55,110,154,190),width=2)
@@ -297,23 +387,6 @@ class NeuralWallDemo(Demo):
         d.text((x0+17,y1-28),f"{width} neurons per hidden layer · {shown} shown",font=font(11,True),fill=(197,218,240))
         d.line((x1-126,y1-21,x1-108,y1-21),fill=(83,232,255,210),width=2); d.text((x1-103,y1-27),'+',font=font(11,True),fill=(160,190,218))
         d.line((x1-70,y1-21,x1-52,y1-21),fill=(247,98,196,210),width=2); d.text((x1-47,y1-27),'−',font=font(11,True),fill=(160,190,218))
-    def hero_image(self,out,target,losses,best,history,networks,device,difficulty,step,total,training,state):
-        # Main stream = only the network's current RGB reconstruction.  Target,
-        # weights, labels and loss now live in independently toggleable browser
-        # layers instead of consuming most of the scientific image.
-        im=self.shade(out).resize((1280,720),Image.Resampling.NEAREST)
-        d=ImageDraw.Draw(im,'RGBA')
-        progress=step/max(1,total)
-        # Presentation-only scan head: it reveals the evolving reconstruction
-        # in a printer-like path without altering the learned image at all.
-        print_progress=min(1.0,progress*1.85); scan_y=int(720*print_progress)
-        if scan_y<720: d.rectangle((0,scan_y,1280,720),fill=(2,6,15,232))
-        phase=print_progress*24; scan_x=int(1280*((phase%1) if int(phase)%2==0 else 1-phase%1))
-        d.line((scan_x,scan_y-42,scan_x,scan_y+9),fill=(96,238,255,235),width=4)
-        d.rectangle((scan_x-18,scan_y-43,scan_x+18,scan_y-24),fill=(24,83,130,245),outline=(196,247,255,245),width=2)
-        d.ellipse((scan_x-13,scan_y-5,scan_x+13,scan_y+21),fill=(77,229,255,82))
-        return im
-
     def save_network_overlay(self,state,progress,frame):
         im=Image.new('RGB',(520,360),(3,7,17)); d=ImageDraw.Draw(im,'RGBA')
         self.draw_network_view(d,state,progress,10,8,510,350)
@@ -330,42 +403,65 @@ class NeuralWallDemo(Demo):
         if 'total_steps' in s: return max(1,int(s['total_steps']))
         return max(1,int(s.get('train_steps_per_frame',2))*self.ctx.frames)
     def run(self):
-        networks=int(self.settings['networks']); tile=int(self.settings['tile'])
+        networks=int(self.settings['networks']); side=int(self.settings['tile'])
         kind=int(self.ctx.params.get('target',0)); difficulty=float(self.ctx.params.get('difficulty',1.0))
+        fourier=bool(int(self.ctx.params.get('fourier',1)))
         target_path=self.ctx.params.get('_target_path')
-        target=self.drawn_target(tile,target_path) if target_path else self.target(tile,kind,difficulty)
-        trainer=self.make_trainer(networks,tile,target)
-        training=isinstance(trainer,TorchWall)
+        target=self.drawn_target(side,target_path) if target_path else self.target(side,kind,difficulty)
+        trainer=self.make_trainer(networks,side,target)
         total=self.budget(); frames=self.ctx.frames
+        lrs,widths,_,_=hyperparameters(networks)
+        picture=image_bytes(side)
+        sizes=[network_bytes(w,fourier) for w in widths]
+        rd=self.ctx.run_dir
+        (rd/'recon').mkdir(parents=True,exist_ok=True); (rd/'modes'/'wall').mkdir(parents=True,exist_ok=True)
+        (rd/'overlays'/'network').mkdir(parents=True,exist_ok=True)
+        target_u8=(np.clip(target,0,1)*255).round().astype(np.uint8)
+        Image.fromarray(target_u8).save(rd/'target_reduced.png')
+        # A larger copy of what went in, before it was squeezed to `side`.
+        if target_path:
+            with Image.open(target_path) as source:
+                ImageOps.fit(source.convert('RGB'),(256,256),Image.Resampling.LANCZOS).save(rd/'target_source.png')
+        else:
+            Image.fromarray((np.clip(self.target(256,kind,difficulty),0,1)*255).round().astype(np.uint8)).save(rd/'target_source.png')
+        # Both views are recorded for every frame; which one is on screen is the
+        # presenter's choice, never a switch baked into the run.
+        self.ctx.write_meta({
+            "view_modes":[{"id":"frames","label":"In → out","folder":"frames"},
+                          {"id":"wall","label":"All networks","folder":"modes/wall"}],
+            "default_view_mode":"frames",
+            "compression":{"side":side,"picture_bytes":picture,"weights":"float32","fourier":fourier,
+                           "input":"target_reduced.png","source":"target_source.png","recon":"recon",
+                           "networks":[{"width":int(w),"learning_rate":float(lr),"numbers":parameter_count(int(w),fourier),
+                                        "bytes":int(b)} for w,lr,b in zip(widths,lrs,sizes)]}})
         with self.ctx.stage("simulation"):
             outs,losses,device=trainer(1)
-        history=[float(losses.min())]
-        hero_frames=int(frames*.55)
-        done=0
+        done=0; history=[]; jpegs={}
         for i in range(frames):
             step_target=int(round(total*(i+1)/frames))
             with self.ctx.stage("simulation"):
                 outs,losses,device=trainer(max(1,step_target-done))
             done=step_target
-            best=int(np.argmin(losses)); history.append(float(losses[best]))
-            if i < hero_frames:
-                state=trainer.visual_state(best)
-                im=self.hero_image(outs[best],target,losses,best,history,networks,device,
-                                   difficulty,done,total,training,state)
-            else:
-                state=trainer.visual_state(best)
-                im,best=self.wall_image(outs,losses,networks,training)
-                verb="training" if training else "fitting"
-                im=add_title(im,"Actually… I forgot something.",
-                             f"We were {verb} {networks} networks · learning rate varies left→right · width varies top→bottom · {device}",
-                             badge="PARALLEL SEARCH")
-                d=ImageDraw.Draw(im,'RGBA')
-            self.save_network_overlay(state,done/max(1,total),i)
-            add_progress(im,(i+1)/self.ctx.frames,"ONE MODEL?","MODEL SEARCH")
-            lo=hyperparameters(networks)
-            self.ctx.save_frame(im,self.ctx.frame_path(i)); self.ctx.write_status(i,f"best loss {losses[best]:.5f}",{
-                "best loss":f"{losses[best]:.5f}","worst loss":f"{losses.max():.5f}",
-                "winning width":f"{int(lo[1][best])}","learning rate":f"{lo[0][best]:.2e}",
-                "training step":f"{done:,} / {total:,}","networks":f"{networks:,}","device":device})
-        rev,best=self.wall_image(outs,losses,networks,training)
-        rp=self.ctx.run_dir/'reveal.jpg'; self.ctx.save_frame(rev,rp); self.ctx.finish(rp)
+            best,compresses=compression_champion(losses,widths,side,fourier)
+            mse=float(losses[best]); db=psnr(mse); ratio=picture/sizes[best]
+            if sizes[best] not in jpegs: jpegs[sizes[best]]=jpeg_at_size(target_u8,sizes[best])
+            jpeg=jpegs[sizes[best]]
+            recon_u8=(np.clip(outs[best],0,1)*255).round().astype(np.uint8)
+            Image.fromarray(recon_u8).save(rd/'recon'/f'frame_{i:04d}.png')
+            self.ctx.save_frame(self.compose_frame(target_u8,recon_u8,side,sizes[best],picture,db),self.ctx.frame_path(i))
+            self.ctx.save_frame(self.wall_image(outs,losses,widths,sizes,picture,best),rd/'modes'/'wall'/f'frame_{i:04d}.jpg')
+            self.save_network_overlay(trainer.visual_state(best),done/max(1,total),i)
+            history.append({"frame":i,"step":done,"best":best,"psnr":round(db,2)})
+            self.ctx.write_status(i,f"quality {db:.1f} dB",{
+                "picture in":f"{side} × {side} px · {format_bytes(picture)}",
+                "network size":f"{parameter_count(int(widths[best]),fourier):,} numbers · {format_bytes(sizes[best])}",
+                "compression":f"{ratio:.1f}× smaller" if ratio>=1 else f"{1/ratio:.1f}× bigger",
+                "quality":f"{db:.1f} dB · {quality_words(db)}",
+                "same-size JPEG":f"{jpeg[2]:.1f} dB" if jpeg else "cannot get this small",
+                "training step":f"{done:,} / {total:,}",
+                "networks":f"best of {networks:,}"+("" if compresses else " · none smaller than the picture"),
+                "best loss":f"{mse:.5f}","winning width":f"{int(widths[best])}",
+                "learning rate":f"{lrs[best]:.2e}","device":device})
+        self.ctx.write_meta({"compression_history":history})
+        best,_=compression_champion(losses,widths,side,fourier)
+        rp=rd/'reveal.jpg'; self.ctx.save_frame(self.wall_image(outs,losses,widths,sizes,picture,best),rp); self.ctx.finish(rp)

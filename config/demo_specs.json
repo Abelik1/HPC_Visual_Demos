@@ -1,33 +1,92 @@
 {
   "black_hole": {
     "name": "Black-hole lensing",
-    "tagline": "Trace the light, then reveal the scale.",
+    "tagline": "Fly a camera beside a real black hole and trace the Gaia sky through it.",
     "params": {
+      "target": {
+        "min": 0,
+        "max": 3,
+        "step": 1,
+        "value": 0,
+        "kind": "choice",
+        "label": "Black hole",
+        "options": {
+          "0": "Gaia BH3 · 32.7 M☉ · 590 pc",
+          "1": "Gaia BH1 · 9.6 M☉ · 480 pc",
+          "2": "Gaia BH2 · 8.9 M☉ · 1.16 kpc",
+          "3": "A black hole in the Solar System (hypothetical)"
+        },
+        "methods": [
+          "schwarzschild"
+        ]
+      },
+      "camera_distance": {
+        "min": 2.0,
+        "max": 40.0,
+        "step": 0.5,
+        "value": 10.0,
+        "label": "Camera distance (Schwarzschild radii)",
+        "methods": [
+          "schwarzschild"
+        ]
+      },
+      "orbit": {
+        "min": 0,
+        "max": 360,
+        "step": 5,
+        "value": 120,
+        "label": "Camera circles the hole (degrees over the run)",
+        "methods": [
+          "schwarzschild"
+        ]
+      },
+      "dive": {
+        "min": 0.0,
+        "max": 0.8,
+        "step": 0.05,
+        "value": 0.0,
+        "label": "Dive towards the hole (fraction of the distance)",
+        "methods": [
+          "schwarzschild"
+        ]
+      },
       "mass": {
         "min": 0.5,
         "max": 3.0,
         "step": 0.05,
-        "value": 1.35
+        "value": 1.35,
+        "methods": [
+          "weak_field"
+        ]
       },
       "spin": {
         "min": -0.95,
         "max": 0.95,
         "step": 0.05,
-        "value": 0.55
+        "value": 0.55,
+        "methods": [
+          "weak_field"
+        ]
       },
       "lens_x": {
         "min": -1.0,
         "max": 1.0,
         "step": 0.05,
         "value": 0.0,
-        "label": "Primary well position X"
+        "label": "Primary well position X",
+        "methods": [
+          "weak_field"
+        ]
       },
       "lens_y": {
         "min": -1.0,
         "max": 1.0,
         "step": 0.05,
         "value": 0.0,
-        "label": "Primary well position Y"
+        "label": "Primary well position Y",
+        "methods": [
+          "weak_field"
+        ]
       },
       "lens_count": {
         "min": 1,
@@ -40,27 +99,39 @@
           "1": "One well",
           "2": "Binary lenses",
           "3": "Triple lenses"
-        }
+        },
+        "methods": [
+          "weak_field"
+        ]
       },
       "lens_separation": {
         "min": 0.15,
         "max": 1.2,
         "step": 0.05,
         "value": 0.62,
-        "label": "Secondary-well separation"
+        "label": "Secondary-well separation",
+        "methods": [
+          "weak_field"
+        ]
       },
       "lens_angle": {
         "min": 0,
         "max": 360,
         "step": 5,
         "value": 0,
-        "label": "Secondary-well angle"
+        "label": "Secondary-well angle",
+        "methods": [
+          "weak_field"
+        ]
       },
       "disk": {
         "min": 0,
         "max": 1,
         "step": 1,
-        "value": 1
+        "value": 1,
+        "methods": [
+          "weak_field"
+        ]
       }
     }
   },
@@ -94,14 +165,15 @@
       },
       "obstacle": {
         "min": 0,
-        "max": 2,
+        "max": 3,
         "step": 1,
         "value": 0,
         "kind": "choice",
         "options": {
           "0": "Single cylinder",
           "1": "Twin cylinders",
-          "2": "Ellipse + block"
+          "2": "Ellipse + block",
+          "3": "Custom shape only"
         }
       }
     }
@@ -110,6 +182,19 @@
     "name": "Cosmic-web formation",
     "tagline": "Gravity plus gas composition: hydrogen (A=1) to helium (A=4).",
     "params": {
+      "recipe": {
+        "min": 0,
+        "max": 2,
+        "step": 1,
+        "value": 0,
+        "kind": "choice",
+        "label": "Recipe of the Universe",
+        "options": {
+          "0": "Our universe",
+          "1": "Radiation forever",
+          "2": "No dark matter"
+        }
+      },
       "seed": {
         "min": 1,
         "max": 999,
@@ -218,7 +303,7 @@
   },
   "crystal": {
     "name": "Crystal growth",
-    "tagline": "Six-fold snowflake, fern, seaweed, star, coral or plate \u2014 then zoom in.",
+    "tagline": "Six-fold snowflake, fern, seaweed, star, coral or plate — then zoom in.",
     "params": {
       "undercooling": {
         "min": 0.3,
@@ -253,8 +338,8 @@
     }
   },
   "neural_wall": {
-    "name": "Neural-network wall",
-    "tagline": "You thought it was one network.",
+    "name": "Neural image compression",
+    "tagline": "Squeeze a picture into a tiny neural network and see what survives.",
     "params": {
       "target": {
         "min": 0,
@@ -324,37 +409,35 @@
   },
   "fusion_plasma": {
     "name": "Star in a Bottle",
-    "tagline": "Confine a turbulent plasma, then reveal the reactor operating map.",
+    "tagline": "Confine a turbulent plasma, then let a neural controller hold it inside the torus.",
     "params": {
       "magnetic_field": {
         "min": 2.0,
         "max": 8.0,
         "step": 0.1,
-        "value": 5.0
+        "value": 5.0,
+        "label": "Magnetic field (tesla)"
       },
       "heating": {
         "min": 5,
         "max": 50,
         "step": 1,
-        "value": 25
+        "value": 25,
+        "label": "Heating power (MW)"
       },
       "density": {
         "min": 0.5,
         "max": 1.5,
         "step": 0.05,
-        "value": 1.0
-      }
-    }
-  },
-  "plasma_guardian": {
-    "name": "AI Plasma Guardian",
-    "tagline": "Train a neural controller to catch an instability before it becomes a disruption.",
-    "params": {
+        "value": 1.0,
+        "label": "Density (n₀)"
+      },
       "instability": {
         "min": 0.6,
         "max": 1.5,
         "step": 0.05,
-        "value": 1.0
+        "value": 1.0,
+        "label": "Instability drive (guardian mode)"
       }
     }
   },
@@ -450,41 +533,229 @@
       "default_preset": "balanced",
       "hidden": {
         "max_layers": 3,
-        "costs": {"4": 3, "8": 5, "16": 9}
+        "costs": {
+          "4": 3,
+          "8": 5,
+          "16": 9
+        }
       },
       "blocks": {
-        "ray": {"kind": "sensor", "label": "Distance ray", "short": "ray", "icon": "ray", "cost": 3, "max": 9,
-                "angles": [-90, -60, -45, -30, -15, 0, 15, 30, 45, 60, 90],
-                "desc": "Measures how far the wall is in one direction (3 car-lengths)."},
-        "long_ray": {"kind": "sensor", "label": "Long-range ray", "short": "far ray", "icon": "ray", "cost": 5, "max": 3,
-                     "angles": [-30, -15, 0, 15, 30],
-                     "desc": "Sees twice as far, so the car can spot corners early."},
-        "speed": {"kind": "sensor", "label": "Speedometer", "short": "speed", "icon": "gauge", "cost": 2, "max": 1,
-                  "desc": "How fast the car is going right now."},
-        "grip": {"kind": "sensor", "label": "Skid sensor", "short": "skid", "icon": "skid", "cost": 2, "max": 1,
-                 "desc": "Feels the tyres sliding when a turn is too fast."},
-        "compass": {"kind": "sensor", "label": "Track compass", "short": "compass", "icon": "compass", "cost": 8, "max": 1,
-                    "inputs": 2, "input_names": ["gate sin", "gate cos"],
-                    "desc": "Points at the track ahead. Powerful, so it is expensive."},
-        "steer": {"kind": "action", "label": "Steering", "short": "steer", "icon": "wheel", "cost": 0, "required": true,
-                  "desc": "Turn left or right."},
-        "throttle": {"kind": "action", "label": "Throttle", "short": "throttle", "icon": "pedal", "cost": 0, "required": true,
-                     "desc": "Accelerate; letting off only coasts."},
-        "brake": {"kind": "action", "label": "Brakes", "short": "brake", "icon": "brake", "cost": 2,
-                  "desc": "Slow down hard before a tight corner."}
+        "ray": {
+          "kind": "sensor",
+          "label": "Distance ray",
+          "short": "ray",
+          "icon": "ray",
+          "cost": 3,
+          "max": 9,
+          "angles": [
+            -90,
+            -60,
+            -45,
+            -30,
+            -15,
+            0,
+            15,
+            30,
+            45,
+            60,
+            90
+          ],
+          "desc": "Measures how far the wall is in one direction (3 car-lengths)."
+        },
+        "long_ray": {
+          "kind": "sensor",
+          "label": "Long-range ray",
+          "short": "far ray",
+          "icon": "ray",
+          "cost": 5,
+          "max": 3,
+          "angles": [
+            -30,
+            -15,
+            0,
+            15,
+            30
+          ],
+          "desc": "Sees twice as far, so the car can spot corners early."
+        },
+        "speed": {
+          "kind": "sensor",
+          "label": "Speedometer",
+          "short": "speed",
+          "icon": "gauge",
+          "cost": 2,
+          "max": 1,
+          "desc": "How fast the car is going right now."
+        },
+        "grip": {
+          "kind": "sensor",
+          "label": "Skid sensor",
+          "short": "skid",
+          "icon": "skid",
+          "cost": 2,
+          "max": 1,
+          "desc": "Feels the tyres sliding when a turn is too fast."
+        },
+        "compass": {
+          "kind": "sensor",
+          "label": "Track compass",
+          "short": "compass",
+          "icon": "compass",
+          "cost": 8,
+          "max": 1,
+          "inputs": 2,
+          "input_names": [
+            "gate sin",
+            "gate cos"
+          ],
+          "desc": "Points at the track ahead. Powerful, so it is expensive."
+        },
+        "steer": {
+          "kind": "action",
+          "label": "Steering",
+          "short": "steer",
+          "icon": "wheel",
+          "cost": 0,
+          "required": true,
+          "desc": "Turn left or right."
+        },
+        "throttle": {
+          "kind": "action",
+          "label": "Throttle",
+          "short": "throttle",
+          "icon": "pedal",
+          "cost": 0,
+          "required": true,
+          "desc": "Accelerate; letting off only coasts."
+        },
+        "brake": {
+          "kind": "action",
+          "label": "Brakes",
+          "short": "brake",
+          "icon": "brake",
+          "cost": 2,
+          "desc": "Slow down hard before a tight corner."
+        }
       },
       "presets": {
-        "balanced": {"label": "Balanced", "hidden": [8], "actions": ["steer", "throttle", "brake"],
-                     "sensors": [{"block": "ray", "angle": -90}, {"block": "ray", "angle": -45}, {"block": "ray", "angle": 0},
-                                 {"block": "ray", "angle": 45}, {"block": "ray", "angle": 90}, {"block": "speed"}]},
-        "tiny": {"label": "Tiny brain", "hidden": [], "actions": ["steer", "throttle"],
-                 "sensors": [{"block": "ray", "angle": -45}, {"block": "ray", "angle": 0}, {"block": "ray", "angle": 45}]},
-        "big": {"label": "Big brain", "hidden": [8, 4], "actions": ["steer", "throttle", "brake"],
-                "sensors": [{"block": "ray", "angle": -90}, {"block": "ray", "angle": -45}, {"block": "ray", "angle": -15},
-                            {"block": "ray", "angle": 15}, {"block": "ray", "angle": 45}, {"block": "ray", "angle": 90},
-                            {"block": "long_ray", "angle": 0}, {"block": "speed"}]},
-        "blind": {"label": "Blind", "hidden": [4], "actions": ["steer", "throttle"],
-                  "sensors": [{"block": "speed"}]}
+        "balanced": {
+          "label": "Balanced",
+          "hidden": [
+            8
+          ],
+          "actions": [
+            "steer",
+            "throttle",
+            "brake"
+          ],
+          "sensors": [
+            {
+              "block": "ray",
+              "angle": -90
+            },
+            {
+              "block": "ray",
+              "angle": -45
+            },
+            {
+              "block": "ray",
+              "angle": 0
+            },
+            {
+              "block": "ray",
+              "angle": 45
+            },
+            {
+              "block": "ray",
+              "angle": 90
+            },
+            {
+              "block": "speed"
+            }
+          ]
+        },
+        "tiny": {
+          "label": "Tiny brain",
+          "hidden": [],
+          "actions": [
+            "steer",
+            "throttle"
+          ],
+          "sensors": [
+            {
+              "block": "ray",
+              "angle": -45
+            },
+            {
+              "block": "ray",
+              "angle": 0
+            },
+            {
+              "block": "ray",
+              "angle": 45
+            }
+          ]
+        },
+        "big": {
+          "label": "Big brain",
+          "hidden": [
+            8,
+            4
+          ],
+          "actions": [
+            "steer",
+            "throttle",
+            "brake"
+          ],
+          "sensors": [
+            {
+              "block": "ray",
+              "angle": -90
+            },
+            {
+              "block": "ray",
+              "angle": -45
+            },
+            {
+              "block": "ray",
+              "angle": -15
+            },
+            {
+              "block": "ray",
+              "angle": 15
+            },
+            {
+              "block": "ray",
+              "angle": 45
+            },
+            {
+              "block": "ray",
+              "angle": 90
+            },
+            {
+              "block": "long_ray",
+              "angle": 0
+            },
+            {
+              "block": "speed"
+            }
+          ]
+        },
+        "blind": {
+          "label": "Blind",
+          "hidden": [
+            4
+          ],
+          "actions": [
+            "steer",
+            "throttle"
+          ],
+          "sensors": [
+            {
+              "block": "speed"
+            }
+          ]
+        }
       }
     }
   },
@@ -519,74 +790,360 @@
         "bat": {
           "budget": 30,
           "default_preset": "two_ears",
-          "hidden": {"max_layers": 2, "costs": {"4": 3, "8": 5, "16": 9}},
+          "hidden": {
+            "max_layers": 2,
+            "costs": {
+              "4": 3,
+              "8": 5,
+              "16": 9
+            }
+          },
           "blocks": {
-            "ear_left": {"kind": "sensor", "label": "Left ear", "short": "L ear", "icon": "ear", "cost": 4, "max": 1,
-                         "inputs": 2, "input_names": ["L echo", "L delay"],
-                         "desc": "Hears echoes from the left: how loud, and how long they took."},
-            "ear_right": {"kind": "sensor", "label": "Right ear", "short": "R ear", "icon": "ear", "cost": 4, "max": 1,
-                          "inputs": 2, "input_names": ["R echo", "R delay"],
-                          "desc": "Hears echoes from the right. One ear alone cannot tell left from right."},
-            "whiskers": {"kind": "sensor", "label": "Whiskers", "short": "whiskers", "icon": "whisker", "cost": 3, "max": 1,
-                         "inputs": 3, "input_names": ["whisker L", "whisker ahead", "whisker R"],
-                         "desc": "Feels rock walls that are very close."},
-            "doppler": {"kind": "sensor", "label": "Doppler sense", "short": "doppler", "icon": "doppler", "cost": 6, "max": 1,
-                        "inputs": 1, "input_names": ["closing speed"],
-                        "desc": "Hears the pitch shift: is the echo getting closer or flying away?"},
-            "memory": {"kind": "sensor", "label": "Memory neuron", "short": "memory", "icon": "memory", "cost": 4, "max": 1,
-                       "inputs": "actions", "input_names": ["last"],
-                       "desc": "Feeds the bat's previous decision back in, so it can keep a plan between chirps."},
-            "steer": {"kind": "action", "label": "Steer", "short": "steer", "icon": "wheel", "cost": 0, "required": true,
-                      "desc": "Bank left or right."},
-            "speed": {"kind": "action", "label": "Wing power", "short": "speed", "icon": "wing", "cost": 0, "required": true,
-                      "desc": "Fly faster or slower (bats cannot hover)."},
-            "chirp": {"kind": "action", "label": "Chirp", "short": "chirp", "icon": "sonar", "cost": 0, "required": true,
-                      "desc": "Send a sonar call. More calls mean more echoes, but every moth hears them too."}
+            "ear_left": {
+              "kind": "sensor",
+              "label": "Left ear",
+              "short": "L ear",
+              "icon": "ear",
+              "cost": 4,
+              "max": 1,
+              "inputs": 2,
+              "input_names": [
+                "L echo",
+                "L delay"
+              ],
+              "desc": "Hears echoes from the left: how loud, and how long they took."
+            },
+            "ear_right": {
+              "kind": "sensor",
+              "label": "Right ear",
+              "short": "R ear",
+              "icon": "ear",
+              "cost": 4,
+              "max": 1,
+              "inputs": 2,
+              "input_names": [
+                "R echo",
+                "R delay"
+              ],
+              "desc": "Hears echoes from the right. One ear alone cannot tell left from right."
+            },
+            "whiskers": {
+              "kind": "sensor",
+              "label": "Whiskers",
+              "short": "whiskers",
+              "icon": "whisker",
+              "cost": 3,
+              "max": 1,
+              "inputs": 3,
+              "input_names": [
+                "whisker L",
+                "whisker ahead",
+                "whisker R"
+              ],
+              "desc": "Feels rock walls that are very close."
+            },
+            "doppler": {
+              "kind": "sensor",
+              "label": "Doppler sense",
+              "short": "doppler",
+              "icon": "doppler",
+              "cost": 6,
+              "max": 1,
+              "inputs": 1,
+              "input_names": [
+                "closing speed"
+              ],
+              "desc": "Hears the pitch shift: is the echo getting closer or flying away?"
+            },
+            "memory": {
+              "kind": "sensor",
+              "label": "Memory neuron",
+              "short": "memory",
+              "icon": "memory",
+              "cost": 4,
+              "max": 1,
+              "inputs": "actions",
+              "input_names": [
+                "last"
+              ],
+              "desc": "Feeds the bat's previous decision back in, so it can keep a plan between chirps."
+            },
+            "steer": {
+              "kind": "action",
+              "label": "Steer",
+              "short": "steer",
+              "icon": "wheel",
+              "cost": 0,
+              "required": true,
+              "desc": "Bank left or right."
+            },
+            "speed": {
+              "kind": "action",
+              "label": "Wing power",
+              "short": "speed",
+              "icon": "wing",
+              "cost": 0,
+              "required": true,
+              "desc": "Fly faster or slower (bats cannot hover)."
+            },
+            "chirp": {
+              "kind": "action",
+              "label": "Chirp",
+              "short": "chirp",
+              "icon": "sonar",
+              "cost": 0,
+              "required": true,
+              "desc": "Send a sonar call. More calls mean more echoes, but every moth hears them too."
+            }
           },
           "presets": {
-            "two_ears": {"label": "Two ears", "hidden": [], "actions": ["steer", "speed", "chirp"],
-                         "sensors": [{"block": "ear_left"}, {"block": "ear_right"}, {"block": "whiskers"}]},
-            "one_ear": {"label": "One ear", "hidden": [], "actions": ["steer", "speed", "chirp"],
-                        "sensors": [{"block": "ear_left"}, {"block": "whiskers"}]},
-            "deluxe": {"label": "Deluxe", "hidden": [8, 4], "actions": ["steer", "speed", "chirp"],
-                       "sensors": [{"block": "ear_left"}, {"block": "ear_right"}, {"block": "whiskers"},
-                                   {"block": "doppler"}, {"block": "memory"}]},
-            "deaf": {"label": "Deaf", "hidden": [4], "actions": ["steer", "speed", "chirp"],
-                     "sensors": [{"block": "whiskers"}]}
+            "two_ears": {
+              "label": "Two ears",
+              "hidden": [],
+              "actions": [
+                "steer",
+                "speed",
+                "chirp"
+              ],
+              "sensors": [
+                {
+                  "block": "ear_left"
+                },
+                {
+                  "block": "ear_right"
+                },
+                {
+                  "block": "whiskers"
+                }
+              ]
+            },
+            "one_ear": {
+              "label": "One ear",
+              "hidden": [],
+              "actions": [
+                "steer",
+                "speed",
+                "chirp"
+              ],
+              "sensors": [
+                {
+                  "block": "ear_left"
+                },
+                {
+                  "block": "whiskers"
+                }
+              ]
+            },
+            "deluxe": {
+              "label": "Deluxe",
+              "hidden": [
+                8,
+                4
+              ],
+              "actions": [
+                "steer",
+                "speed",
+                "chirp"
+              ],
+              "sensors": [
+                {
+                  "block": "ear_left"
+                },
+                {
+                  "block": "ear_right"
+                },
+                {
+                  "block": "whiskers"
+                },
+                {
+                  "block": "doppler"
+                },
+                {
+                  "block": "memory"
+                }
+              ]
+            },
+            "deaf": {
+              "label": "Deaf",
+              "hidden": [
+                4
+              ],
+              "actions": [
+                "steer",
+                "speed",
+                "chirp"
+              ],
+              "sensors": [
+                {
+                  "block": "whiskers"
+                }
+              ]
+            }
           }
         },
         "moth": {
           "budget": 20,
           "default_preset": "full_kit",
-          "hidden": {"max_layers": 2, "costs": {"4": 3, "8": 5, "16": 9}},
+          "hidden": {
+            "max_layers": 2,
+            "costs": {
+              "4": 3,
+              "8": 5,
+              "16": 9
+            }
+          },
           "blocks": {
-            "tympanum": {"kind": "sensor", "label": "Bat-detector ear", "short": "chirp heard", "icon": "ear", "cost": 3, "max": 1,
-                         "inputs": 1, "input_names": ["chirp heard"],
-                         "desc": "Hears bat calls from further away than the bat can hear its echo."},
-            "direction": {"kind": "sensor", "label": "Direction ears", "short": "bat direction", "icon": "compass", "cost": 5, "max": 1,
-                          "inputs": 2, "input_names": ["bat sin", "bat cos"],
-                          "desc": "A pair of ears tells which way the call came from."},
-            "feelers": {"kind": "sensor", "label": "Feelers", "short": "feelers", "icon": "whisker", "cost": 2, "max": 1,
-                        "inputs": 2, "input_names": ["feeler L", "feeler R"],
-                        "desc": "Antennae that touch nearby rock."},
-            "steer": {"kind": "action", "label": "Steer", "short": "steer", "icon": "wheel", "cost": 0, "required": true,
-                      "desc": "Turn left or right."},
-            "speed": {"kind": "action", "label": "Wing power", "short": "speed", "icon": "wing", "cost": 0, "required": true,
-                      "desc": "Flutter faster or slower."},
-            "dive": {"kind": "action", "label": "Power dive", "short": "dive", "icon": "dive", "cost": 3,
-                     "desc": "A sudden, erratic escape burst. Tiring, so it needs a rest afterwards."},
-            "jam": {"kind": "action", "label": "Jamming click", "short": "jam", "icon": "click", "cost": 5,
-                    "desc": "Clicks that put fake echoes into a nearby bat's ears, like real tiger moths. Costs energy."}
+            "tympanum": {
+              "kind": "sensor",
+              "label": "Bat-detector ear",
+              "short": "chirp heard",
+              "icon": "ear",
+              "cost": 3,
+              "max": 1,
+              "inputs": 1,
+              "input_names": [
+                "chirp heard"
+              ],
+              "desc": "Hears bat calls from further away than the bat can hear its echo."
+            },
+            "direction": {
+              "kind": "sensor",
+              "label": "Direction ears",
+              "short": "bat direction",
+              "icon": "compass",
+              "cost": 5,
+              "max": 1,
+              "inputs": 2,
+              "input_names": [
+                "bat sin",
+                "bat cos"
+              ],
+              "desc": "A pair of ears tells which way the call came from."
+            },
+            "feelers": {
+              "kind": "sensor",
+              "label": "Feelers",
+              "short": "feelers",
+              "icon": "whisker",
+              "cost": 2,
+              "max": 1,
+              "inputs": 2,
+              "input_names": [
+                "feeler L",
+                "feeler R"
+              ],
+              "desc": "Antennae that touch nearby rock."
+            },
+            "steer": {
+              "kind": "action",
+              "label": "Steer",
+              "short": "steer",
+              "icon": "wheel",
+              "cost": 0,
+              "required": true,
+              "desc": "Turn left or right."
+            },
+            "speed": {
+              "kind": "action",
+              "label": "Wing power",
+              "short": "speed",
+              "icon": "wing",
+              "cost": 0,
+              "required": true,
+              "desc": "Flutter faster or slower."
+            },
+            "dive": {
+              "kind": "action",
+              "label": "Power dive",
+              "short": "dive",
+              "icon": "dive",
+              "cost": 3,
+              "desc": "A sudden, erratic escape burst. Tiring, so it needs a rest afterwards."
+            },
+            "jam": {
+              "kind": "action",
+              "label": "Jamming click",
+              "short": "jam",
+              "icon": "click",
+              "cost": 5,
+              "desc": "Clicks that put fake echoes into a nearby bat's ears, like real tiger moths. Costs energy."
+            }
           },
           "presets": {
-            "full_kit": {"label": "Full kit", "hidden": [4], "actions": ["steer", "speed", "dive", "jam"],
-                         "sensors": [{"block": "tympanum"}, {"block": "direction"}]},
-            "dodger": {"label": "Dodger", "hidden": [4], "actions": ["steer", "speed", "dive"],
-                       "sensors": [{"block": "tympanum"}, {"block": "direction"}, {"block": "feelers"}]},
-            "jammer": {"label": "Jammer", "hidden": [4], "actions": ["steer", "speed", "jam"],
-                       "sensors": [{"block": "tympanum"}, {"block": "feelers"}]},
-            "clueless": {"label": "Clueless", "hidden": [], "actions": ["steer", "speed"],
-                         "sensors": [{"block": "feelers"}]}
+            "full_kit": {
+              "label": "Full kit",
+              "hidden": [
+                4
+              ],
+              "actions": [
+                "steer",
+                "speed",
+                "dive",
+                "jam"
+              ],
+              "sensors": [
+                {
+                  "block": "tympanum"
+                },
+                {
+                  "block": "direction"
+                }
+              ]
+            },
+            "dodger": {
+              "label": "Dodger",
+              "hidden": [
+                4
+              ],
+              "actions": [
+                "steer",
+                "speed",
+                "dive"
+              ],
+              "sensors": [
+                {
+                  "block": "tympanum"
+                },
+                {
+                  "block": "direction"
+                },
+                {
+                  "block": "feelers"
+                }
+              ]
+            },
+            "jammer": {
+              "label": "Jammer",
+              "hidden": [
+                4
+              ],
+              "actions": [
+                "steer",
+                "speed",
+                "jam"
+              ],
+              "sensors": [
+                {
+                  "block": "tympanum"
+                },
+                {
+                  "block": "feelers"
+                }
+              ]
+            },
+            "clueless": {
+              "label": "Clueless",
+              "hidden": [],
+              "actions": [
+                "steer",
+                "speed"
+              ],
+              "sensors": [
+                {
+                  "block": "feelers"
+                }
+              ]
+            }
           }
         }
       }

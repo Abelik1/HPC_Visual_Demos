@@ -11,7 +11,7 @@ from leonardo_demos.backend import to_numpy
 from leonardo_demos.base import RunContext
 from leonardo_demos.demos.neuro_racers import (HALF_WIDTH, TRACKS, WORLD_H, WORLD_W, NeuroRacersDemo,
                                                RaceSim, track_geometry)
-from leonardo_demos.neuroevo import (BrainError, Population, brain_catalogue, input_labels,
+from leonardo_demos.neuroevo import (BrainError, Population, brain_catalogue, input_labels, load_checkpoint, load_checkpoint,
                                      load_champion, parameter_count, save_champion, validate_brain)
 
 SPECS = json.loads((Path(__file__).resolve().parents[1] / "config" / "demo_specs.json").read_text())
@@ -66,6 +66,19 @@ class BrainSpecTests(unittest.TestCase):
         for spec in bad:
             with self.assertRaises(BrainError, msg=str(spec)):
                 validate_brain(spec, CATALOGUE)
+
+    def test_replay_endpoint_needs_saved_generations(self):
+        from app import RUNS, replay
+        with tempfile.TemporaryDirectory(dir=RUNS) as t:
+            run = Path(t)
+            (run / "meta.json").write_text(json.dumps({"demo": "neuro_racers"}))
+            with self.assertRaises(HTTPException):
+                replay(run.name, "1")                      # no checkpoints folder yet
+            (run / "checkpoints").mkdir()
+            with self.assertRaises(HTTPException):
+                replay(run.name, "3")                      # generation not saved
+            with self.assertRaises(HTTPException):
+                replay(run.name, "1,2,3,4,5,6,7")          # too many at once
 
     def test_api_validates_brains_and_ghosts(self):
         over = {"sensors": OVER_BUDGET, "hidden": [16, 16], "actions": ["steer", "throttle"]}
@@ -157,8 +170,26 @@ class RacingBehaviourTests(unittest.TestCase):
             self.assertEqual(len(meta["arena_view"]["frames"]), 3)
             self.assertEqual(meta["summary"]["track"], "Oval")
             self.assertEqual(len(meta["reveal_tiles"]), 4)
+            # One-per-box is also animation data, one champion drive per search.
+            grid = json.loads((root / meta["reveal_view"]["file"]).read_text())
+            self.assertEqual(len(grid["boxes"]), 4)
+            car = grid["boxes"][0]["gen"]["cars"][0]
+            self.assertEqual(len(car["x"]), len(car["y"]))
+            self.assertGreater(len(car["x"]), 1)
             gen = json.loads((root / "interactive/gen_0002.json").read_text())
             self.assertEqual(len(gen["cars"]), 6)
+            # Live brain for the champion: one activation row per recorded sample.
+            self.assertEqual(len(gen["brains"][0]["acts"][0]), len(gen["cars"][0]["x"]))
+            self.assertTrue((root / "checkpoints/gen_0002.npz").exists())
+            self.assertTrue(meta["lab"]["compare"])
+            one = NeuroRacersDemo.replay(root, meta, [1, 2], 5)
+            again = NeuroRacersDemo.replay(root, meta, [1, 2], 5)
+            other = NeuroRacersDemo.replay(root, meta, [1, 2], 6)
+            self.assertEqual([c["label"] for c in one["cars"]], ["gen 1", "gen 2"])
+            self.assertEqual(one["cars"][0]["x"][0], one["cars"][1]["x"][0])     # same start for every generation
+            self.assertEqual(one["cars"][0]["x"], again["cars"][0]["x"])          # a seed replays exactly
+            self.assertNotEqual(one["cars"][0]["x"][0], other["cars"][0]["x"][0])  # a new seed is a new start
+            self.assertEqual(len(one["brains"]), 2)
 
 
 # ---- Bat vs Moth -------------------------------------------------------
@@ -236,6 +267,44 @@ class BatVsMothTests(unittest.TestCase):
         jam = brains["moth"]["actions"].index("jam")
         self.assertTrue((out[:, jam] < bm.TRIGGER).all())
 
+    def test_fused_cuda_kernels_match_the_array_reference(self):
+        try:
+            import cupy as cp
+            if cp.cuda.runtime.getDeviceCount() < 1:
+                raise RuntimeError
+        except Exception:
+            self.skipTest("CUDA/CuPy unavailable")
+        # Every sensor block, hidden layers, dive and jam between the two pairs.
+        for bat, moth in (("two_ears", "full_kit"), ("deluxe", "dodger")):
+            roles = BAT_MOTH["roles"]
+            brains = validate_brains({role: {k: roles[role]["presets"][name][k] for k in ("sensors", "hidden", "actions")}
+                                      for role, name in (("bat", bat), ("moth", moth))}, BAT_MOTH)
+            size, k, cave = 256, 4, bm.cave_geometry(11)
+            bats = Population(np, size, brains["bat"]["layer_sizes"], seed=1, **bm.EVOLUTION)
+            moths = Population(np, size, brains["moth"]["layer_sizes"], seed=2, **bm.EVOLUTION)
+            moths.genome[:, -len(brains["moth"]["actions"]):] += .6          # jam and dive fire now and then
+            index = bm.assign_moths(np.random.default_rng(0), 1, size, size, k)
+            cpu = bm.CaveSim(np, cave, brains["bat"], brains["moth"], k).run(bats, moths, index, 300, 5)
+            gpu_bats = Population(cp, size, brains["bat"]["layer_sizes"], seed=1); gpu_bats.genome = cp.asarray(bats.genome)
+            gpu_moths = Population(cp, size, brains["moth"]["layer_sizes"], seed=2); gpu_moths.genome = cp.asarray(moths.genome)
+            sim = bm.CaveSim(cp, cave, brains["bat"], brains["moth"], k)
+            self.assertTrue(sim.fused)
+            gpu = sim.run(gpu_bats, gpu_moths, index, 300, 5)
+            # Float rounding differs (FMA-free kernels vs NumPy's libm), so a
+            # few caves may drift past a threshold late in the hunt; the rest
+            # must match step for step.
+            caught_cpu, caught_gpu = cpu["catch_step"], to_numpy(gpu["catch_step"])
+            self.assertGreater(caught_cpu.size and (caught_cpu >= 0).sum(), 20, bat)
+            self.assertLessEqual(abs(int((caught_gpu >= 0).sum()) - int((caught_cpu >= 0).sum())), 3, bat)
+            self.assertGreater(np.mean(caught_gpu == caught_cpu), .97, bat)
+            for key in ("bat_fitness", "slot_fitness"):
+                diff = np.abs(to_numpy(gpu[key]) - cpu[key])
+                self.assertGreater(np.mean(diff < 1e-4), .95, f"{bat} {key}")
+            self.assertEqual(to_numpy(gpu["record"]["bat"]).shape, cpu["record"]["bat"].shape)
+            self.assertEqual(to_numpy(gpu["record"]["bat_in"]).dtype, cpu["record"]["bat_in"].dtype)
+            np.testing.assert_allclose(to_numpy(gpu["record"]["bat"][:10]), cpu["record"]["bat"][:10], atol=1e-4)
+            self.assertGreater(np.mean(to_numpy(gpu["chirp_log"]) == cpu["chirp_log"]), .99, bat)
+
     def test_run_writes_the_full_contract(self):
         with tempfile.TemporaryDirectory() as t:
             ctx = RunContext(Path(t), "bat_vs_moth", "local", 3, {"cave": 11, "moths": 3, "mutation": 1.0,
@@ -252,8 +321,22 @@ class BatVsMothTests(unittest.TestCase):
             self.assertEqual(meta["arena_view"]["kind"], "batmoth")
             self.assertEqual(meta["view_modes"][1]["folder"], "modes/lit")
             self.assertEqual(len(meta["reveal_tiles"]), 4)
+            # Every box is its own cave, so it carries its own rocks.
+            grid = json.loads((root / meta["reveal_view"]["file"]).read_text())
+            self.assertEqual(len(grid["boxes"]), 4)
+            self.assertNotEqual(grid["boxes"][0]["arena"]["rocks"], grid["boxes"][1]["arena"]["rocks"])
+            self.assertEqual(len(grid["boxes"][0]["gen"]["moths"]), 3)
             gen = json.loads((root / "interactive/gen_0003.json").read_text())
             self.assertEqual(len(gen["moths"]), 3)
+            self.assertEqual(len(gen["others"]), 11)
+            self.assertEqual(len(gen["brains"][0]["acts"][0]), len(gen["cars"][0]["x"]))
+            saved = load_checkpoint(root / "checkpoints/gen_0003.npz")
+            self.assertEqual(saved["moths"].shape[0], 3)
+            replay = bm.BatVsMothDemo.replay(root, meta, [2], 9)
+            self.assertEqual(replay["replay"], {"gens": [2], "seed": 9})
+            self.assertEqual([b["title"] for b in replay["brains"]],
+                             ["Generation 2 champion bat", "Generation 2 leading moth"])
+            self.assertEqual(len(replay["brains"][1]["acts"][0]), len(replay["cars"][0]["x"]))
 
 
 if __name__ == "__main__":

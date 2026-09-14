@@ -17,7 +17,7 @@ Object.assign(demoCategories,{neuro_racers:'AI & learning',bat_vs_moth:'AI & lea
 viewModes.bat_vs_moth=[{id:'frames',label:'Bat’s senses',folder:'frames'},{id:'lit',label:'Lit cave',folder:'modes/lit'}];
 GAME_DEMOS.forEach(id=>parallelDemos.add(id));
 
-const S={builder:null,builders:null,arena:null,active:false,manifest:null,prefer:true,entering:false,gen:null,pending:null,ghosts:null};
+const S={lab:{on:false,gens:[],seed:0,data:null,busy:false},labMeta:null,builder:null,builders:null,arena:null,active:false,manifest:null,prefer:true,entering:false,gen:null,pending:null,ghosts:null};
 const pad=n=>String(n).padStart(4,'0');
 const isGame=(id=current)=>GAME_DEMOS.has(id);
 const frameGen=frame=>S.manifest?.frames?.[frame]?.[0]??null;
@@ -76,8 +76,11 @@ async function showGen(gen,{now=false}={}){
 function onLoop(){
   if(!S.active)return;
   if(S.pending!==null){showGen(S.pending,{now:true});return;}
-  if(!playbackPlaying||!S.manifest?.frames)return;
-  const frames=S.manifest.frames,next=frames.findIndex(([g])=>g>S.gen);
+  if(S.lab.on||!playbackPlaying||!S.manifest?.frames)return;
+  // Live runs show every new generation; a finished run tours its training in
+  // about ten stops so the visitor sees learning within a couple of minutes.
+  const frames=S.manifest.frames,last=frames[frames.length-1][0],stride=timer===null?Math.max(1,Math.round(last/10)):1;
+  const next=frames.findIndex(([g])=>g>=S.gen+stride);
   const available=next>=0&&next<=lastFrame;
   if(available){S.advancing=true;showFrame(next,playbackTotal);S.advancing=false;}
   else if(timer===null){S.advancing=true;showFrame(0,playbackTotal);S.advancing=false;}
@@ -94,7 +97,7 @@ async function enter(){
     $('#screen').classList.add('hidden');$('#arenaCanvas').classList.remove('hidden');$('#arenaTools').classList.remove('hidden');$('#arenaView').textContent='Trail frames';
     S.arena.resize();
     await showGen(frameGen(Math.max(0,playbackFrame))??1,{now:true});
-    const lit=$('#arenaLit');if(lit){lit.classList.toggle('hidden',current!=='bat_vs_moth');S.arena.lit=lit.classList.contains('selected');}
+    syncLit();
     currentStory=current==='bat_vs_moth'?'This is the champion bat’s real recorded hunt, animated. In Bat’s senses you only see what its calls reveal.':'This is the real recorded drive of this generation’s best cars, animated. The champion is gold.';renderOverlayCards();updateViewport();
   }catch(error){exit();showUiMessage(`Animated race unavailable: ${error.message}`);}
   finally{S.entering=false;}
@@ -109,10 +112,23 @@ function enableButton(){$('#arenaView').disabled=!(S.manifest&&frameAvailable()&
 function onMeta(m){
   if(!isGame())return;
   if(m.arena_view)S.manifest=m.arena_view;
+  if(m.lab&&!S.labMeta){S.labMeta=m.lab;}
+  renderLab();
   if(S.manifest&&m.frame>=0){enableButton();if(S.prefer&&!S.active&&!S.entering)enter();}
 }
+// The dock's "Bat's senses / Lit cave" buttons and the arena's Lit button are
+// one setting: activeViewMode.  Both the JPEG frames and the animation follow it.
+function syncLit(){
+  const b=$('#arenaLit');if(!b)return;const bat=current==='bat_vs_moth';b.classList.toggle('hidden',!bat);
+  const lit=bat&&activeViewMode==='lit';b.classList.toggle('selected',lit);if(S.arena)S.arena.lit=lit;
+}
 function onFrame(frame){
+  syncLit();
   if(!S.active)return;
+  // A lab replay stays on screen until the visitor seeks the training timeline.
+  // While a run is still streaming (timer set) the poll calls showFrame too;
+  // that must not cancel the replay.
+  if(S.lab.on){if(S.advancing||timer!==null)return;S.lab.on=false;renderLab();}
   const gen=frameGen(frame);if(gen===null)return;
   // Seeking, or a loop-driven advance, shows the generation at once; live
   // streaming queues it until the current drive has finished.
@@ -120,13 +136,77 @@ function onFrame(frame){
 }
 function onOpenRun(r){
   if(!isGame(r.demo))return;
-  S.manifest=r.arena_view||null;
+  S.manifest=r.arena_view||null;S.labMeta=r.lab||null;S.lab={on:false,gens:[],seed:0,data:null,busy:false};
   const brain=r.params?._brain;
   if(brain&&S.builders)Object.entries(S.builders).forEach(([role,b])=>{if(brain[role])b.setSpec(brain[role]);});
   else if(brain&&S.builder)S.builder.setSpec(brain);
-  enableButton();if(S.manifest&&S.prefer)enter();
+  enableButton();if(S.manifest&&S.prefer)enter();renderLab();
 }
-function reset(){exit();S.manifest=null;$('#arenaView').disabled=true;}
+function reset(){exit();S.manifest=null;S.labMeta=null;S.lab={on:false,gens:[],seed:0,data:null,busy:false};$('#arenaView').disabled=true;renderLab();}
+
+// ---- generation lab ---------------------------------------------------------
+// Every generation's champion is saved.  Pin generations, then watch them
+// play again from a fresh random start (racers: several at once from the same
+// start), with the network's activity drawn live beside the game.
+const PIN_KEY=()=>`genlab:${runId}`;
+function labMax(){return frameGen(Math.max(0,lastFrame))??0;}
+function keyGens(top){return [...new Set([1,Math.round(top/4),Math.round(top/2),Math.round(top*3/4),top].filter(g=>g>=1))];}
+function loadPins(){try{const saved=JSON.parse(localStorage.getItem(PIN_KEY())||'null');if(Array.isArray(saved))return saved;}catch(_){ }return null;}
+function savePins(pins){try{localStorage.setItem(PIN_KEY(),JSON.stringify(pins));}catch(_){ }}
+function pins(){const top=labMax();const saved=loadPins();return (saved??keyGens(top)).filter(g=>g<=top).sort((a,b)=>a-b);}
+function labPanel(){
+  let el=$('#genLab');if(el)return el;
+  el=document.createElement('section');el.id='genLab';el.className='genLab hidden';el.setAttribute('aria-label','Generation lab');
+  el.innerHTML=`<div class="glHead"><b>Generation lab</b><small id="glHint"></small></div>
+    <div class="glRow"><label class="glPick">Generation <input id="glGen" type="range" min="1" max="1" value="1"><output id="glGenOut">1</output></label>
+      <button id="glWatch" class="primary">▶ Watch</button><button id="glPin">📌 Pin</button><button id="glRace">🏁 Race pinned</button>
+      <button id="glReroll" disabled>🎲 New random start</button><button id="glBack" disabled>↩ Back to training</button></div>
+    <div class="glRow"><span class="glLabel">Pinned</span><div id="glPins" class="glPins"></div></div>
+    <div class="glRow hidden" id="glFocusRow"><span class="glLabel">Brain shown</span><div id="glFocus" class="glPins"></div></div>`;
+  document.querySelector('#stage .playbackBar').after(el);
+  el.querySelector('#glGen').oninput=e=>{el.querySelector('#glGenOut').textContent=e.target.value;renderLab();};
+  el.querySelector('#glWatch').onclick=()=>watch([Number(el.querySelector('#glGen').value)]);
+  el.querySelector('#glPin').onclick=()=>{const g=Number(el.querySelector('#glGen').value),list=pins();if(!list.includes(g)){list.push(g);savePins(list.sort((a,b)=>a-b));}renderLab();};
+  el.querySelector('#glRace').onclick=()=>watch(pins().slice(-6));
+  el.querySelector('#glReroll').onclick=()=>watch(S.lab.gens,true);
+  el.querySelector('#glBack').onclick=()=>{S.lab.on=false;renderLab();if(S.active)showGen(frameGen(playbackFrame)??1,{now:true});currentStory=stories[current][0];renderOverlayCards();};
+  return el;
+}
+function renderLab(){
+  const el=labPanel(),top=labMax(),show=isGame()&&S.labMeta&&top>=1;
+  el.classList.toggle('hidden',!show);if(!show)return;
+  const compare=Boolean(S.labMeta.compare),slider=el.querySelector('#glGen');
+  slider.max=top;if(Number(slider.value)>top)slider.value=top;el.querySelector('#glGenOut').textContent=slider.value;
+  el.querySelector('#glHint').textContent=compare?'Pin generations, then race their champions from the same fresh start and watch each network drive.':'Pin generations, then drop that generation’s champion bat and best moths into a fresh random start.';
+  el.querySelector('#glRace').classList.toggle('hidden',!compare);
+  const list=pins();el.querySelector('#glRace').disabled=list.length<2||S.lab.busy;
+  el.querySelector('#glWatch').disabled=S.lab.busy;el.querySelector('#glReroll').disabled=!S.lab.on||S.lab.busy;el.querySelector('#glBack').disabled=!S.lab.on;
+  const host=el.querySelector('#glPins');host.innerHTML='';
+  list.forEach(g=>{const chip=document.createElement('span');chip.className='glChip'+(S.lab.on&&S.lab.gens.includes(g)?' active':'');
+    chip.innerHTML=`<button type="button" title="Watch generation ${g} from a fresh start">Gen ${g}</button><button type="button" class="glX" aria-label="Unpin generation ${g}">×</button>`;
+    chip.children[0].onclick=()=>watch([g]);chip.children[1].onclick=()=>{savePins(pins().filter(x=>x!==g));renderLab();};host.appendChild(chip);});
+  if(!list.length)host.innerHTML='<small>Nothing pinned. Pick a generation and press 📌.</small>';
+  const brains=S.lab.on?(S.lab.data?.brains||[]):[],focusRow=el.querySelector('#glFocusRow'),focus=el.querySelector('#glFocus');
+  focusRow.classList.toggle('hidden',!(compare&&brains.length>1));focus.innerHTML='';
+  brains.forEach((b,i)=>{const btn=document.createElement('button');btn.type='button';btn.textContent=b.title.replace(' champion','');btn.classList.toggle('selected',S.arena?.focusIndex()===i);btn.onclick=()=>{S.arena.focus=i;renderLab();};focus.appendChild(btn);});
+}
+async function watch(gens,reroll=false){
+  if(!runId||!gens.length||S.lab.busy)return;
+  if(!S.active){await enter();if(!S.active)return;}
+  const seed=reroll||!S.lab.seed?Math.floor(Math.random()*1e6):S.lab.seed;
+  S.lab.busy=true;renderLab();
+  try{
+    const r=await fetch(`/api/replay/${runId}?gens=${gens.join(',')}&seed=${seed}`);
+    if(!r.ok){let detail='replay failed';try{detail=(await r.json()).detail||detail;}catch(_){ }throw new Error(detail);}
+    const data=await r.json();
+    S.lab={on:true,gens,seed,data,busy:false};S.arena.focus=null;S.arena.showData(data);
+    currentStory=gens.length>1?`Generations ${gens.join(', ')} race from the same random start. Early brains wobble and crash; later ones have learned to drive. The panel shows one network thinking live.`
+      :current==='bat_vs_moth'?`Generation ${gens[0]}: its champion bat and best moths in a fresh random start. The panels show both brains reacting live.`
+      :`Generation ${gens[0]}’s champion from a random start it never trained on. Watch the network react live.`;
+    renderOverlayCards();
+  }catch(error){S.lab.busy=false;showUiMessage(`Generation lab: ${error.message}`);}
+  renderLab();
+}
 
 function dockItems(items){
   if(current==='neuro_racers')items.push(['network','Brain graph'],['leaderboard','Leaderboard']);
@@ -160,9 +240,12 @@ $('#arenaFollow').onclick=()=>{if(!S.arena)return;S.arena.follow=!S.arena.follow
 $('#arenaTrails').onclick=()=>{if(!S.arena)return;S.arena.trails=!S.arena.trails;$('#arenaTrails').classList.toggle('selected',S.arena.trails);};
 // Senses/lit toggle for the Bat vs Moth arena, added beside the other tools.
 (()=>{const b=document.createElement('button');b.id='arenaLit';b.className='hidden';b.title='Show the whole cave instead of only what the bat senses';b.textContent='Lit cave';
-  b.onclick=()=>{if(!S.arena)return;S.arena.lit=!S.arena.lit;b.classList.toggle('selected',S.arena.lit);};$('#arenaTools').appendChild(b);})();
+  b.onclick=()=>{activeViewMode=activeViewMode==='lit'?'frames':'lit';renderViewerDock();syncLit();};$('#arenaTools').appendChild(b);})();
+// Show or hide the live network panel drawn on the arena.
+(()=>{const b=document.createElement('button');b.id='arenaBrain';b.className='selected';b.title='Show the network thinking, live';b.textContent='Brain';
+  b.onclick=()=>{if(!S.arena)return;S.arena.showBrain=!S.arena.showBrain;b.classList.toggle('selected',S.arena.showBrain);};$('#arenaTools').appendChild(b);})();
 $('#playbackRate').addEventListener('change',()=>{if(S.arena)S.arena.rate=Number($('#playbackRate').value)||1;});
 window.addEventListener('resize',()=>{if(S.active&&S.arena)S.arena.resize();});
 
-window.GameDemos={mount,decorateRequest,onMeta,onFrame,onOpenRun,reset,exit,dockItems,overlayCards,get active(){return S.active;},debug:()=>({active:S.active,gen:S.gen,pending:S.pending,prefer:S.prefer,frames:S.manifest?.frames?.length,cycle:S.arena?.cycle})};
+window.GameDemos={mount,decorateRequest,onMeta,onFrame,onOpenRun,reset,exit,dockItems,overlayCards,get active(){return S.active;},debug:()=>({lab:S.lab.on,labGens:S.lab.gens,active:S.active,gen:S.gen,pending:S.pending,prefer:S.prefer,frames:S.manifest?.frames?.length,cycle:S.arena?.cycle})};
 })();

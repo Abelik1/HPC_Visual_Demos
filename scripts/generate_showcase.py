@@ -14,6 +14,13 @@ sys.path.insert(0, str(ROOT))
 from run_demo import run  # noqa: E402
 
 
+# Showcase entries are slugs, not demo ids: a demo with selectable modes
+# contributes one GIF per mode so the README can show both.
+ENTRIES = {
+    "fusion_plasma": ("fusion_plasma", "passive"),
+    "plasma_guardian": ("fusion_plasma", "guardian"),
+}
+
 DEMOS = (
     "black_hole",
     "pbh",
@@ -25,15 +32,20 @@ DEMOS = (
     "crystal",
     "neural_wall",
     "fusion_plasma",
-    "plasma_guardian",
     "weather_ensemble",
     "molecular_dynamics",
+    "plasma_guardian",
     "neuro_racers",
     "bat_vs_moth",
 )
 
 
-def completed_run(run_dir: Path, profile: str, frames: int) -> bool:
+def entry(slug):
+    """Map a showcase slug to the (demo id, solver method) that renders it."""
+    return ENTRIES.get(slug, (slug, "default"))
+
+
+def completed_run(run_dir: Path, profile: str, frames: int, method: str) -> bool:
     """Return True only for a complete run with the requested frame contract."""
     meta_path = run_dir / "meta.json"
     try:
@@ -45,6 +57,7 @@ def completed_run(run_dir: Path, profile: str, frames: int) -> bool:
         meta.get("status") == "complete"
         and meta.get("profile") == profile
         and meta.get("frames") == frames
+        and (method == "default" or meta.get("method") == method)
         and len(images) == frames
     )
 
@@ -97,7 +110,7 @@ def main() -> None:
         "--demo",
         action="append",
         choices=DEMOS,
-        help="render only this demo (repeatable); defaults to the complete showcase",
+        help="render only this showcase entry (repeatable); defaults to the complete showcase",
     )
     parser.add_argument("--force", action="store_true", help="rerender completed runs")
     args = parser.parse_args()
@@ -139,24 +152,26 @@ def main() -> None:
                 raise SystemExit(result.returncode)
         return
 
-    for index, demo in enumerate(selected, start=1):
-        run_dir = args.runs_dir / demo
-        print(f"\n[{index}/{len(selected)}] {demo}", flush=True)
-        if args.force or not completed_run(run_dir, args.profile, args.frames):
+    for index, slug in enumerate(selected, start=1):
+        demo, method = entry(slug)
+        run_dir = args.runs_dir / slug
+        print(f"\n[{index}/{len(selected)}] {slug}", flush=True)
+        if args.force or not completed_run(run_dir, args.profile, args.frames, method):
             run(
                 demo,
                 profile=args.profile,
                 frames=args.frames,
                 backend=args.backend,
                 run_dir=run_dir,
+                method=method,
             )
         else:
             print("render already complete; reusing frames", flush=True)
 
         frames = sorted((run_dir / "frames").glob("frame_*.jpg"))
         if len(frames) != args.frames:
-            raise RuntimeError(f"{demo}: expected {args.frames} frames, found {len(frames)}")
-        gif_path = args.gif_dir / f"{demo}.gif"
+            raise RuntimeError(f"{slug}: expected {args.frames} frames, found {len(frames)}")
+        gif_path = args.gif_dir / f"{slug}.gif"
         make_gif(run_dir / "frames", gif_path, args.width, args.fps)
         size_mib = gif_path.stat().st_size / (1024 * 1024)
         print(f"wrote {gif_path.relative_to(ROOT)} ({size_mib:.1f} MiB)", flush=True)

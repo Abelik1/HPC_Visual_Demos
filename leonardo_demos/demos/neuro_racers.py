@@ -22,8 +22,8 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from ..backend import to_numpy
 from ..base import Demo
-from ..neuroevo import (Population, action_labels, brain_catalogue, input_labels,
-                        load_champion, save_champion, validate_brain)
+from ..neuroevo import (Population, action_labels, brain_catalogue, brain_payload, input_labels,
+                        load_champion, load_checkpoint, save_champion, save_checkpoint, validate_brain)
 from ..neuro_render import draw_brain
 from ..render import font
 
@@ -275,18 +275,35 @@ class RaceSim:
             inputs_history.append(inputs)
             outputs_history.append(out)
 
-    def run(self, population, steps, record_every=3, genome=None):
+    def start_pose(self, rng=None):
+        """(x, y, heading) at the start line, or a random pose when ``rng`` is given.
+
+        A random pose is anywhere along the track, up to 0.2 units off the
+        centre line and 0.3 rad off its direction: a fresh start the champion
+        never trained from.
+        """
+        centre, tangent = self.track["centre"], self.track["tangent"]
+        if rng is None:
+            i, lateral, jitter = 0, 0.0, 0.0
+        else:
+            i = int(rng.integers(0, len(centre)))
+            lateral, jitter = float(rng.uniform(-.2, .2)), float(rng.uniform(-.3, .3))
+        normal = np.array([-tangent[i, 1], tangent[i, 0]])
+        x, y = centre[i] + normal * lateral
+        return float(x), float(y), math.atan2(tangent[i, 1], tangent[i, 0]) + jitter
+
+    def run(self, population, steps, record_every=3, genome=None, pose=None):
         """Drive every car for ``steps`` steps and return fitness plus history.
 
         Crashed cars freeze where they hit the wall; the run stops early if no
-        car is still driving.
+        car is still driving.  ``pose`` overrides the start line.
         """
         xp = self.xp
         count = (population.genome if genome is None else genome).shape[0]
-        start = self.track["centre"][0]; direction = self.track["tangent"][0]
-        x = xp.full(count, start[0], dtype=xp.float32)
-        y = xp.full(count, start[1], dtype=xp.float32)
-        heading = xp.full(count, math.atan2(direction[1], direction[0]), dtype=xp.float32)
+        x0, y0, h0 = pose or self.start_pose()
+        x = xp.full(count, x0, dtype=xp.float32)
+        y = xp.full(count, y0, dtype=xp.float32)
+        heading = xp.full(count, h0, dtype=xp.float32)
         speed = xp.zeros(count, dtype=xp.float32)
         skid = xp.zeros(count, dtype=xp.float32)
         alive = xp.ones(count, dtype=bool)
@@ -358,7 +375,7 @@ class NeuroRacersDemo(Demo):
 
     # ---- setup ---------------------------------------------------------
     def catalogue(self):
-        specs = json.loads((Path(__file__).resolve().parents[2] / "config" / "demo_specs.json").read_text())
+        specs = json.loads((Path(__file__).resolve().parents[2] / "config" / "demo_specs.json").read_text(encoding="utf-8"))
         return brain_catalogue(specs, self.id)
 
     def brain_spec(self, catalogue):
@@ -461,7 +478,7 @@ class NeuroRacersDemo(Demo):
             "crash_sample": np.where(crash >= 0, np.minimum(history.shape[0] - 1, crash // record_every), -1),
         }
 
-    def arena_generation(self, generation, record, result, ghosts):
+    def arena_generation(self, generation, record, result, ghosts, population=None):
         order = record["order"]
         lap = to_numpy(result["lap_step"])[order]
         crash = to_numpy(result["crash_step"])[order]
@@ -474,8 +491,14 @@ class NeuroRacersDemo(Demo):
                          "h": np.round(np.degrees(h[:, 2])).astype(int).tolist(),
                          "crash": int(record["crash_sample"][j]), "lap_s": round(float(lap[j]) * DT, 2) if lap[j] > 0 else None,
                          "laps": round(float(progress[j]) / self.track["length"], 3)})
+        brains = []
+        if population is not None:
+            # The champion's real activations along its drive, for the live diagram.
+            champion = int(order[0])
+            brains.append(brain_payload(self.brain, self.catalogue_data, population.genome[champion:champion + 1],
+                                        result["inputs"][:, champion], f"Generation {generation} champion"))
         return {"kind": "racers", "generation": generation, "sample_dt": DT * self.record_every,
-                "cars": cars, "ghosts": [{"name": g["name"], "lap_s": g["lap_s"],
+                "cars": cars, "brains": brains, "ghosts": [{"name": g["name"], "lap_s": g["lap_s"],
                                            "x": np.round(g["history"][:, 0] * 100).astype(int).tolist(),
                                            "y": np.round(g["history"][:, 1] * 100).astype(int).tolist(),
                                            "h": np.round(np.degrees(g["history"][:, 2])).astype(int).tolist()}
@@ -558,6 +581,7 @@ class NeuroRacersDemo(Demo):
             for j, i in enumerate(members):
                 fractions[i] = (j + 1) / len(members)
         ctx.write_meta({"brain": self.brain, "track": {"id": self.track["id"], "name": self.track["name"]},
+                        "lab": {"checkpoints": "checkpoints", "generations": generations, "compare": True},
                         "arena_view": {"folder": "interactive", "kind": "racers", "arena": "interactive/arena.json",
                                        "frames": [[g, round(f, 4)] for g, f in zip(plan, fractions)]}})
         (ctx.run_dir / "overlays" / "network").mkdir(parents=True, exist_ok=True)
@@ -594,8 +618,10 @@ class NeuroRacersDemo(Demo):
                          "fastest_lap_s": round(float(finished.min()) * DT, 2) if finished.size else None}
                 history_stats.append(stats)
                 current = {"result": result, "record": record, "champion": champion, "stats": stats, "lap_s": lap_s}
+                save_checkpoint(ctx.run_dir / "checkpoints" / f"gen_{done:04d}.npz",
+                                champion=population.genome[champion:champion + 1])
                 (ctx.run_dir / "interactive" / f"gen_{done:04d}.json").write_text(
-                    json.dumps(self.arena_generation(done, record, result, ghosts if done == generations else [])))
+                    json.dumps(self.arena_generation(done, record, result, ghosts if done == generations else [], population)))
             fraction = fractions[i]
             image = self.render_frame(background, current["record"], fraction,
                                       ghosts if done == generations else ())
@@ -629,6 +655,40 @@ class NeuroRacersDemo(Demo):
                                     "generations": generations, "population": population.size},
                         "generation_stats": history_stats})
         ctx.finish(reveal)
+
+    # ---- generation lab ------------------------------------------------
+    @classmethod
+    def replay(cls, run_dir: Path, meta: dict, gens, seed: int):
+        """Re-drive saved champions from one random start, on the CPU.
+
+        Every requested generation's champion starts from the same random pose
+        (anywhere on the track, slightly off-line and off-angle), so the
+        visitor can compare how the network drove at different points of its
+        training.  Returns arena JSON plus each network's live activations.
+        """
+        specs = json.loads((Path(__file__).resolve().parents[2] / "config" / "demo_specs.json").read_text(encoding="utf-8"))
+        catalogue = brain_catalogue(specs, cls.id)
+        brain = meta["brain"]
+        track = track_geometry(int((meta.get("track") or {}).get("id", meta.get("params", {}).get("track", 0))))
+        steps = int((meta.get("settings") or {}).get("sim_steps", 900))
+        every = 2
+        sim = RaceSim(np, track, brain, catalogue)
+        pose = sim.start_pose(np.random.default_rng(int(seed)))
+        genomes = np.concatenate([load_checkpoint(Path(run_dir) / "checkpoints" / f"gen_{int(g):04d}.npz")["champion"]
+                                  for g in gens])
+        pop = Population(np, max(2, len(gens)), brain["layer_sizes"], seed=0)
+        result = sim.run(pop, steps, every, genome=genomes, pose=pose)
+        cars, brains = [], []
+        for j, g in enumerate(gens):
+            h = result["history"][:, j]
+            lap, crash = int(result["lap_step"][j]), int(result["crash_step"][j])
+            cars.append({"x": np.round(h[:, 0] * 100).astype(int).tolist(), "y": np.round(h[:, 1] * 100).astype(int).tolist(),
+                         "h": np.round(np.degrees(h[:, 2])).astype(int).tolist(), "label": f"gen {int(g)}", "gen": int(g),
+                         "crash": crash // every if crash >= 0 else -1, "lap_s": round(lap * DT, 2) if lap > 0 else None,
+                         "laps": round(float(result["progress"][j]) / track["length"], 3)})
+            brains.append(brain_payload(brain, catalogue, genomes[j:j + 1], result["inputs"][:, j], f"Generation {int(g)} champion"))
+        return {"kind": "racers", "generation": [int(g) for g in gens], "sample_dt": DT * every,
+                "replay": {"gens": [int(g) for g in gens], "seed": int(seed)}, "cars": cars, "brains": brains, "ghosts": []}
 
     # ---- the reveal ----------------------------------------------------
     def reveal(self, catalogue, seed, sigma):
@@ -679,6 +739,28 @@ class NeuroRacersDemo(Demo):
                           "laps": round(float(progress[g, best]) / self.track["length"], 3)})
         path = self.ctx.run_dir / "reveal.jpg"
         self.ctx.save_frame(out, path)
+        # The same result as animation data: every search's champion drive, so
+        # the viewer can play the grid instead of showing a still image.
+        crash_all = to_numpy(result["crash_step"]).reshape(-1)
+        lap_all = to_numpy(result["lap_step"]).reshape(-1)
+        boxes = []
+        for g in range(islands):
+            best = int(np.argmax(fitness[g])); index = g * size + best
+            h = history[:, index]; crash = int(crash_all[index]); lap = int(lap_all[index])
+            lap_s = round(lap * DT, 2) if lap > 0 else None
+            boxes.append({"label": f"search {g + 1}", "lap_s": lap_s,
+                          "laps": round(float(progress[g, best]) / self.track["length"], 3),
+                          "gen": {"kind": "racers", "generation": generations, "sample_dt": DT * self.record_every,
+                                  "cars": [{"x": np.round(h[:, 0] * 100).astype(int).tolist(),
+                                            "y": np.round(h[:, 1] * 100).astype(int).tolist(),
+                                            "h": np.round(np.degrees(h[:, 2])).astype(int).tolist(),
+                                            "crash": crash // self.record_every if crash >= 0 else -1,
+                                            "lap_s": lap_s, "laps": round(float(progress[g, best]) / self.track["length"], 3)}],
+                                  "brains": [], "ghosts": []}})
+        folder = self.ctx.run_dir / "interactive"; folder.mkdir(exist_ok=True)
+        (folder / "reveal.json").write_text(json.dumps({"kind": "racers", "shared_arena": "interactive/arena.json",
+                                                        "boxes": boxes}))
         self.ctx.write_meta({"reveal_tiles": tiles, "reveal_population": size * islands,
-                             "reveal_generations": generations})
+                             "reveal_generations": generations,
+                             "reveal_view": {"file": "interactive/reveal.json", "boxes": islands}})
         return path

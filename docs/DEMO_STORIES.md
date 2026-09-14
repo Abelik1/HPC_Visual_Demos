@@ -2,13 +2,30 @@
 
 These are short scripts, not mandatory narration. The UI is designed so the story remains understandable even without audio.
 
+**A note on the reveal.** The "show every run" button now exists only where a
+population is genuinely being trained or re-tested: the neural-network wall,
+Neuro-Racers, Bat vs Moth, and Star in a Bottle in guardian mode. Everywhere
+else a run is a single simulation, because for a large model the compute lives
+inside that one simulation rather than in how many copies fit on screen. The
+closing beat for those demos is the simulation itself, not a pull-back. Lines
+below that used to end on a tile wall have been rewritten accordingly; see
+[DEMO_MODE.md](DEMO_MODE.md).
+
 ## 1. Black-hole lensing
 
-**Opening:** "This is an ordinary view of the sky. Now put a black hole between us and the background."
+**Opening:** "This black hole is real. Gaia found it by watching a star orbit something we cannot see. We have parked a camera next to it."
 
-As lensing appears: "Every output pixel is a question: trace this line of sight backwards and work out where its light came from."
+As the view settles: "Every star in this sky is a real Gaia star, moved to where it would appear from out there. Nearby stars have shifted; the Milky Way is where it should be."
 
-**Reveal:** "That was one observer. A supercomputer lets us ask the same question from many observers or with many black-hole parameters at once."
+On the shadow: "The black disc is not the horizon. It is the shadow, two and a half times bigger: every ray aimed inside it falls in."
+
+On the edge: "Right at the edge, light has gone once around the hole before reaching the camera, so you see the whole sky squeezed into a thin ring, and then again, and again."
+
+Switch to the ray paths: "These are the exact routes. The colour is how hard gravity bent each ray: blue barely turned, yellow turned right round, and red never got out. The dashed ring is where light can orbit."
+
+**Closing:** "Every pixel is one question: where did this light come from? The picture is the answer to millions of them, each solved exactly in Einstein's equations."
+
+If someone asks what is missing: no spin, no glowing disc (these black holes are genuinely dormant), and no companion star.
 
 ## 2. Primordial black hole
 
@@ -18,7 +35,7 @@ Below threshold: "Pressure wins; the perturbation disperses."
 
 Above threshold: "Gravity wins; the central region grows increasingly dense and the solution heads toward collapse."
 
-**Reveal:** "Scientists do not run one universe. We scan a whole neighbourhood and find the boundary where the answer changes."
+**Closing:** "The interesting result is not either outcome. It is how sharp the boundary between them is: a fraction of a percent in the initial density decides it."
 
 ## 3. Wind tunnel
 
@@ -26,13 +43,13 @@ Above threshold: "Gravity wins; the central region grows increasingly dense and 
 
 As vortices appear: "The obstacle forces the fluid to organise into vortices, and eventually the wake becomes complex."
 
-**Reveal:** "The smooth picture hides a grid of cells being updated over and over. A large domain can be split across GPUs, with only boundaries exchanged."
+**Closing:** "The smooth picture hides a grid of cells being updated over and over. A large domain can be split across GPUs, with only the boundaries exchanged."
 
 ## 4. Cosmic web
 
 **Opening:** "The early distribution is almost uniform. Almost is the important word."
 
-**Reveal:** "Run the history again with a different tiny fluctuation and you get a different detailed universe. HPC lets cosmologists explore the statistics, not just one pretty animation."
+**Closing:** "Nobody placed those filaments. Gravity amplified fluctuations that started a hundred thousand times smaller than what you are looking at."
 
 ## 5. Galaxy collision
 
@@ -40,19 +57,19 @@ As vortices appear: "The obstacle forces the fluid to organise into vortices, an
 
 At first passage: "The long tails are a memory of the orbit."
 
-**Reveal:** "Change the impact parameter or speed and the entire encounter changes. Instead of guessing one orbit, calculate an atlas."
+**Closing:** "Change the impact parameter or the approach speed and the entire encounter changes. This is one orbit out of a range we genuinely do not know yet."
 
 ## 6. Reaction diffusion
 
 **Opening:** "There are only two interacting fields and local rules."
 
-**Reveal:** "One set of constants makes this pattern. But the beautiful part is the parameter space: many mathematical worlds evolving at once."
+**Closing:** "Two chemicals and one local rule. Move the feed and kill rates slightly and you get spots, stripes, waves or a labyrinth instead."
 
 ## 7. Crystal growth
 
 **Opening:** "Every crystal begins from a tiny seed."
 
-**Reveal:** "Change the environment by a little and the branches change. Rather than grow one crystal, scan conditions and build a morphology map."
+**Closing:** "Change the environment a little and the habit changes completely. Zoom in and the same growth rule is still running several scales down."
 
 ## 8. Neural-network wall
 
@@ -70,19 +87,23 @@ As the wall appears: "That was only the best network. We were training many diff
 
 As the luminous trails move: "These are passive tracers following drift derived from the simulated wave field. Heating feeds the plasma, nonlinear waves interact, and coherent motion can turn into turbulent structure."
 
-**Reveal:** "A reactor is not designed from one beautiful plasma. We compute an operating map — magnetic field against heating power — and search for regions that remain controllable."
+**Closing:** "Raise the heating and the coherent motion breaks up. Holding that is the whole problem — which is mode 2."
 
 **Interactive view:** "Drag the plasma to inspect the torus from any direction. Switch to Magnetic field to see the helical geometry that explains how toroidal and poloidal field components wrap around the bottle. This geometry is explanatory; the reduced wave model is not solving the reactor's magnetic equilibrium."
 
-## 10. AI Plasma Guardian
+## 10. Star in a Bottle, mode 2: AI Plasma Guardian
 
-**Opening:** "In a real tokamak, the plasma has to stay away from the wall. A small instability can grow faster than a human can react."
+**Opening:** "Same bottle, harder question. In a real tokamak the plasma has to stay away from the wall, and a small instability can grow faster than a human can react. So we fill the torus with markers and ask a neural network to hold them."
 
-As the red outline grows: "The red line is an uncontrolled reference. The bright plasma receives noisy diagnostics: position, velocity, pressure and a tearing-risk proxy."
+As the first sparks appear: "Every orange burst is a marker that escaped confinement and hit the vessel. The policy starts untrained: it is losing plasma."
 
-As the coils respond: "A neural policy turns those readings into three magnetic-coil commands. It has learned that response by testing batches of virtual plasma shots in parallel."
+As the coils respond: "The network receives noisy diagnostics — position, velocity, pressure and a tearing-risk proxy — and turns them into three magnetic-coil commands. It learned that response by back-propagating through batches of virtual plasma shots. Watch the sparks stop."
 
-**Method note:** "This is a reduced control environment, not a prediction of a reactor disruption. The graph shows actual learned policy weights and the coloured coils show its actual output."
+**The comparison:** "The readout is counting an identical population running with the coils switched off. It is already on the wall."
+
+**Re-test on unseen drives:** "One trained controller, re-tested against instability drives it never saw. Each tile is its own plasma field and its own closed-loop evaluation, and the wall load is counted."
+
+**Method note:** "This is a reduced control environment and a transport-flavoured marker model, not a prediction of a reactor disruption. The graph shows actual learned policy weights and the coloured coils show its actual output."
 
 ## 11. Storm Factory
 
@@ -90,7 +111,7 @@ As the coils respond: "A neural policy turns those readings into three magnetic-
 
 As the storm moves: "Vorticity carries rotating weather systems while moisture is transported around the planet."
 
-**Reveal:** "The observations are never exact. Each globe begins with a slightly different but plausible atmosphere. A useful forecast needs the whole ensemble before the real weather arrives."
+**Closing:** "The observations are never exact. Raise the initial uncertainty and watch how far the storm track has moved by day five: that is why a forecast has a confidence, not just a position."
 
 ## 12. Molecular Machine
 
@@ -98,7 +119,7 @@ As the storm moves: "Vorticity carries rotating weather systems while moisture i
 
 As the chain rearranges: "This is one trajectory through an enormous space of possible shapes."
 
-**Reveal:** "Change temperature, attraction or sequence and the answer changes. A supercomputer turns one slow experiment into a virtual laboratory of molecular trajectories."
+**Closing:** "Change temperature, attraction or the sequence and it settles somewhere else entirely. Every one of those is a separate experiment."
 
 ## 13. Neuro-Racers
 
@@ -112,7 +133,7 @@ As laps appear: "Nobody told them how to drive. The furthest cars became parents
 
 **Challenges for the next visitor:** "Can a brain with no hidden layer win? Can you beat the ghost of the last visitor? What happens if every sensor points left?"
 
-**Reveal:** "That was one search. Here is the same brain evolved from different random starts: some find a fast lap, some never do. Leonardo runs thousands of these searches at once, and that is how real AI research explores designs."
+**Show every search:** "That was one search. Here is the same brain evolved from different random starts: some find a fast lap, some never do. Leonardo runs thousands of these searches at once, and that is how real AI research explores designs."
 
 ## 14. Bat vs Moth
 
@@ -128,4 +149,4 @@ When moths start evolving: "Now the moths fight back. Watch for magenta: a moth 
 
 **Punchline:** "Real tiger moths jam bat sonar with ultrasonic clicks. Evolution found that trick millions of years ago. Here it has to rediscover it inside a supercomputer."
 
-**Reveal:** "Now the same bats and moths are released into caves they have never seen. Does the jamming survive? Every tile is its own evolving world, and Leonardo runs thousands of them side by side."
+**Show every cave:** "Now the same bats and moths are released into caves they have never seen. Does the jamming survive? Every tile is its own evolving world, and Leonardo runs thousands of them side by side."

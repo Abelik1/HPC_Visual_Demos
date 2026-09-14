@@ -16,8 +16,7 @@ defines the clean-frame and output contracts.
 | Living mathematics | [reaction_diffusion](reaction_diffusion/README.md) |
 | Crystal growth | [crystal](crystal/README.md) |
 | Neural-network wall | [neural_wall](neural_wall/README.md) |
-| Star in a Bottle | [fusion_plasma](fusion_plasma/README.md) |
-| AI Plasma Guardian | [plasma_guardian](plasma_guardian/README.md) |
+| Star in a Bottle (both modes) | [fusion_plasma](fusion_plasma/README.md) |
 | Storm Factory | [weather_ensemble](weather_ensemble/README.md) |
 | Molecular Machine | [molecular_dynamics](molecular_dynamics/README.md) |
 | Neuro-Racers | [neuro_racers](neuro_racers/README.md) |

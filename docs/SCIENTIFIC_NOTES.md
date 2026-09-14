@@ -150,7 +150,12 @@ call the fallback "neural-network training" during a public presentation.
 
 ## Star in a Bottle / fusion plasma
 
-This demo integrates the complex Ginzburg--Landau amplitude equation on a
+The demo has two selectable modes, chosen through the run's `method`. Both
+integrate the same field solver; mode 2 adds a control loop on top of it.
+
+### Mode 1 - passive confinement
+
+This mode integrates the complex Ginzburg--Landau amplitude equation on a
 periodic 2-D lattice and maps that field onto a torus. The equation is a real
 nonlinear wave model that produces coherent waves, defects and spatiotemporal
 turbulence; it is useful for exposing the compute pattern of a plasma field
@@ -172,31 +177,77 @@ flow direction visible without feeding back into the simulation. The short
 trails are trajectory history; camera rotation is deliberately slower so the
 field-driven motion remains distinguishable from the changing viewpoint.
 
-Completed fusion runs also write `fusion_view.json`, a compact copy of the
-final field texture and tracer histories used by the browser's rotatable view.
-The optional magnetic view draws nested helical curves and the magnetic axis
-to explain toroidal confinement. Those curves respond to the selected field
-strength through an illustrative pitch mapping, but they are **not** magnetic
-field lines calculated by the complex-amplitude solver and must not be
-presented as a solved Grad--Shafranov equilibrium or safety-factor profile.
+### Mode 2 - AI plasma guardian
 
-## AI Plasma Guardian
+Mode 2 keeps the same field solver running and uses it as the turbulence
+source, then adds two further reduced models.
 
-This is a **research-inspired reduced control environment**, not a tokamak
+The first is a **research-inspired reduced control environment**, not a tokamak
 equilibrium, transport, or tearing-mode solver. Its six state variables are
 radial and vertical position/velocity plus dimensionless pressure and
 tearing-risk proxies. Three aggregate actuator outputs represent radial,
-vertical and shaping coil banks. Open-loop positive feedback makes the
+vertical and shaping coil banks, drawn as eight coil rings around the machine
+and as their cross-sections in the poloidal overlay; the count and placement are
+an exhibition simplification of a real poloidal field coil set. Open-loop positive feedback makes the
 reference trajectory approach the vessel boundary; a small PyTorch MLP is
 optimized by back-propagating through batches of those virtual trajectories to
-minimize displacement, risk, velocity, and coil effort.
+minimize displacement, risk, velocity, and coil effort. The demo genuinely
+trains this policy and uses its learned weights to draw the policy graph and
+its actions to drive the coloured coils. Without PyTorch the run falls back to
+an explicit analytical controller, which is labelled as such everywhere and is
+**not** learning.
 
-The demo genuinely trains a neural feedback policy and uses its learned weights
-to draw the policy graph and its actions to drive the coloured coils. It must
-not be presented as a controller validated on experimental tokamak data, an RL
-controller, or a prediction of a physical disruption. It is a visual
-explanation of the diagnostic → policy → magnetic-actuator loop demonstrated
-in modern plasma-control research.
+Simulation and training are deliberately separate phases. The run is a sequence
+of virtual shots; within a shot the policy is frozen, so the displayed physics
+is a clean closed-loop episode that training cannot perturb. Between shots the
+shot is scored on its wall losses and the policy is optimized, with half of each
+training batch replayed from the states that shot visited and half sampled at
+random. Every shot repeats the identical experiment — same field seed, marker
+seed, start state and disturbance sequence — so differences on the scoreboard
+are attributable to the policy alone. The optimization target includes a
+closed-form, differentiable estimate of the marker population's equilibrium
+radius derived from the same balance the visible markers obey, so the policy is
+genuinely minimizing wall contact rather than a stand-in for it. Nothing is
+pre-trained and no weights persist between runs; the learning rate is a
+profile setting chosen so the improvement is visible across several shots
+rather than complete after the first, and the plateau that follows is real.
+
+The second is a **transport-flavoured marker population** inside the torus.
+Each marker carries a toroidal angle, a poloidal angle and a minor radius
+measured from the magnetic axis, and the controller's displacement *is* that
+axis, so the coil commands really do decide which markers stay inside. Radial
+motion balances an edge-weighted turbulent drift sampled from the live field,
+a resonant island kick scaled by the tearing proxy, a rare large-angle
+scattering channel standing in for collisional losses, and a restoring term
+set by the field strength and the shaping command. A marker that reaches the
+wall is counted as a loss, leaves a spark at the contact point and is recycled
+into the core so the population stays constant. Every spark on screen is a
+counted contact.
+
+These markers are **not** a gyrokinetic or full-orbit particle code: there is
+no gyromotion, no collision operator, no divertor geometry and no
+self-consistent field response. The loss counts are internally consistent
+diagnostics of this reduced model and must never be quoted as a confinement
+time, a particle flux or a prediction for any device.
+
+The uncontrolled comparison is real: a second marker population starts from the
+same seed and the same state and runs with the coils switched off. The reveal
+is likewise real additional computation - the trained policy is re-evaluated
+against instability drives it never trained on, each tile integrating its own
+plasma field and running its own closed loop, and the reported wall load is the
+count that evaluation produced.
+
+### Interactive view
+
+Completed fusion runs also write `fusion_view.json`, a compact copy of the
+final field texture and tracer or marker state used by the browser's rotatable
+view. The optional magnetic view draws nested helical curves and the magnetic
+axis to explain toroidal confinement; in guardian mode those curves follow the
+axis the policy is holding and respond to its commands. They respond to the
+selected field strength through an illustrative pitch mapping, but they are
+**not** magnetic field lines calculated by the complex-amplitude solver and
+must not be presented as a solved Grad--Shafranov equilibrium or safety-factor
+profile.
 
 ## Storm Factory / weather ensemble
 

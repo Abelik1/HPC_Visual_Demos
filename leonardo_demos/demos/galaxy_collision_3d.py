@@ -417,7 +417,23 @@ class GalaxyCollision3DDemo(Demo):
         x = width * .5 + points[:, 0] * scale
         y = height * .5 - points[:, 1] * scale
         visible = (x >= -8) & (x < width + 8) & (y >= -8) & (y < height + 8)
-        order = np.flatnonzero(visible)[np.argsort(points[visible, 2])]
+        # Dark-matter halo super-particles are drawn first, underneath every
+        # luminous body: dark matter does not block starlight. Depth-sorting
+        # them in with the stars let hundreds of thousands of dim translucent
+        # dots paint a haze over the discs once runs reached ~1M particles.
+        # Layers, each depth-sorted: halo, then bulge, then disc on top. The disc
+        # carries the spiral arms and the tidal tails, which are the picture;
+        # at a million particles 130k bulge dots otherwise cover it completely.
+        kinds = np.asarray(component)
+        order = np.concatenate([np.flatnonzero(visible & (kinds == k))[np.argsort(points[visible & (kinds == k), 2])]
+                                for k in (2, 1, 0)])
+        # The area painted grows with count x dot size. Shrink dots and thin
+        # the halo so a 1M-particle frame has the look of the 200k reference.
+        density = min(1.0, 200_000 / max(1, len(points)))
+        halo_alpha = max(4, int(round(38 * density)))
+        star_scale = density ** .15
+        bulge_radius = max(1.0, 2.0 * density ** .5)
+        disc_radius = max(1.0, 1.45 * density ** .25)
         base = Image.new("RGB", size, (1, 3, 10))
         glow = Image.new("RGBA", size, (0, 0, 0, 0))
         gd = ImageDraw.Draw(glow, "RGBA")
@@ -427,13 +443,13 @@ class GalaxyCollision3DDemo(Demo):
             galaxy = int(origin[index]); kind = int(component[index])
             if kind == 2:
                 colour = (42, 82, 125) if galaxy == 0 else (120, 61, 45)
-                radius, alpha = 1.0, 38
+                radius, alpha = 1.0, halo_alpha
             elif kind == 1:
                 colour = (225, 238, 255) if galaxy == 0 else (255, 220, 174)
-                radius, alpha = 2.0, 210
+                radius, alpha = bulge_radius, int(210 * star_scale)
             else:
                 colour = (92, 194, 255) if galaxy == 0 else (255, 128, 66)
-                radius, alpha = 1.45, 205
+                radius, alpha = disc_radius, int(205 * star_scale)
             xx, yy = float(x[index]), float(y[index])
             gd.ellipse((xx-radius*3, yy-radius*3, xx+radius*3, yy+radius*3), fill=(*colour, alpha//3))
             sd.ellipse((xx-radius, yy-radius, xx+radius, yy+radius), fill=(*colour, alpha))

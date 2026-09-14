@@ -11,4 +11,11 @@
 - Re-run `tests/test_neuroevo.py::BatVsMothTests` after any change to the sonar
   model; the hand-coded hunters pin that two ears beat one and that jamming
   protects moths.
-- No cuBLAS in the forward pass (see `neuroevo.Population.forward`).
+- No cuBLAS in the forward pass (see `neuroevo.Population.forward`); the fused
+  CUDA forward kernel is a plain per-individual multiply-add for the same
+  reason.
+- The NumPy `CaveSim.run` step is the reference; `_cuda_kernels()` must match
+  it, and phantom/dive noise must keep coming from the seeded host RNG in the
+  same order so CPU and GPU stay scientifically equivalent. Re-run
+  `BatVsMothTests::test_fused_cuda_kernels_match_the_array_reference` after any
+  change to either path.

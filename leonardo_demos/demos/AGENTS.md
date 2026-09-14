@@ -45,10 +45,13 @@ This file applies to every solver in this directory. Read the matching
   recursive work bounded and process-parallel where appropriate.
 - `neural_wall.py`: the main image is the RGB coordinate-network output; target,
   weights, loss, and network graph stay outside the main frame.
-- `fusion_plasma.py`: write one rotatable 3-D state per frame; magnetic geometry
-  is explanatory and must not be called a solved equilibrium.
-- `plasma_guardian.py`: main frames contain vessel state only; sensor panels and
-  policy topology are overlays. Amber is tearing-risk proxy; red is baseline.
+- `fusion_plasma.py`: two modes selected through `method`. Write one rotatable
+  3-D state per frame in both; magnetic geometry is explanatory and must not be
+  called a solved equilibrium. `passive` must keep its pre-merge behaviour. In
+  `guardian`, main frames contain vessel state only - sensor panels, policy loss
+  and topology are overlays - and every rendered spark is a counted wall
+  contact. The reduced control environment and the confined-marker model live in
+  `leonardo_demos/plasma_control.py`. See `docs/demos/fusion_plasma/AGENTS.md`.
 - `weather_ensemble.py`: the reveal must remain an initial-condition ensemble,
   with uncertainty affecting members rather than only their labels.
 - `neuro_racers.py`: the NumPy `RaceSim` path is the reference and the fused
@@ -57,7 +60,9 @@ This file applies to every solver in this directory. Read the matching
   `docs/demos/neuro_racers/AGENTS.md`.
 - `bat_vs_moth.py`: main frames are the bat's senses only; "jamming evolved"
   means selective jamming; keep jamming a private benefit and the moth head
-  start/quiet start. See `docs/demos/bat_vs_moth/AGENTS.md`.
+  start/quiet start. The NumPy `CaveSim.run` path is the reference and the
+  fused CuPy kernels must match it; random draws stay on the seeded host RNG.
+  See `docs/demos/bat_vs_moth/AGENTS.md`.
 - `molecular_dynamics.py`: preserve stable integration, bounded all-pairs work,
   and the coarse-grained—not atomistic—description.
 

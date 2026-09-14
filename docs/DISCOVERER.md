@@ -4,7 +4,37 @@ This is the runbook for the team allocation on the Brain++ Discoverer NVL72 syst
 
 ## Current status
 
-The source, ARM64 environment recipe, and Slurm launchers have been staged for the `abelik` account. Do not submit the production job: GPU execution is blocked by the CUDA issue below and, as of 9 September, the team Weka filesystem is absent from both reserved compute nodes. See [Known cluster issues](#known-cluster-issues-8-9-september-2026).
+**Working as of 13 September 2026.** The Weka mount and CUDA access on the
+reservation are fixed: the GPU smoke test (job 6503) and 200k-particle 3-D
+galaxy runs (6345, 6504) passed, and the demo-day showcase jobs 7650–7655 ran
+the galaxy, wind-tunnel and fusion solvers on GB200s, including PyTorch for the
+fusion guardian. The issue log below is kept for reference.
+
+### Demo-day showcase renders
+
+`scripts/run_discoverer_showcase.sbatch` renders the big showcase runs, several
+single-GPU runs in parallel inside the team's one-node / four-GPU allocation:
+
+```bash
+module load slurm
+cd /weka/ehpc-school-2026/abelik/Leonardo_Visual_Demos
+sbatch --export=ALL,SET=a,PILOT=1 scripts/run_discoverer_showcase.sbatch   # a few frames each, to time them
+sbatch --export=ALL,SET=a scripts/run_discoverer_showcase.sbatch            # 3-D galaxies (2M and 1M bodies) + wind tunnels
+sbatch --export=ALL,SET=b scripts/run_discoverer_showcase.sbatch            # Star in a Bottle: passive + AI guardian
+sbatch --export=ALL,SET=c scripts/run_discoverer_showcase.sbatch            # wind tunnels only
+```
+
+Runs land in `$TEAM/runs/<name>_showcase<JOBID>`. Set `b` builds a separate
+`venvs/visual-demos-torch` on first use, so PyTorch's CUDA wheels never touch
+the CuPy-only environment. On the Windows PC,
+`python scripts/render_showcase_desktop.py --skip-local` streams each finished
+run home as a compressed tar and adds it to demo mode's showcase.
+
+Measured on one GB200 (13 September): direct all-pairs gravity ~0.5 s per force
+evaluation at 1M bodies; a 3840x2160 lattice-Boltzmann run of 125,000 steps
+and 600 frames in ~25 minutes; the 12-shot guardian with 3,000 policy updates
+in ~15 minutes. Tracers are drawn at 1280x720 regardless of lattice size, so
+keep them at a few thousand.
 
 ## Access and storage
 

@@ -302,6 +302,41 @@ class Population:
         return [g * self.group_size for g in range(self.groups)]
 
 
+def brain_payload(brain: dict, catalogue: dict, genome_row, inputs, title: str, max_samples: int = 600) -> dict:
+    """Weights and per-sample activations of one network, for the live diagram.
+
+    ``inputs`` is the (samples, inputs) history the individual actually saw,
+    so the viewer can light each neuron exactly as it fired during the replay.
+    Activations are stored as integers in hundredths to keep files small.
+    """
+    genome_row = np.asarray(to_numpy(genome_row), dtype=np.float32).reshape(1, -1)
+    inputs = np.asarray(to_numpy(inputs), dtype=np.float32)[:max_samples]
+    pop = Population(np, 2, brain["layer_sizes"], seed=0)
+    genome = np.repeat(genome_row, len(inputs), axis=0)
+    _, acts = pop.forward(inputs, genome, return_hidden=True)
+    weights = [w[0] for w, _ in pop.layers(genome_row)]
+    return {
+        "title": title,
+        "sizes": [int(v) for v in brain["layer_sizes"]],
+        "inputs": input_labels(brain, catalogue),
+        "outputs": action_labels(brain, catalogue),
+        "weights": [np.round(w, 3).tolist() for w in weights],
+        "acts": [np.round(np.clip(a, -1, 1) * 100).astype(int).tolist() for a in acts],
+    }
+
+
+def save_checkpoint(path: Path, **genomes):
+    """Save one generation's genomes (e.g. the champion) for later replays."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(path, **{k: to_numpy(v).astype(np.float32) for k, v in genomes.items()})
+
+
+def load_checkpoint(path: Path) -> dict:
+    with np.load(Path(path), allow_pickle=False) as data:
+        return {k: np.asarray(data[k], dtype=np.float32) for k in data.files}
+
+
 def save_champion(path: Path, genome_row, brain: dict, meta: dict | None = None):
     path = Path(path)
     np.savez_compressed(path, genome=to_numpy(genome_row).astype(np.float32),

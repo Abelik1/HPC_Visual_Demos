@@ -10,6 +10,8 @@ from ..colors import palette
 
 W,H=1280,720
 LBM_TAU=.57
+# Readout names for the obstacle parameter; index matches config/demo_specs.json.
+OBSTACLE_NAMES=("single cylinder","twin cylinders","mixed bodies","custom shape only")
 
 # One fused D2Q9 update per lattice step: pull-stream (with periodic wrap) and
 # full-way bounce-back at solid cells, then BGK collision with the inlet
@@ -89,6 +91,11 @@ class FluidDemo(Demo):
             # wakes obvious: a streamlined ellipse followed by a small block.
             mask|=((xx-nx*.26)/(nx*.075))**2+((yy-ny*.42)/(ny*.065))**2 < 1
             mask|=(np.abs(xx-nx*.39)<nx*.026)&(np.abs(yy-ny*.62)<ny*.105)
+        elif preset==3:
+            # Custom shape only: the visitor's drawing is the whole body. Every
+            # other preset is combined with the drawing, which is why a drawn
+            # shape used to arrive with the single cylinder still inside it.
+            pass
         else:
             mask|=(xx-nx*.28)**2+(yy-(ny*.5+.5))**2 < (ny*.15)**2
         if custom_grid:
@@ -98,6 +105,8 @@ class FluidDemo(Demo):
                 x0=max(3,int(round(col*nx/gw))); x1=min(nx-3,int(round((col+1)*nx/gw)))
                 y0=max(1,int(round(row*ny/gh))); y1=min(ny-1,int(round((row+1)*ny/gh)))
                 if x1>x0 and y1>y0: mask[y0:y1,x0:x1]=True
+        if not mask.any():
+            raise ValueError('the obstacle is empty: draw at least one solid block')
         ys,xs=np.where(mask)
         self.obstacle_centre=(float(xs.mean()),float(ys.mean()))
         self.obstacle_radius=math.sqrt(float(mask.sum())/math.pi)
@@ -351,7 +360,7 @@ class FluidDemo(Demo):
             front=float(pressure[int(oy),max(0,x0-2)]); back=float(pressure[int(oy),min(nx-1,x1+2)])
             self.ctx.save_frame(im,self.ctx.frame_path(i)); self.ctx.write_status(i,"Updating lattice cells",{
                 "inlet speed":f"{speed:.4f}","Reynolds number":f"{re:,.0f}","grid":f"{nx} × {ny}",
-                "obstacle preset":("single cylinder","twin cylinders","mixed bodies")[preset],
+                "obstacle preset":OBSTACLE_NAMES[preset],
                 "custom blocks":f"{int(np.asarray(custom).sum()) if custom else 0}",
                 "front pressure":f"{front:+.5f}","wake pressure":f"{back:+.5f}","lattice step":f"{done:,} / {total:,}",
                 "precision":self.ctx.precision_spec["label"]})

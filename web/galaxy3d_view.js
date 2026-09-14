@@ -43,7 +43,49 @@ class Galaxy3DView {
   drawAxes(centre,scale){const ctx=this.ctx,d=this.dpr,w=this.canvas.width,h=this.canvas.height,base=[w-70*d,h-63*d],axes=[[[30,0,0],'x','#ff897d'],[[0,30,0],'y','#75e8b8'],[[0,0,30],'z','#7ebcff']];ctx.lineWidth=2*d;ctx.font=`700 ${11*d}px Arial`;for(const [vector,label,colour] of axes){const r=this.rotated(vector,[0,0,0]);ctx.strokeStyle=colour;ctx.fillStyle=colour;ctx.beginPath();ctx.moveTo(...base);ctx.lineTo(base[0]+r[0]*.72*d,base[1]-r[1]*.72*d);ctx.stroke();ctx.fillText(label,base[0]+r[0]*.78*d,base[1]-r[1]*.78*d);}}
   drawLabels(){const ctx=this.ctx,d=this.dpr,w=this.canvas.width,h=this.canvas.height,focus=this.focus==='all'?'WHOLE ENCOUNTER':this.focus==='mw'?'MILKY WAY FOCUS':'M31 FOCUS';ctx.fillStyle='rgba(3,7,18,.82)';ctx.strokeStyle='rgba(108,219,255,.35)';ctx.lineWidth=d;ctx.beginPath();ctx.roundRect(20*d,18*d,430*d,78*d,14*d);ctx.fill();ctx.stroke();ctx.fillStyle='#f3f8ff';ctx.font=`700 ${18*d}px Arial`;ctx.fillText('3D SELF-GRAVITATING ENCOUNTER',38*d,48*d);ctx.fillStyle='#95b2d4';ctx.font=`${12*d}px Arial`;ctx.fillText(`${focus} · ${Number(this.data.simulated_particles).toLocaleString()} super-particles · t +${Number(this.data.time_gyr).toFixed(2)} Gyr`,38*d,73*d);ctx.fillStyle='rgba(180,204,232,.9)';ctx.font=`${11*d}px Arial`;ctx.fillText('Gaia DR3 seeds · PHAT sky pattern + modelled depth · illustrative N-body, not a fitted prediction',22*d,h-22*d);}
 
-  draw(){if(!this.data||!this.canvas.width||!this.canvas.height)return;const ctx=this.ctx,w=this.canvas.width,h=this.canvas.height,d=this.dpr,centre=this.centre(),extent=Math.max(30,Number(this.data.extent_kpc)||500),scale=Math.min(w/(2.15*extent),h/(1.45*extent))*this.zoom,points=[];for(let i=0;i<this.data.positions.length;i++){const component=this.data.component[i];if(component===2&&!this.showHalo)continue;const r=this.rotated(this.data.positions[i],centre);points.push({i,x:w*.5+r[0]*scale,y:h*.5-r[1]*scale,z:r[2],component});}points.sort((a,b)=>a.z-b.z);const gradient=ctx.createRadialGradient(w*.48,h*.42,0,w*.5,h*.5,Math.max(w,h)*.65);gradient.addColorStop(0,'#071126');gradient.addColorStop(.55,'#020711');gradient.addColorStop(1,'#010207');ctx.fillStyle=gradient;ctx.fillRect(0,0,w,h);ctx.globalCompositeOperation='lighter';for(const p of points){if(p.x<-8||p.x>w+8||p.y<-8||p.y>h+8)continue;const i=p.i,c=this.colour(this.data.origin[i],p.component,this.data.catalogue?.[i],this.data.colour?.[i]),front=Math.max(.35,Math.min(1,.62+.38*p.z/extent)),radius=(p.component===2?.8:p.component===1?2.45:3.3)*d*(.75+.35*front);ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${c[3]/255*front})`;ctx.beginPath();ctx.arc(p.x,p.y,radius,0,Math.PI*2);ctx.fill();if(p.component===0&&this.data.catalogue?.[i]){ctx.fillStyle=`rgba(235,250,255,${.4*front})`;ctx.beginPath();ctx.arc(p.x,p.y,radius*.58,0,Math.PI*2);ctx.fill();}}ctx.globalCompositeOperation='source-over';this.drawAxes(centre,scale);this.drawLabels();}
+  // Drawn to match the rendered 2D frames (galaxy_collision_3d.py render):
+  // small sharp dots over a faint blurred halo, normal blending. The earlier
+  // additive blend let overlapping particles pile up into a white glow, so the
+  // same run looked different the moment you rotated it.
+  flatStyle(origin,component){
+    if(component===2)return {colour:origin===0?[42,82,125]:[120,61,45],radius:1.0,alpha:38};
+    if(component===1)return {colour:origin===0?[225,238,255]:[255,220,174],radius:2.0,alpha:210};
+    return {colour:origin===0?[92,194,255]:[255,128,66],radius:1.45,alpha:205};
+  }
+  draw(){
+    if(!this.data||!this.canvas.width||!this.canvas.height)return;
+    const ctx=this.ctx,w=this.canvas.width,h=this.canvas.height,centre=this.centre();
+    const extent=Math.max(30,Number(this.data.extent_kpc)||500);
+    const scale=Math.min(w/(2.15*extent),h/(1.45*extent))*this.zoom;
+    // Radii are in pixels of the 1280-wide reference frame.
+    const unit=w/1280,points=[];
+    for(let i=0;i<this.data.positions.length;i++){
+      const component=this.data.component[i];if(component===2&&!this.showHalo)continue;
+      const r=this.rotated(this.data.positions[i],centre);
+      points.push({i,x:w*.5+r[0]*scale,y:h*.5-r[1]*scale,z:r[2],component});
+    }
+    points.sort((a,b)=>a.z-b.z);
+    ctx.globalCompositeOperation='source-over';ctx.filter='none';
+    ctx.fillStyle=this.transparent?'rgba(0,0,0,0)':'rgb(1,3,10)';
+    if(this.transparent)ctx.clearRect(0,0,w,h);else ctx.fillRect(0,0,w,h);
+    if(!this.glow){this.glow=document.createElement('canvas');this.glowCtx=this.glow.getContext('2d');}
+    if(this.glow.width!==w||this.glow.height!==h){this.glow.width=w;this.glow.height=h;}
+    const g=this.glowCtx;g.clearRect(0,0,w,h);
+    const visible=[];
+    for(const p of points){
+      if(p.x<-8||p.x>w+8||p.y<-8||p.y>h+8)continue;
+      const s=this.flatStyle(this.data.origin[p.i],p.component);visible.push([p,s]);
+      g.fillStyle=`rgba(${s.colour[0]},${s.colour[1]},${s.colour[2]},${(s.alpha/3/255).toFixed(3)})`;
+      g.beginPath();g.arc(p.x,p.y,s.radius*3*unit,0,Math.PI*2);g.fill();
+    }
+    ctx.filter=`blur(${(3.2*unit).toFixed(2)}px)`;ctx.drawImage(this.glow,0,0);ctx.filter='none';
+    for(const [p,s] of visible){
+      ctx.fillStyle=`rgba(${s.colour[0]},${s.colour[1]},${s.colour[2]},${(s.alpha/255).toFixed(3)})`;
+      ctx.beginPath();ctx.arc(p.x,p.y,Math.max(.6,s.radius*unit),0,Math.PI*2);ctx.fill();
+    }
+    this.drawAxes(centre,scale);
+    if(this.showLabels!==false)this.drawLabels();
+  }
 }
 
 window.Galaxy3DView=Galaxy3DView;

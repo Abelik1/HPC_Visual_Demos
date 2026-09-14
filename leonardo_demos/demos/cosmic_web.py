@@ -26,6 +26,30 @@ def mean_molecular_weight(helium_mass_fraction):
 
 class CosmicWebDemo(Demo):
     timing_methods={"init":"initialization","step":"simulation","render_density":"render"}
+    # "Recipe of the Universe": three backgrounds that differ in what drives
+    # the expansion and what can clump. Exhibition-scale and qualitative:
+    #   0 our universe    - matter-dominated expansion (a ~ t^2/3), all matter
+    #                       sources gravity, optional dark-energy acceleration.
+    #   1 radiation forever - radiation keeps dominating (a ~ t^1/2). Radiation
+    #                       drives the expansion but does not clump, so only the
+    #                       small matter fraction sources the perturbations
+    #                       (the Meszaros effect): structure grows far more slowly.
+    #   2 no dark matter  - only the baryon fraction of the mass sources gravity,
+    #                       and its seed fluctuations start much smaller because
+    #                       photon pressure kept baryons smooth until recombination.
+    RECIPES=("our universe","radiation forever","no dark matter")
+    def recipe_physics(self,recipe):
+        s=self.settings
+        if recipe==1:
+            fraction=float(s.get('radiation_matter_fraction',.10))
+            # Zel'dovich velocities are proportional to the growth rate
+            # f ~ Omega_m^0.55, which radiation domination suppresses; without
+            # this the starting velocities alone streamed matter into clumps.
+            return {"source":fraction,"power":.5,"ic_scale":1.0,"velocity_scale":fraction**.55,"dark_energy":False}
+        if recipe==2:
+            return {"source":float(s.get('baryon_fraction',.16)),"power":2.0/3.0,
+                    "ic_scale":float(s.get('baryon_ic_scale',.35)),"velocity_scale":1.0,"dark_energy":None}
+        return {"source":1.0,"power":2.0/3.0,"ic_scale":1.0,"velocity_scale":1.0,"dark_energy":None}
     id="cosmic_web"; title="Cosmic-web formation"
     def init(self,Np,seed,n=None,ns=-1.0,kmin=3.0,amplitude=None,warm_dark_matter=False):
         """Zel'dovich initial conditions from a power-law power spectrum.
@@ -103,7 +127,7 @@ class CosmicWebDemo(Demo):
     def sample_force(self,pos,fx,fy):
         xp=self.ctx.xp; n=fx.shape[0]; ix=(pos[:,0]*n).astype(xp.int32)%n; iy=(pos[:,1]*n).astype(xp.int32)%n
         return xp.stack([fx[iy,ix],fy[iy,ix]],axis=1)
-    def step(self,pos,vel,n,g,steps=1,jeans=0.0,expanding=True,dark_energy=False):
+    def step(self,pos,vel,n,g,steps=1,jeans=0.0,expanding=True,dark_energy=False,power=2.0/3.0):
         """Particle-mesh integration on an expanding background.
 
         Comoving coordinates with peculiar velocity v = a dx/dt, matter
@@ -120,8 +144,9 @@ class CosmicWebDemo(Demo):
             self.time+=dt
             if expanding:
                 lambda_rate=float(self.settings.get('dark_energy_rate',.035)) if dark_energy else 0.0
-                a=(self.time/self.t0)**(2.0/3.0)*math.exp(lambda_rate*(self.time-self.t0))
-                H=(2.0/3.0)/self.time+lambda_rate
+                # a ~ t^power: 2/3 when matter dominates, 1/2 when radiation does.
+                a=(self.time/self.t0)**power*math.exp(lambda_rate*(self.time-self.t0))
+                H=power/self.time+lambda_rate
             else:
                 a=1.0; H=0.0
             rho=self.density(pos,n)
@@ -160,16 +185,29 @@ class CosmicWebDemo(Demo):
         expanding=bool(round(self.ctx.params.get('expanding_space',1)))
         dark_energy=bool(round(self.ctx.params.get('dark_energy',1))) and expanding
         warm_dm=bool(round(self.ctx.params.get('warm_dark_matter',0)))
+        recipe=int(round(self.ctx.params.get('recipe',0)))%len(self.RECIPES)
+        physics=self.recipe_physics(recipe)
+        if physics["dark_energy"] is False: dark_energy=False
+        # Only the clumping component sources the perturbations.
+        g_eff=g*physics["source"]
         mu=mean_molecular_weight(Y); jeans=self.jeans_scale(mu,n)
         self.t0=float(self.settings.get('t0',1.0)); self.time=self.t0
-        pos,vel=self.init(Np,seed,warm_dark_matter=warm_dm)
+        amplitude=float(self.settings.get('ic_amplitude',0.9))*physics["ic_scale"]
+        pos,vel=self.init(Np,seed,amplitude=amplitude,warm_dark_matter=warm_dm)
+        vel=vel*physics["velocity_scale"]
+        self.ctx.write_meta({"recipe":{"id":recipe,"name":self.RECIPES[recipe],"gravity_source_fraction":physics["source"],
+                                       "expansion":f"a ~ t^{physics['power']:.2f}","seed_amplitude_scale":physics["ic_scale"],
+                                       "seed_velocity_scale":round(physics["velocity_scale"],3),
+                                       "status":"qualitative exhibition model"}})
         for i in range(self.ctx.frames):
             step_target=int(round(total*(i+1)/self.ctx.frames))
-            pos,vel,rho=self.step(pos,vel,n,g,max(1,step_target-done),jeans,expanding,dark_energy); done=step_target
+            pos,vel,rho=self.step(pos,vel,n,g_eff,max(1,step_target-done),jeans,expanding,dark_energy,physics["power"]); done=step_target
             im=self.render_density(rho)
             im=add_title(im,"Cosmic-web formation",f"particle–mesh gravity · {Np:,} particles · {n}² mesh · seed {seed}")
             add_progress(im,(i+1)/self.ctx.frames,"NEARLY UNIFORM","EMERGENT STRUCTURE")
             self.ctx.save_frame(im,self.ctx.frame_path(i)); self.ctx.write_status(i,f"µ={mu:.3f}",{
+                "universe":self.RECIPES[recipe],
+                "clumping density contrast":f"{float(to_numpy(rho).std()):.2f}",
                 "particles":f"{Np:,}","mesh":f"{n} × {n}","gravity":f"{g:.2f}",
                 "hydrogen":f"{100*(1-Y):.0f}%","helium":f"{100*Y:.0f}%",
                 "expanding space":"on" if expanding else "off","dark energy":"on" if dark_energy else "off",
@@ -183,9 +221,10 @@ class CosmicWebDemo(Demo):
         for j in range(ens):
             Yj=j/max(1,ens-1)
             muj=mean_molecular_weight(Yj); jj=self.jeans_scale(muj,m)
-            p_,v_=self.init(pcount,seed,warm_dark_matter=warm_dm); r=None
+            p_,v_=self.init(pcount,seed,amplitude=amplitude,warm_dark_matter=warm_dm); r=None
+            v_=v_*physics["velocity_scale"]
             self.time=self.t0
-            p_,v_,r=self.step(p_,v_,m,g,int(self.settings.get('sweep_steps',600)),jj,expanding,dark_energy)
+            p_,v_,r=self.step(p_,v_,m,g_eff,int(self.settings.get('sweep_steps',600)),jj,expanding,dark_energy,physics["power"])
             ims.append(self.render_density(r,(260,146)))
             labels.append(f"He {100*Yj:.0f}%  µ{muj:.2f}")
         rev=mosaic(ims,side,title=f"One universe, {ens} gas compositions",

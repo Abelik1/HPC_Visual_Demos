@@ -60,3 +60,22 @@
 .arenaTools button.selected{background:linear-gradient(135deg,#4a3a12,#3d2a12);border-color:#ffc45c;color:#fff}
 @media(max-width:1200px){.bbBody{grid-template-columns:1fr 1fr}.bbBoard{grid-column:1/-1;order:-1}}
 @media(max-width:760px){.bbBody,.bbBoard{grid-template-columns:1fr}.bbArrow{display:none}}
+/* Generation lab: pin generations and replay their champions from fresh starts. */
+.genLab{display:flex;flex-direction:column;gap:10px;margin:12px 0;padding:14px 16px;border:1px solid #3a3320;border-radius:14px;background:linear-gradient(180deg,#141109,#0c0b08)}
+.genLab.hidden{display:none}
+.glHead b{color:#ffe2a6;font-size:16px}.glHead small{margin-left:10px;color:#a79a7c;font-size:13px}
+.glRow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.glRow.hidden{display:none}
+.glPick{display:flex;align-items:center;gap:10px;color:#e8dcc0;font-weight:700;min-width:320px;flex:1 1 320px}
+.glPick input{flex:1;accent-color:#ffc45c}
+.glPick output{min-width:3ch;color:#ffc45c;font-weight:800;font-size:18px}
+.genLab button{border:1px solid #4a4128;border-radius:10px;padding:9px 13px;background:#1b1810;color:#f1e6cc;font-weight:750}
+.genLab button.primary{background:linear-gradient(135deg,#6b5314,#4a3a0e);border-color:#ffc45c;color:#fff}
+.genLab button:disabled{opacity:.4}
+.genLab button.selected{border-color:#ffc45c;background:#3a2f12}
+.glLabel{min-width:92px;color:#a79a7c;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.glPins{display:flex;gap:6px;flex-wrap:wrap}.glPins small{color:#8d8266}
+.glChip{display:inline-flex;border:1px solid #4a4128;border-radius:999px;overflow:hidden}
+.glChip button{border:0;border-radius:0;padding:7px 12px;background:#1b1810}
+.glChip .glX{padding:7px 10px;color:#ffb0a0;border-left:1px solid #4a4128}
+.glChip.active{border-color:#ffc45c}.glChip.active button:first-child{background:#3a2f12;color:#fff}

@@ -8,12 +8,12 @@ from leonardo_demos.registry import DEMOS
 
 ROOT=Path(__file__).resolve().parent
 
-def load_profiles(): return json.loads((ROOT/'config/profiles.json').read_text())
+def load_profiles(): return json.loads((ROOT/'config/profiles.json').read_text(encoding="utf-8"))
 # The supercomputer-scale preset was called "leonardo" before it became "hpc".
 # Saved runs and older job scripts still carry the old name, so keep accepting it.
 PROFILE_ALIASES={'leonardo':'hpc'}
 def canonical_profile(name): return PROFILE_ALIASES.get(name,name)
-def load_specs(): return json.loads((ROOT/'config/demo_specs.json').read_text())
+def load_specs(): return json.loads((ROOT/'config/demo_specs.json').read_text(encoding="utf-8"))
 
 def profile_setting_schema(profiles=None):
     """Describe every numeric value carried by a compute profile.
@@ -122,7 +122,7 @@ if __name__=='__main__':
         from leonardo_demos.neuroevo import brain_catalogue, validate_brains
         catalogue=brain_catalogue(load_specs(),a.demo)
         if catalogue is None: raise SystemExit(f'{a.demo} has no brain builder')
-        params['_brain']=validate_brains(json.loads(Path(a.brain).read_text()),catalogue)
+        params['_brain']=validate_brains(json.loads(Path(a.brain).read_text(encoding="utf-8")),catalogue)
     for kv in a.param:
         k,v=kv.split('=',1)
         try: v=float(v)

@@ -47,6 +47,9 @@ class RunContext:
     method: str = "default"
     timings_enabled: bool = False
     precision: str = "fp32"
+    # Chroma subsampling for saved frames (Pillow's default when None). Demos
+    # whose colour lives in single-pixel points, like stars, set 0 (4:4:4).
+    jpeg_subsampling: int | None = field(init=False, default=None, repr=False)
     xp: Any = field(init=False, repr=False)
     backend_name: str = field(init=False)
     cpu_workers: int = field(init=False)
@@ -61,10 +64,11 @@ class RunContext:
 
     def __post_init__(self):
         # On Windows the CUDA runtimes bundled by PyTorch and CuPy must be
-        # loaded in a consistent order.  The neural wall uses PyTorch for its
-        # batched training; importing it before the generic CuPy probe prevents
-        # a first CUDA call from hanging when the GPU option is selected.
-        if self.demo in {"neural_wall", "plasma_guardian"}:
+        # loaded in a consistent order.  The neural wall and the fusion demo's
+        # guardian mode use PyTorch for their batched training; importing it
+        # before the generic CuPy probe prevents a first CUDA call from hanging
+        # when the GPU option is selected.
+        if self.demo in {"neural_wall", "fusion_plasma"}:
             try:
                 import torch  # noqa: F401
             except Exception:
@@ -182,7 +186,7 @@ class RunContext:
             p=self.run_dir/'meta.json'
             base={}
             if p.exists():
-                try: base=json.loads(p.read_text())
+                try: base=json.loads(p.read_text(encoding="utf-8"))
                 except Exception: pass
             base.update(update)
             p.write_text(json.dumps(base,indent=2))
@@ -249,7 +253,8 @@ class RunContext:
         temporary=path.with_name(f'.{path.stem}.{time.time_ns()}.tmp{path.suffix}')
         buffer=io.BytesIO()
         with self.stage("jpeg_encode",synchronize=False):
-            image.save(buffer,format="JPEG",quality=92)
+            options={} if self.jpeg_subsampling is None else {"subsampling":self.jpeg_subsampling}
+            image.save(buffer,format="JPEG",quality=92,**options)
         with self.stage("frame_write",synchronize=False):
             temporary.write_bytes(buffer.getvalue())
             temporary.replace(path)

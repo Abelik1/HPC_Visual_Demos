@@ -9,3 +9,6 @@ config/leonardo.env
 .step/
 benchmarks/artifacts/
 tmp/
+
+# Gaia DR3 sky for the black-hole demo (35 MB): python tools/fetch_gaia_sky.py
+data/gaia_sky.npz

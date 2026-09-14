@@ -1,0 +1,198 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Leonardo · Demo Day</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/static/games.css?v=5"><link rel="stylesheet" href="/static/demo.css?v=7"></head>
+<body class="kiosk">
+
+<!-- ============================ PICKER ============================ -->
+<section id="pick" class="pick">
+  <header class="pickHead">
+    <div>
+      <div class="eyebrow">LEONARDO · VISUAL COMPUTE LAB</div>
+      <h1>Pick an experiment.</h1>
+      <p>Every one of these is a real simulation. Choose one, change something, and run it yourself.</p>
+    </div>
+    <div class="pickAside">
+      <button id="slideshowStart" class="slideshowBtn" type="button"><span aria-hidden="true">▶</span> Start slideshow</button>
+      <div id="pickBackend" class="badge">CHECKING COMPUTE…</div>
+      <a class="ghostLink" href="/">Full dashboard →</a>
+    </div>
+  </header>
+  <div id="pickGrid" class="pickGrid"></div>
+</section>
+
+<!-- ============================= STAGE ============================= -->
+<section id="stage" class="stage hidden">
+
+  <header class="stageBar">
+    <button id="back" class="backBtn"><span aria-hidden="true">←</span> All experiments</button>
+    <div class="stageTitle"><h2 id="title"></h2><p id="subtitle"></p></div>
+    <div id="status" class="badge">READY</div>
+    <button id="showcaseStart" class="showcaseBtn" type="button" title="Play the pregenerated showcase runs for this experiment"><span aria-hidden="true">▶</span> Showcase</button>
+    <button id="settingsOpen" class="gearBtn" title="Presenter settings" aria-label="Presenter settings">⚙</button>
+  </header>
+
+  <!-- Only while presenting: the showcase of one demo, or the slideshow of all. -->
+  <div id="presentBar" class="presentBar hidden" role="region" aria-label="Presentation">
+    <span class="presentDot" aria-hidden="true"></span>
+    <div class="presentText"><b id="presentTitle">Showcase</b><small id="presentMeta"></small></div>
+    <button id="presentPrev" class="presentNav" type="button" aria-label="Previous simulation">‹</button>
+    <button id="presentNext" class="presentNav" type="button" aria-label="Next simulation">›</button>
+    <button id="presentStop" class="presentStop" type="button">Stop</button>
+    <button id="presentTry" class="presentTry" type="button">Try it yourself</button>
+  </div>
+
+  <!-- One package: the picture, its explanation and its live numbers together. -->
+  <div class="screen">
+    <div id="surface" class="surface">
+      <img id="preview" class="preview" alt="">
+      <img id="screen" alt="Simulation frame" draggable="false">
+      <canvas id="arenaCanvas" class="arenaCanvas hidden" aria-label="Animated replay of the evolved agents"></canvas>
+      <canvas id="fusionCanvas" class="fusionCanvas hidden" aria-label="Rotatable plasma torus"></canvas>
+      <canvas id="galaxyCanvas" class="galaxy3dCanvas hidden" aria-label="Rotatable 3D galaxy collision"></canvas>
+      <canvas id="starfield" class="starfield hidden" aria-hidden="true"></canvas>
+      <div id="gridView" class="gridView hidden" aria-label="One champion per box"></div>
+      <div id="idleHint" class="idleHint">
+        <span class="idleIcon" aria-hidden="true">▷</span>
+        <b id="idleTitle">Nothing has been run yet.</b>
+        <span id="idleText">Change something below, then press <em>Run it</em>.</span>
+      </div>
+      <div id="busy" class="busy hidden"><span class="spinner" aria-hidden="true"></span><b id="busyText">Computing…</b></div>
+      <div id="onScreen" class="onScreen hidden"></div>
+      <button id="fsEnter" class="fsEnter" type="button" title="Full screen (F)" aria-label="Full screen">⛶</button>
+      <!-- Full screen only: controls appear when the mouse moves. -->
+      <div id="fsBar" class="fsBar" aria-label="Full screen controls">
+        <div class="fsInfo"><b id="fsTitle"></b><span id="fsMeta"></span><div id="fsNumbers" class="fsNumbers"></div></div>
+        <div class="fsControls">
+          <button id="fsPlay" class="roundBtn" type="button" aria-label="Play or pause">❚❚</button>
+          <button id="fsLoop" class="loopBtn" type="button" aria-pressed="true" title="Loop playback">⟲ Loop</button>
+          <input id="fsSeek" type="range" min="0" max="0" value="0" aria-label="Frame">
+          <span id="fsFrame" class="frameLabel">—</span>
+          <label class="fsSpeed">Speed <input id="fsSpeed" type="range" min="0" max="8" step="1" value="4" aria-label="Playback speed"><b id="fsSpeedValue">1×</b></label>
+          <div id="fsViews" class="viewSwitch hidden"></div>
+          <button id="fsExit" class="fsExit" type="button" aria-label="Exit full screen">✕ Exit</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="caption">
+      <p id="captionStory">&nbsp;</p>
+      <div class="captionSide">
+        <div id="captionNumbers" class="numbers"></div>
+        <p id="captionRead" class="read"></p>
+      </div>
+    </div>
+
+    <div class="progressTrack"><div id="progressBar"></div></div>
+  </div>
+
+  <!-- Playback: play, seek, view, and the display speed underneath. -->
+  <div class="transport">
+    <button id="playPause" class="roundBtn" disabled aria-label="Play or pause">❚❚</button>
+    <button id="loopToggle" class="loopBtn" type="button" aria-pressed="true" title="Loop playback">⟲ Loop</button>
+    <input id="seek" type="range" min="0" max="0" value="0" disabled aria-label="Frame">
+    <span id="frameLabel" class="frameLabel">—</span>
+    <div id="viewSwitch" class="viewSwitch hidden"></div>
+  </div>
+  <section id="instruments" class="instruments hidden" aria-label="Training and inference"></section>
+  <div class="speedRow">
+    <span class="speedLabel">Playback speed</span>
+    <button id="speedDown" class="speedStep" type="button" aria-label="Slower">−</button>
+    <input id="speed" type="range" min="0" max="8" step="1" value="4" aria-label="Playback speed" aria-describedby="speedValue">
+    <button id="speedUp" class="speedStep" type="button" aria-label="Faster">+</button>
+    <b id="speedValue" class="speedValue">1×</b>
+    <small>Changes how fast the saved frames are shown, not the simulation itself.</small>
+  </div>
+
+  <!-- The whole visitor-facing control surface. -->
+  <div class="deck">
+    <div id="brainHost" class="brainHost"></div>
+    <div id="controls" class="controls"></div>
+  </div>
+
+  <!-- Sticky: the primary action must never scroll out of reach on a stand. -->
+  <div class="actionBar">
+    <div class="actionText"><b id="actionLabel">Ready when you are</b><small id="runHint"></small></div>
+    <button id="replay" class="replayBtn hidden">Watch the showcase</button>
+    <button id="run" class="runBtn">Run it</button>
+  </div>
+
+  <!-- Every saved run of this experiment: go back to one, or compare two. -->
+  <section id="history" class="history" aria-labelledby="historyTitle">
+    <header class="historyHead">
+      <div><h3 id="historyTitle">History</h3><small id="historyCount"></small></div>
+      <div class="historyTools">
+        <button id="historyFavs" class="chipBtn" type="button" aria-pressed="false">★ Favourites only</button>
+        <button id="compareGo" class="compareBtn" type="button" disabled>Compare 2 runs</button>
+      </div>
+    </header>
+    <p class="historyHint">Tick two runs to compare them side by side. ★ marks a run as a favourite; favourites are offered first as showcase runs.</p>
+    <div id="historyList" class="historyList"></div>
+    <button id="historyMore" class="chipBtn historyMore hidden" type="button">Show more</button>
+  </section>
+</section>
+
+<!-- ============================== COMPARE ============================== -->
+<div id="compare" class="compare hidden" role="dialog" aria-modal="true" aria-labelledby="compareTitle">
+  <header class="compareHead">
+    <h2 id="compareTitle">Compare two runs</h2>
+    <button id="comparePlay" class="roundBtn" type="button" aria-label="Play or pause">❚❚</button>
+    <input id="compareSeek" type="range" min="0" max="1000" value="0" aria-label="Progress through both runs">
+    <span id="compareLabel" class="frameLabel">0%</span>
+    <button id="compareClose" class="closeBtn" type="button" aria-label="Close comparison">✕</button>
+  </header>
+  <div class="comparePanes">
+    <figure class="comparePane" data-side="0"><figcaption></figcaption><div class="compareSurface"><img alt=""></div></figure>
+    <figure class="comparePane" data-side="1"><figcaption></figcaption><div class="compareSurface"><img alt=""></div></figure>
+  </div>
+  <div class="compareTableWrap"><table id="compareTable" class="compareTable"></table></div>
+</div>
+
+<!-- ====================== PRESENTER SETTINGS ====================== -->
+<div id="settings" class="drawer hidden" role="dialog" aria-modal="true" aria-label="Presenter settings">
+  <div class="drawerPanel">
+    <header>
+      <div><b>Presenter settings</b><small id="settingsFor"></small></div>
+      <button id="settingsClose" class="closeBtn" aria-label="Close settings">✕</button>
+    </header>
+    <div class="drawerBody">
+      <div class="fieldGrid">
+        <label>Quality preset <select id="profile"><option value="benchmark">Benchmark (fastest)</option><option value="local" selected>Local</option><option value="desktop">Desktop</option><option value="hpc">HPC</option></select><small>Sets the starting compute workload.</small></label>
+        <label>Compute <select id="backend"><option value="auto">Auto</option><option value="cpu">CPU</option><option value="gpu">GPU</option><option value="hybrid">GPU + CPU pipeline</option></select><small id="backendHelp"></small></label>
+        <label id="methodField" class="hidden">Solver <select id="method"></select><small id="methodHelp"></small></label>
+        <label>Frames <input id="frames" type="number" min="1" max="600" value="70"><small>Saved frames in the time-lapse.</small></label>
+        <label id="parallelField" class="hidden">Independent runs <select id="parallelCount"><option value="1">1 · single run</option><option value="4">4</option><option value="9">9</option><option value="16">16</option><option value="25">25</option><option value="36">36</option><option value="49">49</option><option value="64">64</option></select><small>How many separate searches the grid view shows.</small></label>
+      </div>
+      <details id="talkingPoints" class="drawerSection talking">
+        <summary><b>Talking points</b><small>For you to tell, when you choose</small></summary>
+        <ol id="talkingList"></ol>
+      </details>
+      <section class="drawerSection">
+        <div class="drawerSectionHead"><b>Showcase runs</b><small id="showcaseSummary"></small></div>
+        <p class="drawerHint">Pick up to three saved runs, in the order they should play. Favourites are listed first.</p>
+        <div id="showcasePicker" class="showcasePicker"></div>
+      </section>
+      <details id="moreParams">
+        <summary><span>More parameters</span><small id="moreParamsSummary"></small></summary>
+        <div id="moreParamsFields" class="fieldGrid"></div>
+      </details>
+      <details id="advanced">
+        <summary><span>Advanced simulation values</span><small id="advancedSummary"></small></summary>
+        <div id="advancedFields" class="fieldGrid"></div>
+      </details>
+      <div class="fieldGrid">
+        <label>When nobody has touched it for 3 minutes <select id="idleAction"><option value="none">Do nothing</option><option value="picker">Go back to the picker</option><option value="slideshow">Start the slideshow</option></select><small>For an unattended stand.</small></label>
+        <label>Each slideshow simulation plays for at least <select id="slideDwell"><option value="10">10 seconds</option><option value="20" selected>20 seconds</option><option value="40">40 seconds</option><option value="60">1 minute</option></select><small>A run that finishes sooner loops until then.</small></label>
+      </div>
+      <div class="drawerFoot">
+        <button id="settingsReset" class="secondary">Reset to preset defaults</button>
+        <button id="settingsDone" class="primary">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/obstacle_builder.js?v=1"></script>
+<script src="/static/brain_builder.js?v=3"></script>
+<script src="/static/arena_view.js?v=7"></script>
+<script src="/static/fusion_view.js?v=5"></script>
+<script src="/static/galaxy3d_view.js?v=4"></script>
+<script src="/static/demo.js?v=7"></script>
+</body></html>

@@ -1,6 +1,6 @@
 {
   "benchmark": {
-    "black_hole": {"width": 640, "height": 360, "ensemble": 9},
+    "black_hole": {"width": 640, "height": 360, "ensemble": 9, "sky_face": 512, "supersample": 1, "fov_deg": 80, "exposure": 1.0, "glow": 1.0, "star_colour": 2.5},
     "pbh": {"radial_points": 180, "ensemble": 16},
     "fluid": {"nx": 192, "ny": 108, "steps_per_frame": 4, "tracers": 500, "trail": 10, "tracer_boost": 9.0, "total_steps": 500},
     "cosmic_web": {"grid": 96, "particles": 20000, "total_steps": 220, "sweep_steps": 160, "jeans_ref": 2.4, "ic_amplitude": 0.9, "ic_velocity": 0.55, "t0": 1.0, "dark_energy_rate": 0.035, "warm_dm_cutoff": 18.0},
@@ -9,8 +9,7 @@
     "reaction_diffusion": {"n": 128, "total_steps": 1000, "sweep_steps": 450, "ensemble": 9},
     "crystal": {"depth": 4, "ensemble": 9, "zoom_levels": 2, "zoom_depth": 6, "zoom_tile": 192, "zoom_max_level": 20, "zoom_detail_base": 6, "zoom_detail_max": 12},
     "neural_wall": {"networks": 16, "tile": 32, "total_steps": 160},
-    "fusion_plasma": {"n": 64, "total_steps": 180, "ensemble": 9, "sweep_n": 36, "sweep_steps": 90, "tracers": 90, "trail": 8},
-    "plasma_guardian": {"batch": 32, "horizon": 12, "train_updates": 10, "display_steps": 40},
+    "fusion_plasma": {"n": 64, "total_steps": 180, "ensemble": 9, "sweep_n": 36, "sweep_steps": 90, "tracers": 90, "trail": 8, "batch": 32, "horizon": 12, "train_updates": 10, "display_steps": 16, "particles": 90, "shots": 3, "learning_rate": 0.004},
     "weather_ensemble": {"n": 48, "total_steps": 160, "ensemble": 9, "sweep_n": 30, "sweep_steps": 90},
     "molecular_dynamics": {"particles": 56, "total_steps": 240, "ensemble": 9, "sweep_particles": 28, "sweep_steps": 100},
     "neuro_racers": {"population": 48, "generations": 6, "sim_steps": 450, "record_every": 3, "record_cars": 24, "ensemble": 4, "reveal_population": 24, "reveal_generations": 4},
@@ -20,7 +19,13 @@
     "black_hole": {
       "width": 640,
       "height": 360,
-      "ensemble": 16
+      "ensemble": 16,
+      "sky_face": 1024,
+      "supersample": 1,
+      "fov_deg": 80,
+      "exposure": 1.0,
+      "glow": 1.0,
+      "star_colour": 2.5
     },
     "pbh": {
       "radial_points": 180,
@@ -42,16 +47,16 @@
       "sweep_steps": 1100,
       "jeans_ref": 2.4,
       "ic_amplitude": 0.9,
-      "ic_velocity": 0.55
-      ,"t0": 1.0,
+      "ic_velocity": 0.55,
+      "t0": 1.0,
       "dark_energy_rate": 0.035,
       "warm_dm_cutoff": 18.0
     },
     "galaxy_collision": {
       "particles": 14000,
       "substeps": 6,
-      "span_gyr": 7.5
-      ,"ensemble": 16
+      "span_gyr": 7.5,
+      "ensemble": 16
     },
     "galaxy_collision_3d": {
       "particles": 600,
@@ -88,13 +93,14 @@
       "sweep_n": 44,
       "sweep_steps": 220,
       "tracers": 180,
-      "trail": 12
-    },
-    "plasma_guardian": {
+      "trail": 12,
       "batch": 96,
       "horizon": 24,
       "train_updates": 100,
-      "display_steps": 84
+      "display_steps": 36,
+      "particles": 220,
+      "shots": 6,
+      "learning_rate": 0.004
     },
     "weather_ensemble": {
       "n": 64,
@@ -135,7 +141,13 @@
     "black_hole": {
       "width": 1280,
       "height": 720,
-      "ensemble": 36
+      "ensemble": 36,
+      "sky_face": 2048,
+      "supersample": 2,
+      "fov_deg": 80,
+      "exposure": 1.0,
+      "glow": 1.0,
+      "star_colour": 2.5
     },
     "pbh": {
       "radial_points": 400,
@@ -157,16 +169,16 @@
       "sweep_steps": 1300,
       "jeans_ref": 2.4,
       "ic_amplitude": 0.9,
-      "ic_velocity": 0.55
-      ,"t0": 1.0,
+      "ic_velocity": 0.55,
+      "t0": 1.0,
       "dark_energy_rate": 0.035,
       "warm_dm_cutoff": 18.0
     },
     "galaxy_collision": {
       "particles": 60000,
       "substeps": 8,
-      "span_gyr": 7.5
-      ,"ensemble": 36
+      "span_gyr": 7.5,
+      "ensemble": 36
     },
     "galaxy_collision_3d": {
       "particles": 1800,
@@ -203,13 +215,14 @@
       "sweep_n": 72,
       "sweep_steps": 480,
       "tracers": 300,
-      "trail": 14
-    },
-    "plasma_guardian": {
+      "trail": 14,
       "batch": 384,
       "horizon": 30,
       "train_updates": 360,
-      "display_steps": 112
+      "display_steps": 44,
+      "particles": 360,
+      "shots": 8,
+      "learning_rate": 0.004
     },
     "weather_ensemble": {
       "n": 144,
@@ -236,13 +249,13 @@
       "reveal_generations": 20
     },
     "bat_vs_moth": {
-      "population": 1024,
+      "population": 4096,
       "generations": 80,
       "hunt_steps": 600,
       "record_every": 2,
       "moth_head_start": 32,
       "ensemble": 16,
-      "reveal_population": 256,
+      "reveal_population": 512,
       "reveal_generations": 15
     }
   },
@@ -250,7 +263,13 @@
     "black_hole": {
       "width": 2560,
       "height": 1440,
-      "ensemble": 64
+      "ensemble": 64,
+      "sky_face": 3072,
+      "supersample": 3,
+      "fov_deg": 80,
+      "exposure": 1.0,
+      "glow": 1.0,
+      "star_colour": 2.5
     },
     "pbh": {
       "radial_points": 800,
@@ -272,16 +291,16 @@
       "sweep_steps": 1600,
       "jeans_ref": 2.4,
       "ic_amplitude": 0.9,
-      "ic_velocity": 0.55
-      ,"t0": 1.0,
+      "ic_velocity": 0.55,
+      "t0": 1.0,
       "dark_energy_rate": 0.035,
       "warm_dm_cutoff": 18.0
     },
     "galaxy_collision": {
       "particles": 250000,
       "substeps": 10,
-      "span_gyr": 7.5
-      ,"ensemble": 64
+      "span_gyr": 7.5,
+      "ensemble": 64
     },
     "galaxy_collision_3d": {
       "particles": 6000,
@@ -318,13 +337,14 @@
       "sweep_n": 128,
       "sweep_steps": 1000,
       "tracers": 500,
-      "trail": 16
-    },
-    "plasma_guardian": {
+      "trail": 16,
       "batch": 2048,
       "horizon": 36,
       "train_updates": 1000,
-      "display_steps": 140
+      "display_steps": 56,
+      "particles": 700,
+      "shots": 10,
+      "learning_rate": 0.004
     },
     "weather_ensemble": {
       "n": 288,
@@ -351,13 +371,13 @@
       "reveal_generations": 30
     },
     "bat_vs_moth": {
-      "population": 8192,
+      "population": 32768,
       "generations": 100,
       "hunt_steps": 750,
       "record_every": 2,
       "moth_head_start": 40,
       "ensemble": 64,
-      "reveal_population": 1024,
+      "reveal_population": 2048,
       "reveal_generations": 25
     }
   }

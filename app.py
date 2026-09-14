@@ -1,5 +1,5 @@
 from __future__ import annotations
-import base64, binascii, hashlib, io, json, math, multiprocessing, os, threading, time, uuid
+import atexit, base64, binascii, hashlib, io, json, math, multiprocessing, os, threading, time, uuid
 from collections import OrderedDict
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -19,6 +19,9 @@ app=FastAPI(title='Leonardo Visual Demos')
 app.mount('/static',StaticFiles(directory=ROOT/'web'),name='static')
 app.mount('/runs',StaticFiles(directory=RUNS),name='runs')
 app.mount('/benchmarks',StaticFiles(directory=ROOT/'benchmarks',html=True),name='benchmarks')
+# Default pictures for the image-compression demo; drop more files in here.
+COMPRESSION_IMAGES=ROOT/'data'/'compression_images'; COMPRESSION_IMAGES.mkdir(parents=True,exist_ok=True)
+app.mount('/compression_images',StaticFiles(directory=COMPRESSION_IMAGES),name='compression_images')
 
 class RunReq(BaseModel):
     profile: str = 'local'
@@ -59,6 +62,19 @@ def save_target_image(data_url: str, destination: Path) -> None:
 @app.get('/',response_class=HTMLResponse)
 def index(): return (ROOT/'web/index.html').read_text(encoding='utf-8')
 
+# Demo-day viewer.  Same APIs and the same saved runs as the full dashboard,
+# but a walk-up surface: a few large controls, no toggleable overlay dock, and
+# every advanced knob behind one presenter panel.
+@app.get('/demo',response_class=HTMLResponse)
+def demo_mode(): return (ROOT/'web/demo.html').read_text(encoding='utf-8')
+
+@app.get('/api/compression_images')
+def compression_images():
+    files=sorted(f for f in COMPRESSION_IMAGES.iterdir()
+                 if f.is_file() and f.suffix.lower() in {'.jpg','.jpeg','.png','.webp','.gif'})
+    return [{'name':f.stem.replace('_',' ').replace('-',' ').strip().capitalize(),
+             'url':f'/compression_images/{f.name}'} for f in files]
+
 @app.get('/api/specs')
 def specs():
     return {'demos':load_specs(),'profiles':load_profiles(),'available':list(DEMOS),
@@ -81,10 +97,10 @@ def list_runs(demo:str|None=None,limit:int=120):
     so a finished simulation can be replayed instead of recomputed. That is the
     same path an exhibition uses for its playback fallback.
     """
-    out=[]
+    out=[]; favourites=set(load_library()['favourites'])
     for d in sorted(RUNS.glob('*'),key=lambda p:p.stat().st_mtime,reverse=True):
         if not d.is_dir() or d.name.startswith('_'): continue
-        try: meta=json.loads((d/'meta.json').read_text())
+        try: meta=json.loads((d/'meta.json').read_text(encoding="utf-8"))
         except Exception: continue
         if demo and meta.get('demo')!=demo: continue
         frames=sorted((d/'frames').glob('frame_*.jpg')) if (d/'frames').is_dir() else []
@@ -125,12 +141,78 @@ def list_runs(demo:str|None=None,limit:int=120):
             'galaxy3d_view':galaxy3d,
             'arena_view':arena,
             'summary':meta.get('summary'),
+            'lab':meta.get('lab') if (d/'checkpoints').is_dir() else None,
             'view_modes':meta.get('view_modes'),
             'default_view_mode':meta.get('default_view_mode'),
+            'overlays':meta.get('overlays'),
             'frame_data':bool(meta.get('frame_data')),
+            'favourite':d.name in favourites,
         })
         if len(out)>=max(1,min(500,limit)): break
     return out
+
+# ---- run library: favourites and the demo-day showcase ------------------
+# Kept beside the runs themselves (runs/ is not versioned, and a run id only
+# means something on the machine that produced it). The leading underscore
+# keeps list_runs from mistaking it for a run.
+LIBRARY=RUNS/'_library.json'
+LIBRARY_LOCK=threading.Lock()
+SHOWCASE_MAX=3
+
+def load_library():
+    try: data=json.loads(LIBRARY.read_text(encoding='utf-8'))
+    except (OSError,ValueError): data={}
+    favourites=[r for r in data.get('favourites',[]) if isinstance(r,str)]
+    showcase={k:[r for r in v if isinstance(r,str)][:SHOWCASE_MAX]
+              for k,v in (data.get('showcase') or {}).items() if isinstance(v,list)}
+    return {'favourites':favourites,'showcase':showcase}
+
+def save_library(data):
+    tmp=LIBRARY.with_suffix('.tmp')
+    tmp.write_text(json.dumps(data,indent=2),encoding='utf-8'); tmp.replace(LIBRARY)
+
+def run_demo_name(rid:str):
+    """The demo a saved run belongs to, or None if rid is not a real run."""
+    rd=(RUNS/rid).resolve()
+    if rd.parent!=RUNS.resolve() or rid.startswith('_'): return None
+    try: return json.loads((rd/'meta.json').read_text(encoding="utf-8")).get('demo')
+    except (OSError,ValueError): return None
+
+class FavouriteReq(BaseModel):
+    favourite: bool
+
+class ShowcaseReq(BaseModel):
+    runs: list[str] = Field(default_factory=list, max_length=SHOWCASE_MAX)
+
+@app.get('/api/library')
+def library():
+    data=load_library()
+    # Drop ids whose run directory has since been deleted.
+    data['favourites']=[r for r in data['favourites'] if run_demo_name(r)]
+    data['showcase']={k:[r for r in v if run_demo_name(r)==k] for k,v in data['showcase'].items()}
+    return data
+
+@app.post('/api/runs/{rid}/favourite')
+def set_favourite(rid:str,req:FavouriteReq):
+    if not run_demo_name(rid): raise HTTPException(404,'unknown run')
+    with LIBRARY_LOCK:
+        data=load_library(); favs=[r for r in data['favourites'] if r!=rid]
+        if req.favourite: favs.insert(0,rid)
+        data['favourites']=favs; save_library(data)
+    return {'id':rid,'favourite':req.favourite}
+
+@app.put('/api/showcase/{demo}')
+def set_showcase(demo:str,req:ShowcaseReq):
+    if demo not in DEMOS: raise HTTPException(404,'unknown demo')
+    runs=list(dict.fromkeys(req.runs))
+    for rid in runs:
+        if run_demo_name(rid)!=demo: raise HTTPException(422,f'{rid} is not a saved {demo} run')
+    with LIBRARY_LOCK:
+        data=load_library()
+        if runs: data['showcase'][demo]=runs
+        else: data['showcase'].pop(demo,None)
+        save_library(data)
+    return {'demo':demo,'runs':runs}
 
 @app.post('/api/run/{demo}')
 def start(demo:str,req:RunReq):
@@ -185,6 +267,9 @@ def start(demo:str,req:RunReq):
                 all(cell in (0,1) for row in rows for cell in row)):
             raise HTTPException(422, 'obstacle grid must be a rectangular 0/1 grid between 8×6 and 40×24')
         params['_obstacle_grid']=rows
+    if demo=='fluid' and int(round(req.params.get('obstacle',0)))==3 and not any(
+            cell for row in (req.obstacle_grid or []) for cell in row):
+        raise HTTPException(422, 'draw at least one block for a custom-shape-only wind tunnel')
     if req.brain is not None:
         catalogue=brain_catalogue(load_specs(),demo)
         if catalogue is None:
@@ -208,12 +293,51 @@ def start(demo:str,req:RunReq):
         rd.mkdir(parents=True, exist_ok=True)
         save_target_image(req.target_image, target_path)
         params['_target_path']=str(target_path)
-    def worker():
-        try: run(demo,req.profile,req.frames,params,req.backend,rd,method=method,
-                 numerical_substeps=req.numerical_substeps,
-                 settings_override=clean_settings,precision=req.precision)
-        except Exception as e: print('run failed',e)
-    threading.Thread(target=worker,daemon=True).start(); return {'id':rid}
+    kwargs=dict(demo=demo,profile=req.profile,frames=req.frames,params=params,backend=req.backend,
+                run_dir=rd,method=method,numerical_substeps=req.numerical_substeps,
+                settings_override=clean_settings,precision=req.precision)
+    threading.Thread(target=_supervise_run,args=(rid,rd,kwargs),daemon=True).start(); return {'id':rid}
+
+# Every simulation runs in its own spawned process rather than a thread of the
+# viewer. PyTorch and CuPy each bundle a different build of cublasLt64_13.dll;
+# Windows loads one DLL per name per process, so after a CuPy demo had used
+# CuPy's copy, the next neural-wall run called into it through PyTorch and died
+# with an access violation that took the whole viewer down. A fresh process
+# per run keeps the libraries apart, returns GPU memory when the run ends, and
+# turns any native crash into one failed run instead of a dead server.
+ACTIVE_RUNS={}
+ACTIVE_RUNS_LOCK=threading.Lock()
+
+def _supervise_run(rid,rd,kwargs):
+    # Not daemonic: crystal growth starts its own worker processes.
+    proc=multiprocessing.get_context('spawn').Process(target=run,kwargs=kwargs,name=f'run-{rid}')
+    proc.start()
+    with ACTIVE_RUNS_LOCK: ACTIVE_RUNS[rid]=proc
+    proc.join()
+    with ACTIVE_RUNS_LOCK: ACTIVE_RUNS.pop(rid,None)
+    if proc.exitcode: record_crashed_run(rd,proc.exitcode)
+
+def record_crashed_run(rd,exitcode):
+    """Mark a run whose process ended before reporting its own outcome."""
+    p=rd/'meta.json'
+    try: meta=json.loads(p.read_text(encoding="utf-8"))
+    except (OSError,ValueError): meta={}
+    if meta.get('status') in ('complete','failed'): return
+    # multiprocessing reports a terminated process as a negative code on every OS.
+    if exitcode<0: reason='terminated' if os.name=='nt' else f'signal {-exitcode}'
+    else: reason=f'exit code 0x{exitcode:08X}'
+    hint=' — a native crash inside a compute library' if exitcode & 0xFFFFFFFF==0xC0000005 else ''
+    meta.update(status='failed',error=f'The simulation process ended without finishing ({reason}{hint}). '
+                                      'The viewer is still running; you can start another run.')
+    rd.mkdir(parents=True,exist_ok=True); p.write_text(json.dumps(meta,indent=2))
+
+@atexit.register
+def _stop_active_runs():
+    # Registered after multiprocessing's own exit hook, so it runs first:
+    # closing the viewer ends running simulations instead of waiting for them.
+    with ACTIVE_RUNS_LOCK: procs=list(ACTIVE_RUNS.values())
+    for proc in procs:
+        if proc.is_alive(): proc.terminate()
 
 ZOOMABLE={'crystal'}
 
@@ -430,7 +554,7 @@ def zoom_tile(rid:str,level:int=0,col:int=0,row:int=0,tile:int=256):
     revisited region is served straight from disk.
     """
     rd=_run_dir(rid)
-    meta=json.loads((rd/'meta.json').read_text())
+    meta=json.loads((rd/'meta.json').read_text(encoding="utf-8"))
     if meta.get('demo') not in ZOOMABLE: raise HTTPException(404,'no deep zoom for this demo')
     level=max(0,min(_run_zoom_limit(meta),int(level))); n=1<<level
     if not (0<=col<n and 0<=row<n): raise HTTPException(422,'tile out of range')
@@ -466,7 +590,7 @@ def zoom(rid:str,cx:float=0.0,cy:float=0.0,span:float=1.0,w:int=960,h:int=540):
     rd=(RUNS/rid).resolve()
     if RUNS.resolve() not in rd.parents or not (rd/'meta.json').exists():
         raise HTTPException(404,'unknown run')
-    meta=json.loads((rd/'meta.json').read_text())
+    meta=json.loads((rd/'meta.json').read_text(encoding="utf-8"))
     demo=meta.get('demo')
     if demo not in ZOOMABLE: raise HTTPException(404,'live zoom unavailable for this demo')
     if not (math.isfinite(cx) and math.isfinite(cy) and math.isfinite(span)) or span<=0:
@@ -500,7 +624,7 @@ def zoom_view(rid:str,cx:float=0.0,cy:float=0.0,span:float=1.0,
     endpoint builds a replacement in the background.
     """
     rd=_run_dir(rid)
-    meta=json.loads((rd/'meta.json').read_text())
+    meta=json.loads((rd/'meta.json').read_text(encoding="utf-8"))
     if meta.get('demo') not in ZOOMABLE: raise HTTPException(404,'no deep zoom for this demo')
     if not all(math.isfinite(value) for value in (cx,cy,span)) or span<=0:
         raise HTTPException(422,'bad window')
@@ -527,11 +651,30 @@ def zoom_view(rid:str,cx:float=0.0,cy:float=0.0,span:float=1.0,
                              'X-DeepZoom-Source':'stable-density-viewport',
                              'X-DeepZoom-Detail':str(detail_depth)})
 
+@app.get('/api/replay/{rid}')
+def replay(rid:str,gens:str,seed:int=0):
+    """Replay saved generations' champions from a fresh random start.
+
+    Computed on the CPU in this process: one cave or a handful of cars is
+    milliseconds of NumPy, and it never creates a CUDA context here.
+    """
+    rd=_run_dir(rid)
+    meta=json.loads((rd/'meta.json').read_text(encoding="utf-8"))
+    demo_class=DEMOS.get(meta.get('demo'))
+    if not hasattr(demo_class,'replay') or not (rd/'checkpoints').is_dir():
+        raise HTTPException(404,'this run has no saved generations to replay')
+    try: wanted=[int(g) for g in gens.split(',') if g.strip()]
+    except ValueError: raise HTTPException(422,'gens must be generation numbers')
+    if not 1<=len(wanted)<=6: raise HTTPException(422,'choose between 1 and 6 generations')
+    missing=[g for g in wanted if not (rd/'checkpoints'/f'gen_{g:04d}.npz').exists()]
+    if missing: raise HTTPException(404,f'generation(s) not saved yet: {missing}')
+    return demo_class.replay(rd,meta,wanted,int(seed)%(1<<31))
+
 @app.get('/api/run/{rid}')
 def status(rid:str):
     rd=RUNS/rid; p=rd/'meta.json'
     if not p.exists(): return {'status':'starting','frame':-1}
-    return json.loads(p.read_text())
+    return json.loads(p.read_text(encoding="utf-8"))
 
 def _free_port(preferred=8000, tries=20):
     """First free port at or after `preferred`.

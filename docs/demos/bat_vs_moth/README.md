@@ -48,9 +48,26 @@ tiger moths do.
 
 ## Compute
 
-Each hunt step is many small array operations. On CUDA it is launch-bound
-(~20 ms/step regardless of size), so Auto uses NumPy below 4,096 caves and
-says so in the run's backend label. The `hpc` profile runs 8,192 caves on GPU.
+The NumPy `CaveSim.run` step is the reference implementation. On CUDA the same
+step runs as four fused CuPy kernels (`_cuda_kernels()`): senses, the bat and
+moth forward passes (hand-written, no cuBLAS), and one thread per cave for
+flight, echoes with jamming phantoms, hearing, dives and catches. Phantom and
+dive noise still come from the seeded host RNG in the same order, and
+`tests/test_neuroevo.py` checks both paths give the same catches and fitness.
+The array-by-array CuPy version was launch-bound at ~20 ms/step at any size.
+
+Measured on an RTX 3060 Ti (Windows, default presets, 4 moths per cave):
+
+| caves  | NumPy ms/step | fused CUDA ms/step |
+|-------:|--------------:|-------------------:|
+|    160 |           1.3 |               0.20 |
+|  1,024 |           3.3 |               0.27 |
+|  4,096 |             — |               0.45 |
+|  8,192 |             — |               0.68 |
+| 32,768 |             — |               2.25 |
+
+CUDA is faster at every size, so Auto uses it whenever it is available. The
+`desktop` profile runs 4,096 caves and the `hpc` profile 32,768.
 
 ## Scientific boundary
 

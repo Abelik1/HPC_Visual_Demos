@@ -5,8 +5,8 @@
 A visitor builds a car's neural network from blocks (sensors, hidden-layer
 bricks, controls) within a 40-point budget. A population of cars with exactly
 that architecture, but different weights, is evolved on a race track by
-selection, crossover and mutation. The scale reveal re-runs the same brain as
-independent evolutions from different random starts.
+selection, crossover and mutation. The "show every search" view re-runs the
+same brain as independent evolutions from different random starts.
 
 ## Implementation map
 
