@@ -155,18 +155,52 @@ def wait(run_ids: list[str], poll: int = 20) -> dict:
         time.sleep(poll)
 
 
+# Stages that run alongside the solver loop instead of after it, and on how
+# many workers: the 3-D galaxy draws on one thread; the FramePipeline demos
+# draw in worker processes (allocated cores - 1, at most 16).
+OVERLAPPED = {"galaxy_collision_3d": 1, "fluid": "pipeline", "fusion_plasma/passive": "pipeline"}
+SIDE_STAGES = ("render", "jpeg_encode", "frame_write")
+
+
 def estimate(entry: dict, meta: dict) -> dict:
-    """Production minutes from a pilot, conservatively (no overlap assumed)."""
+    """Production minutes from a pilot.
+
+    One-off costs (start-up, catalogue loading, GPU kernel compilation on the
+    first call) are counted once. Every stage's steady per-call cost (its
+    total minus its slowest call) is scaled to the production frame count,
+    and the solver's by the work per frame as well. Stages that run beside
+    the solver count as overlapped; everything else is serial.
+    """
     t = meta.get("timings") or {}
-    sim = float((t.get("simulation") or {}).get("seconds", 0)) + float((t.get("initialization") or {}).get("seconds", 0))
-    elapsed = float(meta.get("elapsed") or 0)
-    other = max(0.0, elapsed - sim)
     prod, pilot = resolved(entry, False), resolved(entry, True)
-    work_ratio = work_amount(entry, prod) / max(1e-9, work_amount(entry, pilot))
     frame_ratio = prod["frames"] / max(1, pilot["frames"])
-    seconds = sim * work_ratio + other * frame_ratio
-    return {"pilot_elapsed_s": round(elapsed, 1), "pilot_physics_s": round(sim, 1),
-            "work_ratio": round(work_ratio, 1), "frame_ratio": round(frame_ratio, 1),
+    work_per_frame_ratio = ((work_amount(entry, prod) / prod["frames"]) /
+                            max(1e-9, work_amount(entry, pilot) / pilot["frames"]))
+    overlap = OVERLAPPED.get(label(entry), OVERLAPPED.get(entry["demo"]))
+    if overlap == "pipeline":
+        need = remote.demo_needs(entry["demo"], entry.get("method"))
+        overlap = max(1, min(int(need["cpus"]) - 1, 16, prod["frames"] // 6))
+    fixed = main = side = 0.0
+    for stage, row in t.items():
+        seconds, count, worst = float(row["seconds"]), int(row["count"]), float(row["max_seconds"])
+        steady = (seconds - worst) / (count - 1) if count > 1 else seconds
+        fixed += max(0.0, worst - steady) if count > 1 else (seconds if stage == "initialization" else 0.0)
+        if stage == "initialization":
+            continue
+        # A stage called once per frame interval (frames - 1 times) scales
+        # with intervals, not frames; otherwise short pilots undercount.
+        pf, F = pilot["frames"], prod["frames"]
+        calls = count * (F - 1) / (pf - 1) if count == pf - 1 and pf > 1 else max(1, count) * frame_ratio
+        cost = steady * calls * (work_per_frame_ratio if stage == "simulation" else 1.0)
+        if overlap and stage in SIDE_STAGES:
+            side += cost / overlap
+        else:
+            main += cost
+    elapsed = float(meta.get("elapsed") or 0)
+    fixed += max(0.0, elapsed - sum(float(r["seconds"]) for r in t.values()))
+    seconds = fixed + max(main, side)
+    return {"pilot_elapsed_s": round(elapsed, 1), "fixed_s": round(fixed, 1), "main_s": round(main, 1),
+            "side_s": round(side, 1), "frame_ratio": round(frame_ratio, 1),
             "estimate_minutes": round(seconds / 60, 1)}
 
 
@@ -230,6 +264,15 @@ def main() -> int:
 
     if a.command == "estimate":
         results = json.loads(pilot_file.read_text(encoding="utf-8")) if pilot_file.exists() else {}
+        for e in entries:
+            r = results.get(label(e)) or {}
+            try:
+                meta = json.loads((RUNS / r["run"] / "meta.json").read_text(encoding="utf-8"))
+            except (KeyError, OSError, ValueError):
+                continue
+            if meta.get("status") == "complete":
+                r.update(estimate(e, meta))
+        pilot_file.write_text(json.dumps(results, indent=2), encoding="utf-8")
         target = float(plan.get("target_minutes", 25))
         for e in entries:
             r = results.get(label(e)) or {}
