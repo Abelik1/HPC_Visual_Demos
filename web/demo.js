@@ -208,7 +208,26 @@ const KIOSK={
       {key:'andromeda_mass',label:'Andromeda mass',unit:'T☉',decimals:1}],
     numbers:['time','separation','tracers']},
 };
-const ORDER=['fusion_plasma','neuro_racers','bat_vs_moth','galaxy_collision_3d','neural_wall',
+// The external NBody-EuroHPC code (MUrB), run through the same run API.
+KIOSK.nbody_murb={
+  about:'The C++ N-body code that was validated on Leonardo: every body pulls on every other body, every step. The dashboard runs the real program and draws it the way its own viewer does.',
+  tag:'HPC code',
+  blurb:'Run the real Leonardo N-body code and watch every body pull on every other.',
+  read:'Each ring is one body, coloured by speed: deep blue is slow, cyan is fast, white is the fastest in that frame. The numbers alongside are the code’s own timing.',
+  story:[
+    'This is not a toy re-implementation: it is the same C++ code that runs on Leonardo’s A100 GPUs.',
+    'With N bodies there are N × N forces every step. Double the bodies, four times the work.',
+    'Same physics, different implementation: compare the naive reference with SIMD and OpenMP.',
+    'On Leonardo the same code runs on one A100, or four at once.'],
+  controls:[
+    {method:true,label:'Implementation'},
+    {key:'scheme',label:'Starting setup',choices:['Rotating galaxy','Random cloud']},
+    {key:'dt',label:'Timestep',unit:'s',decimals:0}],
+  views:[{id:'frames',label:'MUrB camera',kind:'frames'},
+         {id:'side',label:'Side view',kind:'frames',folder:'modes/side',needs:'view_modes'},
+         {id:'top',label:'Top view',kind:'frames',folder:'modes/top',needs:'view_modes'}],
+  numbers:['simulated time','bodies','GFLOP/s','ms / iteration']};
+const ORDER=['fusion_plasma','neuro_racers','bat_vs_moth','galaxy_collision_3d','nbody_murb','neural_wall',
              'black_hole','fluid','cosmic_web','galaxy_collision'];
 
 const FRAME_MS=140;
@@ -322,6 +341,13 @@ function renderPicker(){
     card.onclick=()=>openDemo(id);
     host.appendChild(card);
   });
+  // Pre-recorded videos are not a simulation: the tile opens the video player,
+  // which links back here.
+  const card=document.createElement('a');card.className='pickCard';card.href='/videos?from=demo';
+  card.innerHTML=`<span class="tag">Videos</span>
+    <img src="/static/previews/videos.webp" alt="" loading="lazy" width="800" height="450">
+    <span class="cardText"><h3>Recorded videos</h3><p>Pre-recorded simulations, played from this computer.</p></span>`;
+  host.appendChild(card);
 }
 
 // ----------------------------------------------------------- demo screen --

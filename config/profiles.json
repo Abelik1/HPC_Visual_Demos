@@ -13,7 +13,8 @@
     "weather_ensemble": {"n": 48, "total_steps": 160, "ensemble": 9, "sweep_n": 30, "sweep_steps": 90},
     "molecular_dynamics": {"particles": 56, "total_steps": 240, "ensemble": 9, "sweep_particles": 28, "sweep_steps": 100},
     "neuro_racers": {"population": 48, "generations": 6, "sim_steps": 450, "record_every": 3, "record_cars": 24, "ensemble": 4, "reveal_population": 24, "reveal_generations": 4},
-    "bat_vs_moth": {"population": 32, "generations": 6, "hunt_steps": 300, "record_every": 2, "moth_head_start": 3, "ensemble": 4, "reveal_population": 16, "reveal_generations": 3}
+    "bat_vs_moth": {"population": 32, "generations": 6, "hunt_steps": 300, "record_every": 2, "moth_head_start": 3, "ensemble": 4, "reveal_population": 16, "reveal_generations": 3},
+    "nbody_murb": {"bodies": 2000, "iterations": 360, "warmup": 1, "width": 960, "height": 540}
   },
   "local": {
     "black_hole": {
@@ -135,7 +136,8 @@
       "ensemble": 9,
       "reveal_population": 48,
       "reveal_generations": 8
-    }
+    },
+    "nbody_murb": {"bodies": 5000, "iterations": 720, "warmup": 1, "width": 1280, "height": 720}
   },
   "desktop": {
     "black_hole": {
@@ -257,7 +259,8 @@
       "ensemble": 16,
       "reveal_population": 512,
       "reveal_generations": 15
-    }
+    },
+    "nbody_murb": {"bodies": 10000, "iterations": 720, "warmup": 3, "width": 1600, "height": 900}
   },
   "hpc": {
     "black_hole": {
@@ -379,6 +382,7 @@
       "ensemble": 64,
       "reveal_population": 2048,
       "reveal_generations": 25
-    }
+    },
+    "nbody_murb": {"bodies": 30000, "iterations": 1440, "warmup": 3, "width": 1920, "height": 1080}
   }
 }

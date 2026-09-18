@@ -336,3 +336,19 @@ the nearest audible moth, minus small costs for calls and wall hits. Moth
 fitness is survival time minus time spent close to the bat and energy spent
 jamming or diving. Speeds and ranges are in abstract cave units and seconds;
 they are not calibrated to any bat or moth species.
+
+## MUrB N-body (NBody-EuroHPC)
+
+The physics is entirely the external MUrB code: an O(N²) direct gravitational
+sum with softening, fp32, advanced by MUrB's own integrator. The dashboard
+only launches it and draws the recorded positions. Initial conditions are
+MUrB's: `galaxy` is a rotating shell of light bodies (1–2 × 10⁸ m from a
+2 × 10²⁴ kg central mass), `random` a cold cloud offset along z. These are
+code-demonstration setups, not models of a real galaxy, and the units are
+metres and kilograms as MUrB uses them.
+
+Colour follows MUrB's viewer: speed² normalised per frame, deep blue → cyan →
+white. Two deliberate differences: MUrB's beat-synchronised "strobe" flash is
+left out, and slow bodies get a brighter blue floor so they stay visible in
+compressed frames. Bodies with zero radius (the galaxy's central mass) are not
+drawn, as in MUrB.

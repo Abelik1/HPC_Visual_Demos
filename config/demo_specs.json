@@ -1148,5 +1148,37 @@
         }
       }
     }
+  },
+  "nbody_murb": {
+    "name": "MUrB N-body (NBody-EuroHPC)",
+    "tagline": "The C++/CUDA N-body code validated on Leonardo, run live and drawn the way its own viewer draws it.",
+    "params": {
+      "scheme": {
+        "min": 0,
+        "max": 1,
+        "step": 1,
+        "value": 0,
+        "kind": "choice",
+        "label": "Initial condition",
+        "options": {
+          "0": "Galaxy · rotating cloud around a central mass",
+          "1": "Random · cold cloud collapsing"
+        }
+      },
+      "dt": {
+        "min": 600,
+        "max": 14400,
+        "step": 600,
+        "value": 3600,
+        "label": "Timestep (seconds)"
+      },
+      "zoom": {
+        "min": 0.5,
+        "max": 3,
+        "step": 0.1,
+        "value": 1,
+        "label": "Camera zoom (1 = MUrB's camera)"
+      }
+    }
   }
 }

@@ -23,6 +23,11 @@ app.mount('/benchmarks',StaticFiles(directory=ROOT/'benchmarks',html=True),name=
 # Default pictures for the image-compression demo; drop more files in here.
 COMPRESSION_IMAGES=ROOT/'data'/'compression_images'; COMPRESSION_IMAGES.mkdir(parents=True,exist_ok=True)
 app.mount('/compression_images',StaticFiles(directory=COMPRESSION_IMAGES),name='compression_images')
+# Pre-recorded videos for the Videos page (e.g. downloaded from Google Drive on
+# demo day). Drop files into videos/ or point LEONARDO_VIDEO_DIR at a folder.
+VIDEOS=Path(os.getenv('LEONARDO_VIDEO_DIR') or ROOT/'videos'); VIDEOS.mkdir(parents=True,exist_ok=True)
+VIDEO_TYPES={'.mp4','.m4v','.webm','.ogv','.ogg','.mov','.mkv'}
+app.mount('/video_files',StaticFiles(directory=VIDEOS),name='video_files')
 
 class RunReq(BaseModel):
     profile: str = 'local'
@@ -68,6 +73,21 @@ def index(): return (ROOT/'web/index.html').read_text(encoding='utf-8')
 # every advanced knob behind one presenter panel.
 @app.get('/demo',response_class=HTMLResponse)
 def demo_mode(): return (ROOT/'web/demo.html').read_text(encoding='utf-8')
+
+@app.get('/videos',response_class=HTMLResponse)
+def videos_page(): return (ROOT/'web/videos.html').read_text(encoding='utf-8')
+
+@app.get('/api/videos')
+def videos():
+    """Every video file under the video folder, subfolders included."""
+    from urllib.parse import quote
+    files=sorted((f for f in VIDEOS.rglob('*') if f.is_file() and f.suffix.lower() in VIDEO_TYPES),
+                 key=lambda f:f.relative_to(VIDEOS).as_posix().lower())
+    return {'folder':str(VIDEOS),
+            'videos':[{'name':f.stem.replace('_',' ').replace('-',' ').strip(),
+                       'path':f.relative_to(VIDEOS).as_posix(),
+                       'size':f.stat().st_size,
+                       'url':'/video_files/'+quote(f.relative_to(VIDEOS).as_posix())} for f in files]}
 
 @app.get('/api/compression_images')
 def compression_images():

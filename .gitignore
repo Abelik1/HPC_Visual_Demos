@@ -16,3 +16,7 @@ data/gaia_sky.npz
 # Saved-run bundles (tools/export_runs.py); carried by Drive/USB, never committed
 exports/
 /leonardo_runs_*.zip
+
+# Demo-day videos (downloaded from Google Drive); only the README is versioned
+videos/*
+!videos/README.md

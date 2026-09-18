@@ -12,9 +12,10 @@ from .demos.weather_ensemble import WeatherEnsembleDemo
 from .demos.molecular_dynamics import MolecularDynamicsDemo
 from .demos.neuro_racers import NeuroRacersDemo
 from .demos.bat_vs_moth import BatVsMothDemo
+from .demos.nbody_murb import NBodyMurbDemo
 
 DEMOS={c.id:c for c in [
     BlackHoleDemo,PBHDemo,FluidDemo,CosmicWebDemo,GalaxyCollisionDemo,GalaxyCollision3DDemo,
     ReactionDiffusionDemo,CrystalDemo,NeuralWallDemo,FusionPlasmaDemo,
-    WeatherEnsembleDemo,MolecularDynamicsDemo,NeuroRacersDemo,BatVsMothDemo,
+    WeatherEnsembleDemo,MolecularDynamicsDemo,NeuroRacersDemo,BatVsMothDemo,NBodyMurbDemo,
 ]}

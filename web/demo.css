@@ -496,3 +496,5 @@ body.hasBrain .stage{max-width:min(1680px,100%);--pic:min(54vh,600px)}
 .targetDefault span{max-width:78px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .targetDefault:hover{border-color:var(--accent);color:var(--text)}
 .targetDefault.on{border-color:var(--accent);background:#10271f;color:var(--accent)}
+/* The Videos tile is a link, not a button. */
+a.pickCard{text-decoration:none;color:inherit}

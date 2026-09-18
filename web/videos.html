@@ -1,0 +1,81 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Videos · Leonardo Visual Demos</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/static/style.css?v=2"><link rel="stylesheet" href="/static/dashboard.css?v=3">
+<style>
+.videoPage{max-width:1420px;margin:0 auto;padding-top:8px}
+.videoHead{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;margin-bottom:18px}
+.videoHead h1{font-size:clamp(32px,4vw,56px);margin:8px 0 6px}
+.videoHead p{color:var(--muted);margin:0}
+.videoLayout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}
+.player{border:1px solid #172945;border-radius:22px;background:#02040a;overflow:hidden}
+.player video{display:block;width:100%;aspect-ratio:16/9;background:#000}
+.playerBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 14px;border-top:1px solid #172945}
+.playerBar b{flex:1;min-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.videoHead a,.videoHead button,.playerBar button,.videoList button{display:inline-block;text-decoration:none;font:inherit;color:var(--text);background:#0b1630;border:1px solid #26436a;border-radius:12px;padding:8px 14px;cursor:pointer}
+.playerBar button[aria-pressed="true"]{border-color:var(--cyan);color:var(--cyan)}
+.videoList{display:flex;flex-direction:column;gap:8px;max-height:calc(100vh - 220px);overflow:auto}
+.videoList button{text-align:left;padding:12px 14px;border-radius:14px}
+.videoList button.selected{border-color:var(--cyan);background:#0d2140}
+.videoList small{display:block;color:var(--muted);margin-top:3px;word-break:break-all}
+.videoEmpty,.videoError{border:1px dashed #26436a;border-radius:22px;padding:34px;color:var(--muted);line-height:1.6}
+.videoEmpty code,.videoError code{color:var(--cyan)}
+.videoError{margin-top:12px;border-color:#7a3b3b}
+@media (max-width:900px){.videoLayout{grid-template-columns:1fr}.videoList{max-height:none}}
+</style></head>
+<body>
+<div class="noise"></div>
+<header class="appHeader"><a href="/" class="brand" aria-label="Leonardo Visual Demos home"><span class="brandMark" aria-hidden="true">L<span>·</span></span><span>LEONARDO<small>VISUAL COMPUTE LAB</small></span></a><nav aria-label="Main navigation"><a href="/">Demo gallery</a><a href="/#library">Saved runs</a><a href="/videos" class="navActive">Videos</a><a href="/demo" title="Simplified walk-up viewer for the stand">Demo day mode</a></nav><div class="pill">VIDEO PLAYER</div></header>
+<main class="videoPage">
+  <div class="videoHead"><div><div class="eyebrow">PRE-RECORDED</div><h1>Videos</h1><p>Recorded simulations, played straight from this computer.</p></div><div><a id="backToDemos" class="hidden" href="/demo">← Back to demos</a> <button id="refresh" class="secondary">Refresh list</button></div></div>
+  <div id="empty" class="videoEmpty hidden"></div>
+  <div id="layout" class="videoLayout hidden">
+    <section class="player"><video id="video" controls preload="metadata" playsinline></video>
+      <div class="playerBar"><b id="nowPlaying"></b>
+        <button id="prev" title="Previous video">◀ Prev</button><button id="next" title="Next video">Next ▶</button>
+        <button id="loop" aria-pressed="true" title="Repeat this video">Loop</button>
+        <button id="playAll" aria-pressed="false" title="Continue with the next video when one ends">Play all</button>
+        <button id="full" title="Full screen (F)">Full screen</button>
+      </div>
+      <div id="error" class="videoError hidden"></div>
+    </section>
+    <aside id="list" class="videoList" aria-label="Videos"></aside>
+  </div>
+</main>
+<script>
+const $=s=>document.querySelector(s),video=$('#video');
+let items=[],index=-1;
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const size=b=>b>=1e9?(b/1e9).toFixed(1)+' GB':(b/1e6).toFixed(0)+' MB';
+function select(i,play){
+  if(!items.length)return;index=(i+items.length)%items.length;const v=items[index];
+  $('#error').classList.add('hidden');video.src=v.url;$('#nowPlaying').textContent=v.name;
+  document.querySelectorAll('.videoList button').forEach((b,k)=>b.classList.toggle('selected',k===index));
+  try{localStorage.setItem('videos.last',v.path);}catch(_){}
+  if(play)video.play().catch(()=>{});
+}
+async function load(){
+  let data;try{data=await (await fetch('/api/videos',{cache:'no-store'})).json();}catch(e){data={videos:[],folder:'videos/'};}
+  items=data.videos||[];
+  $('#empty').classList.toggle('hidden',items.length>0);$('#layout').classList.toggle('hidden',!items.length);
+  if(!items.length){$('#empty').innerHTML=`<b>No videos yet.</b><br>Copy video files (MP4 recommended) into <code>${esc(data.folder)}</code> and press <b>Refresh list</b>.<br>Subfolders are fine. To use another folder, start the viewer with <code>LEONARDO_VIDEO_DIR</code> set to it.`;return;}
+  $('#list').innerHTML=items.map((v,k)=>`<button data-i="${k}">${esc(v.name)}<small>${esc(v.path)} · ${size(v.size)}</small></button>`).join('');
+  let last=null;try{last=localStorage.getItem('videos.last');}catch(_){}
+  const keep=index>=0&&video.src?items.findIndex(v=>video.src.endsWith(v.url)):-1;
+  if(keep<0)select(Math.max(0,items.findIndex(v=>v.path===last)),false);
+  else{index=keep;document.querySelectorAll('.videoList button').forEach((b,k)=>b.classList.toggle('selected',k===index));}
+}
+$('#list').onclick=e=>{const b=e.target.closest('button');if(b)select(+b.dataset.i,true);};
+$('#prev').onclick=()=>select(index-1,true);$('#next').onclick=()=>select(index+1,true);
+function toggle(button,on){button.setAttribute('aria-pressed',String(on));}
+$('#loop').onclick=()=>{const on=$('#loop').getAttribute('aria-pressed')!=='true';toggle($('#loop'),on);video.loop=on;if(on)toggle($('#playAll'),false);};
+$('#playAll').onclick=()=>{const on=$('#playAll').getAttribute('aria-pressed')!=='true';toggle($('#playAll'),on);if(on){toggle($('#loop'),false);video.loop=false;}};
+video.loop=true;
+video.addEventListener('ended',()=>{if($('#playAll').getAttribute('aria-pressed')==='true')select(index+1,true);});
+video.addEventListener('error',()=>{if(!video.getAttribute('src'))return;const ext=(items[index]?.path.split('.').pop()||'').toLowerCase();
+  $('#error').innerHTML=`This browser cannot play <code>${esc(items[index]?.path)}</code>. Convert it to MP4 (H.264 video, AAC audio), for example: <code>ffmpeg -i input.${esc(ext)} -c:v libx264 -c:a aac output.mp4</code>`;
+  $('#error').classList.remove('hidden');});
+$('#full').onclick=()=>{if(document.fullscreenElement)document.exitFullscreen();else video.requestFullscreen?.();};
+document.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea'))return;if(e.key==='f'||e.key==='F')$('#full').click();});
+// Opened from demo-day mode: offer the way back there rather than the dashboard.
+if(new URLSearchParams(location.search).get('from')==='demo')$('#backToDemos').classList.remove('hidden');
+$('#refresh').onclick=load;load();
+</script>
+</body></html>

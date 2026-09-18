@@ -188,3 +188,15 @@ const ORDER=['fusion_plasma','neuro_racers', …];
   live readouts to show, in order of preference.
 
 Adding a demo needs no server change — only an entry in `KIOSK` and `ORDER`.
+
+## MUrB N-body and recorded videos
+
+`nbody_murb` (the external NBody-EuroHPC code; see [NBODY_MURB.md](NBODY_MURB.md))
+is in the picker after the 3D galaxy collision. Visitors choose the
+implementation (OpenMP, SIMD, optimised, naive reference), the starting setup
+and the timestep; the readout shows the code's own GFLOP/s, which makes the
+implementations easy to compare side by side with History → Compare.
+
+The last tile, **Recorded videos**, opens `/videos?from=demo`, which plays
+whatever is in `videos/` (or `LEONARDO_VIDEO_DIR`) and offers a "Back to demos"
+link. It is not part of the slideshow.
