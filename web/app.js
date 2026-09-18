@@ -79,7 +79,7 @@ const panelNames={
   weather_ensemble:'Forecast clock',molecular_dynamics:'Molecular trajectory'
 };
 const legends={
-  black_hole:'Camera view: the real Gaia DR3 sky, colour from each star\'s measured BP-RP colour, traced through exact Schwarzschild light paths. The black disc is the shadow, not the horizon. Ray paths: each escaping ray is coloured by how far gravity bent it, from blue (almost straight) through green and yellow to magenta (looped the hole); red rays fall in. The dashed ring is the photon sphere.',
+  black_hole:'Camera view: the real Gaia DR3 sky, colour from each star\'s measured BP-RP colour, traced through exact Schwarzschild light paths. The black disc is the shadow, not the horizon. Ray paths: each escaping ray is coloured by how far gravity bent it, from blue (almost straight) through green and yellow to magenta (looped the hole); red rays fall in. The dashed ring is the photon sphere. Each escaping ray ends on the real Gaia star its light came from (the brightest within 1.5° of its exact escape direction; really far beyond the edge of the picture), and arrows show the light travelling to the camera. Behind is the same Gaia sky the camera sees, not lensed in this view.',
   pbh:'Brighter central density means localisation; a spreading shell means dispersion.',
   fluid:'Colour shows speed. Tracer streaks show direction; alternating wake colours expose shed vortices.',
   cosmic_web:'Brightness is density: knots are clusters, threads are filaments and dark regions are voids.',

@@ -372,13 +372,79 @@ class BlackHoleDemo(Demo):
                 return tuple(x + f * (y - x) for x, y in zip(ca, cb))
         return stops[-1][1]
 
-    def render_rays(self, r_camera, bundle, view_angle):
-        """Exact geodesics around the hole, seen from outside, orthographically."""
+    RAY_VIEW_PITCH = math.radians(24)
+    BACKDROP_FOV_DEG = 55.0      # about the camera view's pixel scale, so stars look alike
+    BACKDROP_LEVEL = 0.8         # dimmed so the rays stay the brightest thing in the frame
+    BACKDROP_GLOW = 0.45         # Milky Way glow turned down, so it does not wash out the rays
+    SOURCE_CONE_DEG = 1.5        # a ray's source star: the brightest Gaia star this close to its exact direction
+
+    @staticmethod
+    def ray_view_to_world(axis, right, up):
+        """Rotation from the ray diagram's local frame to ICRS (row vectors).
+
+        The local frame has x along the camera axis; its y and z are mapped onto
+        the camera's right and up. render_rays draws that frame mirrored, so y
+        is mapped onto -right to show the sky the right way round.
+        """
+        return np.stack([np.asarray(axis), -np.asarray(right), np.asarray(up)])
+
+    def ray_view_backdrop(self, fine, glow, reference, axis, right, up, view_angle, size=(1280, 720)):
+        """The same Gaia sky as the camera view, seen past the hole from the
+        ray-path view's own vantage point (not lensed), as display values in [0, 1].
+        """
+        from ..gaia_sky import sample_cube, sample_equirect
+        xp = self.ctx.xp
+        W, H = size
+        cy, sy = math.cos(view_angle), math.sin(view_angle)
+        cp, sp = math.cos(self.RAY_VIEW_PITCH), math.sin(self.RAY_VIEW_PITCH)
+        screen_right = np.array([cy, sy, 0.0])
+        screen_up = np.array([sy * sp, -cy * sp, cp])
+        toward_viewer = np.array([-sy * cp, cy * cp, sp])
+        to_world = self.ray_view_to_world(axis, right, up)
+        half = math.tan(math.radians(self.BACKDROP_FOV_DEG) / 2)
+        x = ((np.arange(W) + .5) / W * 2 - 1) * half
+        y = (1 - (np.arange(H) + .5) / H * 2) * half * H / W
+        d = (-toward_viewer + x[None, :, None] * screen_right + y[:, None, None] * screen_up) @ to_world
+        d = xp.asarray(d / np.linalg.norm(d, axis=-1, keepdims=True))
+        diffuse = sample_equirect(glow, d, xp=xp) * self.BACKDROP_GLOW
+        image = self.expose(sample_cube(fine, d, xp=xp), diffuse, reference)
+        return np.asarray(image, dtype=np.float32) / 255.0 * self.BACKDROP_LEVEL
+
+    def source_stars(self, bundle, stars, to_world):
+        """The real star each escaping ray's light came from, per ray.
+
+        A ray traced back from the camera leaves along the exact escape angle
+        phi: direction cos(phi) e1 + sin(phi) e2 in the diagram's frame. Its
+        source is taken as the brightest catalogue star within SOURCE_CONE_DEG
+        of that direction (the nearest one if none is that close). Returns
+        {(plane, ray): (magnitude, rgb)} for rays that escape.
+        """
+        from ..gaia_sky import REFERENCE_MAG
+        direction, flux, colour = stars
+        cone = math.cos(math.radians(self.SOURCE_CONE_DEG))
+        sources = {}
+        for plane, ((e1, e2), rays, escape) in enumerate(bundle):
+            for index, ((_, _, fate, _, _), phi) in enumerate(zip(rays, escape)):
+                if fate != "escaped" or not np.isfinite(phi):
+                    continue
+                target = (math.cos(phi) * e1 + math.sin(phi) * e2) @ to_world
+                closeness = direction @ target
+                near = closeness > cone
+                best = int(np.argmax(np.where(near, flux, -1.0))) if near.any() else int(np.argmax(closeness))
+                sources[plane, index] = (REFERENCE_MAG - 2.5 * math.log10(flux[best]), colour[best])
+        return sources
+
+    def render_rays(self, r_camera, bundle, view_angle, backdrop=None, sources=None):
+        """Exact geodesics around the hole, seen from outside, orthographically.
+
+        backdrop, from ray_view_backdrop, is the star field drawn behind the
+        rays; sources, from source_stars, puts each ray's own star at its end.
+        """
         from ..schwarzschild import HORIZON, PHOTON_SPHERE
         W, H = 1280, 720
         extent = r_camera * 1.45
         scale = min(W, H) / (2.0 * extent)
-        yaw, pitch = view_angle, math.radians(24)
+        yaw, pitch = view_angle, self.RAY_VIEW_PITCH
         cy, sy, cp, sp = math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch)
 
         def project(points):
@@ -405,12 +471,20 @@ class BlackHoleDemo(Demo):
         ring = np.array([[PHOTON_SPHERE * math.cos(a), PHOTON_SPHERE * math.sin(a), 0.0]
                          for a in np.linspace(0, 2 * math.pi, 181)])
         polyline(ring, (0.75, 0.62, 0.30), 2, dashed=True)
-        for (e1, e2), rays in bundle:
-            for phi, r, fate, near_edge, bend in rays:
+        ends, arrows = [], []
+        for plane, ((e1, e2), rays, _) in enumerate(bundle):
+            for index, (phi, r, fate, near_edge, bend) in enumerate(rays):
                 pts = r[:, None] * (np.cos(phi)[:, None] * e1 + np.sin(phi)[:, None] * e2)
                 colour = self.CAPTURED_COLOUR if fate == "captured" else self.bend_colour(bend)
                 strength = 0.9 if near_edge else 0.6
                 polyline(pts, tuple(c * strength for c in colour), 3 if near_edge else 2)
+                if sources is not None and (plane, index) in sources:
+                    ends.append((pts, sources[plane, index]))
+                    # Light runs from the star to the camera: back along the traced
+                    # path. Every third ray carries an arrow, to keep the fan legible.
+                    if index % 3 == 0:
+                        k = max(1, int(len(pts) * .55))
+                        arrows.append((pts[k], pts[k - 1], colour))
 
         def lit(layer):
             sharp = np.asarray(layer, dtype=np.float32) / 255.0
@@ -420,7 +494,8 @@ class BlackHoleDemo(Demo):
 
         yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
         distance = np.hypot(xx - W / 2, yy - H / 2) / scale          # in units of M
-        canvas = np.zeros((H, W, 3), dtype=np.float32) + np.array([0.008, 0.014, 0.035], dtype=np.float32)
+        base = (0.008, 0.014, 0.035) if backdrop is None else (0.0, 0.0, 0.0)
+        canvas = np.zeros((H, W, 3), dtype=np.float32) + np.array(base, dtype=np.float32)
         canvas += np.array([0.10, 0.07, 0.03], dtype=np.float32) * np.exp(-((distance - PHOTON_SPHERE) / 1.2) ** 2)[..., None]
         canvas += lit(layers[True])
         canvas[distance < HORIZON] = 0.0                                # the horizon hides what is behind it
@@ -431,7 +506,18 @@ class BlackHoleDemo(Demo):
         # bundles stay coloured instead of burning out to white.
         peak = np.maximum(canvas.max(axis=-1, keepdims=True), 1e-6)
         canvas = canvas * (1.0 - np.exp(-1.6 * peak)) / (1.6 * peak) * 1.6
-        image = Image.fromarray((np.clip(canvas, 0, 1) ** (1 / 1.4) * 255).astype(np.uint8))
+        display = np.clip(canvas, 0, 1) ** (1 / 1.4)
+        if backdrop is not None:
+            # Screen the stars in after the curve, so they keep their camera-view
+            # look; the horizon hides them like everything else behind it.
+            # The sky also fades out behind the legend at the bottom.
+            legend = np.clip((H - 150 - yy) / 60, 0.25, 1.0)
+            stars = np.asarray(backdrop, dtype=np.float32) * ((distance >= HORIZON) * legend)[..., None]
+            display = 1.0 - (1.0 - display) * (1.0 - stars)
+        image = Image.fromarray((display * 255).astype(np.uint8))
+        if ends:
+            camera_xy = [float(v[0]) for v in project(np.array([[r_camera, 0.0, 0.0]]))[:2]]
+            image = self.draw_sources(image, project, ends, arrows, camera_xy)
 
         draw = ImageDraw.Draw(image)
         cx, cyy, _ = project(np.array([[r_camera, 0.0, 0.0]]))
@@ -442,6 +528,12 @@ class BlackHoleDemo(Demo):
             font = ImageFont.load_default()
         draw.text((cx[0] + 14, cyy[0] - 12), "camera", fill=(225, 232, 242), font=font)
         muted = (160, 170, 186)
+        if ends:
+            draw.text((24, H - 114), "star at a ray's end: the real Gaia star its light came from",
+                      fill=muted, font=font)
+        elif backdrop is not None:
+            draw.text((24, H - 114), "behind: the camera's Gaia sky, where the escaping rays end (not lensed here)",
+                      fill=muted, font=font)
         draw.text((24, H - 88), "black disc: horizon    dashed ring: photon sphere, where light can orbit",
                   fill=muted, font=font)
         draw.text((24, H - 36), "how far gravity bent the ray", fill=muted, font=font)
@@ -460,11 +552,72 @@ class BlackHoleDemo(Demo):
         return image
 
     @staticmethod
+    def draw_sources(image, project, ends, arrows, camera_xy):
+        """Each ray's source star at its far end, and an arrowhead on the ray
+        pointing the way the light travels, towards the camera."""
+        glow = Image.new("RGB", image.size)
+        gd = ImageDraw.Draw(glow)
+        cores = []
+        width, height = image.size
+        for path, (magnitude, colour) in ends:
+            # The star goes at the path's far end, or where it leaves the picture.
+            xs, ys, _ = project(path)
+            bottom = height - 140                                           # clear of the legend
+            inside = np.flatnonzero((xs > 16) & (xs < width - 16) & (ys > 16) & (ys < bottom))
+            if not len(inside):
+                continue
+            last = inside[-1]
+            x, y = float(xs[last]), float(ys[last])
+            if last < len(xs) - 1:
+                # Straight stretches are sampled sparsely: cut the segment that
+                # leaves the picture at the frame edge.
+                ex, ey = float(xs[last + 1]) - x, float(ys[last + 1]) - y
+                reach = [(bound - start) / step for start, step, bound in
+                         ((x, ex, 16 if ex < 0 else width - 16), (y, ey, 16 if ey < 0 else bottom))
+                         if abs(step) > 1e-9]
+                t = min([1.0] + reach)
+                x, y = x + t * ex, y + t * ey
+            # Rays aimed near the viewer end, foreshortened, on top of the camera.
+            if math.hypot(x - camera_xy[0], y - camera_xy[1]) < 45:
+                continue
+            size = min(max((8.5 - magnitude) / 6.0, 0.0), 1.0)          # G ~ 2.5 biggest, G >= 8.5 smallest
+            hue = np.asarray(colour, dtype=float) / max(float(np.max(colour)), 1e-9)
+            radius = 4 + 7 * size
+            gd.ellipse((x - radius, y - radius, x + radius, y + radius),
+                       fill=tuple(int(255 * (.35 + .35 * size) * c) for c in hue))
+            cores.append((x, y, size, hue))
+        glow = np.asarray(glow.filter(ImageFilter.GaussianBlur(6)), dtype=np.float32) / 255.0
+        base = np.asarray(image, dtype=np.float32) / 255.0
+        image = Image.fromarray(((1 - (1 - base) * (1 - glow)) * 255).astype(np.uint8))
+        draw = ImageDraw.Draw(image)
+        for x, y, size, hue in cores:
+            tint = tuple(int(255 * (.55 + .45 * c)) for c in hue)
+            if size > .4:
+                spike = 3 + 8 * size
+                draw.line([(x - spike, y), (x + spike, y)], fill=tint, width=1)
+                draw.line([(x, y - spike), (x, y + spike)], fill=tint, width=1)
+            core = 1.5 + 2 * size
+            draw.ellipse((x - core, y - core, x + core, y + core), fill=tint)
+        for tail, head, colour in arrows:
+            x, y, _ = project(np.stack([tail, head]))
+            dx, dy = float(x[1] - x[0]), float(y[1] - y[0])
+            length = math.hypot(dx, dy)
+            if length < 1e-6:
+                continue
+            dx, dy = dx / length, dy / length
+            tip = (float(x[0]) + 4 * dx, float(y[0]) + 4 * dy)
+            fill = tuple(int(255 * min(1.0, .35 + .8 * c)) for c in colour)
+            draw.polygon([tip, (tip[0] - 9 * dx + 4.5 * dy, tip[1] - 9 * dy - 4.5 * dx),
+                          (tip[0] - 9 * dx - 4.5 * dy, tip[1] - 9 * dy + 4.5 * dx)], fill=fill)
+        return image
+
+    @staticmethod
     def ray_bundle(r_camera, table=None):
         """Fans of exact geodesics in three planes through the camera axis.
 
         Each ray carries its bend: the angle between the direction it leaves
-        the camera along and the direction it finally escapes to.
+        the camera along and the direction it finally escapes to. Each plane
+        also carries the rays' exact escape angles (NaN if captured).
         """
         from ..schwarzschild import EscapeTable, shadow_half_angle, trace_fan
         edge = shadow_half_angle(r_camera)
@@ -481,11 +634,11 @@ class BlackHoleDemo(Demo):
         bundle = []
         for chi in np.radians([90, 150, 210]):
             e2 = np.array([0.0, math.cos(chi), math.sin(chi)])
-            bundle.append(((e1, e2), described))
+            bundle.append(((e1, e2), described, escape))
         return bundle
 
     def run_schwarzschild(self):
-        from ..gaia_sky import BACKGROUND_PC, TARGET_KEYS, build_sky
+        from ..gaia_sky import BACKGROUND_PC, TARGET_KEYS, bright_stars, build_sky
         from ..schwarzschild import EscapeTable, KM_PER_SCHWARZSCHILD_RADIUS_PER_MSUN, shadow_half_angle
         params = self.ctx.params
         self.ctx.jpeg_subsampling = 0           # keep star colour in single pixels
@@ -497,6 +650,7 @@ class BlackHoleDemo(Demo):
             fine, glow, sky = build_sky(target_key, face=int(self.settings.get("sky_face", 2048)))
             fine, glow = self.ctx.xp.asarray(fine), self.ctx.xp.asarray(glow)
             reference = self.sky_reference(glow, self.ctx.xp)
+            source_catalogue = bright_stars(target_key)
         target = sky["target"]
         mass = float(target["mass_msun"])
         km_per_rs = KM_PER_SCHWARZSCHILD_RADIUS_PER_MSUN * mass
@@ -544,7 +698,11 @@ class BlackHoleDemo(Demo):
                     if len(bundles) > 4:
                         bundles.clear()
                     bundles[bundle_key] = self.ray_bundle(r_camera, tables[key])
-                self.ctx.save_frame(self.render_rays(r_camera, bundles[bundle_key], .6 + 1.2 * progress),
+                view_angle = .6 + 1.2 * progress
+                backdrop = self.ray_view_backdrop(fine, glow, reference, axis, right, up, view_angle)
+                sources = self.source_stars(bundles[bundle_key], source_catalogue,
+                                            self.ray_view_to_world(axis, right, up))
+                self.ctx.save_frame(self.render_rays(r_camera, bundles[bundle_key], view_angle, backdrop, sources),
                                     mode_dir / f"frame_{frame:04d}.jpg")
             half = math.degrees(shadow_half_angle(r_camera))
             self.ctx.write_status(frame, f"tracing {rays_per_frame:,} exact photon orbits", {

@@ -256,15 +256,29 @@ def sample_cube(cube, direction, xp=np):
             + (1 - fx) * fy * cube[face, y1c, x0c] + fx * fy * cube[face, y1c, x1c])
 
 
-def build_sky(target_key: str, face: int = 2048, glow_width: int = 720):
-    """Fine star cube, coarse glow cube and a description of what went in."""
-    stars, metadata = load_catalogue()
+def _viewpoint(target_key: str):
+    """The target, its position and the companion direction to leave out."""
+    _, metadata = load_catalogue()
     target = target_info(target_key, metadata)
-    viewpoint = target_position_pc(target)
     # The companion star orbits within tens of AU of the hole, far below
     # Gaia's depth precision: DR3's single-star parallax would put a bright
     # impostor tens to hundreds of parsecs along the line of sight. Leave it out.
     exclude = None if target_key == "sun" else radec_unit(target["ra_deg"], target["dec_deg"])
+    return target, target_position_pc(target), exclude
+
+
+def bright_stars(target_key: str, count: int = 60000):
+    """Directions, fluxes and colours of the brightest stars seen from the target."""
+    _, viewpoint, exclude = _viewpoint(target_key)
+    direction, flux, colour, _ = stars_from(viewpoint, exclude_direction=exclude)
+    keep = np.argsort(flux)[::-1][:count]
+    return direction[keep], flux[keep], colour[keep]
+
+
+def build_sky(target_key: str, face: int = 2048, glow_width: int = 720):
+    """Fine star cube, coarse glow cube and a description of what went in."""
+    _, metadata = load_catalogue()
+    target, viewpoint, exclude = _viewpoint(target_key)
     direction, flux, colour, summary = stars_from(viewpoint, exclude_direction=exclude)
     fine = splat_cube(direction, flux, colour, face)
     glow = glow_map(direction, flux, colour, width=glow_width)
