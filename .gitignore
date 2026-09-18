@@ -23,3 +23,6 @@ videos/*
 
 # Cluster settings edited in the dashboard (Leonardo account, certificate e-mail)
 config/clusters.local.json
+
+# Local profiling and campaign logs
+benchmarks/*.log

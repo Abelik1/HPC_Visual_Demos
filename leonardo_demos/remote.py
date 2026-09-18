@@ -440,6 +440,19 @@ def _fail(rd: Path, message: str, **remote) -> None:
     _write_meta(rd, meta)
 
 
+def code_version() -> dict:
+    """The commit a cluster run was launched from, and whether solver code was edited since."""
+    def git(*args):
+        try:
+            return subprocess.run(["git", *args], cwd=str(ROOT), capture_output=True, text=True,
+                                  timeout=10).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+    dirty = git("status", "--porcelain", "--", "run_demo.py", "leonardo_demos", "tools", "config/demo_specs.json",
+                "config/profiles.json")
+    return {"commit": git("rev-parse", "--short", "HEAD") or None, "solver_code_modified": bool(dirty)}
+
+
 def create_job(runs: Path, rid: str, c: dict, kwargs: dict, walltime: str, extra_files: dict[str, Path]) -> Path:
     """Write the local placeholder run and its job.json, then start the watcher."""
     rd = runs / rid
@@ -452,6 +465,7 @@ def create_job(runs: Path, rid: str, c: dict, kwargs: dict, walltime: str, extra
             "method": kwargs["method"], "backend": kwargs["backend"], "precision": kwargs["precision"],
             "created": time.time(), "frame": -1,
             "remote": {"cluster": c["name"], "label": c.get("label"), "stage": "preparing", "walltime": walltime,
+                       "code": code_version(),
                        "message": f"Preparing the {c.get('label')} job…", "files": sorted(extra_files)}}
     _write_meta(rd, meta)
     start_watcher(runs, rid)
