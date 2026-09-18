@@ -71,7 +71,7 @@ const KIOSK={
     blurb:'Build a car brain from blocks, then evolve it until it can drive.',
     read:'Gold is the best car of this generation, blue trails are the runners-up and red crosses are crashes. Nobody wrote the driving.',
     readChampion:'Saved champion networks, frozen, replayed from a start they have never seen. Each colour is a different generation’s champion.',
-    readGrid:'Each box shows the best car of one independent search, all driving at once.',
+    readLanes:'The same generation as Training, but every car drives its own copy of the track. Gold is the champion; a dimmed box has crashed.',
     story:[
       'Every car carries the brain you built, but each one starts with different random weights.',
       'Most crash or spin. The few that get furthest become the parents.',
@@ -81,13 +81,13 @@ const KIOSK={
       {key:'track',label:'Track'},
       {key:'mutation',label:'Mutation strength',decimals:2},
       {ghosts:true,label:'Race the ghosts'},
-      {population:true,label:'Independent searches',values:[1,4,9,16,25],
-       help:'Each search evolves its own cars from its own random start.'}],
+      {name:true,label:'Your name',help:'Your name tag, on your champion and whenever it races as a ghost.'}],
     // Training: the population evolving, one full drive per generation.
+    // One per box: that same training, each car on its own copy of the track.
     // Inference: a frozen champion network driving from a fresh start.
     views:[{id:'arena',label:'Training',kind:'arena',needs:'arena_view'},
-           {id:'champion',label:'Champion drives',kind:'champion',needs:'lab'},
-           {id:'grid',label:'One per box',kind:'grid',needs:'reveal'}],
+           {id:'lanes',label:'One per box',kind:'arena',lanes:true,needs:'arena_view'},
+           {id:'champion',label:'Champion drives',kind:'champion',needs:'lab'}],
     numbers:['generation','fastest lap','cars completing a lap']},
 
   bat_vs_moth:{
@@ -96,7 +96,7 @@ const KIOSK={
     blurb:'One visitor builds a hunting bat. Another builds a moth that jams its sonar.',
     read:'Amber is the champion bat and its call rings. Cyan glows are moth echoes it heard; magenta rings are fake echoes from a jamming moth.',
     readChampion:'The final champion bat and moths, frozen, in a fresh random start. White crosses are catches; magenta rings are jamming.',
-    readGrid:'Each box is its own cave with its own arms race; the amber bat is that cave’s champion.',
+    readLanes:'The same generation as Training, each of its best caves in its own box. The first box is the champion’s cave; white crosses are catches.',
     story:[
       'The cave is dark. The screen shows only what the bat’s own calls reveal.',
       'At first the moths just flutter. The bats that learn to turn toward the louder ear catch the most.',
@@ -105,12 +105,15 @@ const KIOSK={
     controls:[
       {key:'cave',label:'Cave layout',decimals:0},
       {key:'moths',label:'Moths per cave',decimals:0},
-      {population:true,label:'Independent caves',values:[1,4,9,16],
-       help:'Each cave runs its own separate arms race.'}],
+      {name:true,label:'Your names',help:'Your name tag, shown on your champion.'}],
+    // Training in the bat's senses or the lit cave; one per box is the same
+    // training, each of the best caves in its own box; the champion hunts
+    // (inference) can be watched either way too.
     views:[{id:'arena',label:'Training',kind:'arena',needs:'arena_view'},
            {id:'arenaLit',label:'Training · lit cave',kind:'arena',lit:true,needs:'arena_view'},
+           {id:'lanes',label:'One per box',kind:'arena',lanes:true,lit:true,needs:'arena_lanes'},
            {id:'champion',label:'Champion hunts',kind:'champion',needs:'lab'},
-           {id:'grid',label:'One per box',kind:'grid',needs:'reveal'}],
+           {id:'championLit',label:'Champion · lit cave',kind:'champion',lit:true,needs:'lab'}],
     numbers:['generation','moths caught','calls jammed']},
 
   neural_wall:{
@@ -227,8 +230,44 @@ KIOSK.nbody_murb={
          {id:'side',label:'Side view',kind:'frames',folder:'modes/side',needs:'view_modes'},
          {id:'top',label:'Top view',kind:'frames',folder:'modes/top',needs:'view_modes'}],
   numbers:['simulated time','bodies','GFLOP/s','ms / iteration']};
-const ORDER=['fusion_plasma','neuro_racers','bat_vs_moth','galaxy_collision_3d','nbody_murb','neural_wall',
-             'black_hole','fluid','cosmic_web','galaxy_collision'];
+KIOSK.molecular_dynamics={
+  about:'Two things molecules do. Fold: a chain of oily, water-loving and charged beads, written by you, curls up while every bead pulls on every other one. Machine: a ring threaded on an axle that a switch sends from one end to the other.',
+  tag:'Biophysics',
+  blurb:'Write a protein and watch it fold, or run a machine made of one molecule.',
+  read:'Each ball is a group of atoms; sticks are bonds.',
+  readByMethod:{
+    fold:'Amber beads avoid water, cyan beads like it, blue is plus and pink is minus. The oily beads hide together in the middle; opposite charges zip up.',
+    shuttle:'The gold ring is threaded on the grey axle; the big end beads stop it falling off. The bright green station is the sticky one. Nothing pushes the ring: it jiggles along on heat alone until the sticky station catches it.'},
+  story:[
+    'At this scale nothing sits still. Water molecules kick every bead, billions of times a second.',
+    'Fold: oily beads hide from water together. That single rule is why proteins have a core.',
+    'Every bead feels every other bead, every step: that is where the computing goes, and real proteins have hundreds of thousands of atoms.',
+    'Machine: the 2016 Nobel Prize in Chemistry was for molecules like this ring on an axle. The switch does not push; it only changes where the ring is caught.'],
+  creator:'chain',
+  controls:[
+    {method:true,label:'What to build'},
+    {key:'sequence',label:'Start from',onlyMethod:'fold'},
+    {key:'temperature',label:'Temperature',unit:'K',decimals:0},
+    {key:'solvent',label:'Water strength',decimals:2,onlyMethod:'fold'},
+    {key:'drive',label:'Switch strength',decimals:2,onlyMethod:'shuttle'},
+    {key:'switch_every',label:'Flip the switch every',unit:'frames',decimals:0,onlyMethod:'shuttle'}],
+  views:[{id:'frames',label:'Picture',kind:'frames'},
+         {id:'galaxy3d',label:'Rotate in 3D',kind:'galaxy3d',needs:'galaxy3d_view'}],
+  // Fold readouts first, shuttle readouts after: a run only ever has one set.
+  numbers:['radius of gyration','buried oil','salt bridges','sticky station','ring position','trips along the axle']};
+// Any demo without its own entry above still works on the stand: its first
+// three parameters become the controls and its tagline the caption.
+function kioskFor(id){
+  if(KIOSK[id])return KIOSK[id];
+  const d=specs?.demos?.[id];if(!d)return null;
+  KIOSK[id]={about:d.tagline,tag:'Simulation',blurb:d.tagline,read:'',story:[],
+    controls:Object.keys(d.params||{}).slice(0,3).map(key=>({key})),numbers:[]};
+  return KIOSK[id];
+}
+// Which demos the stand shows, in order: the active demo day's lineup
+// (config/lineups.json), chosen with the Demo day buttons on the picker.
+let ORDER=[];
+function refreshOrder(){ORDER=HPC.items(Object.keys(specs.demos)).filter(id=>specs.demos[id]?kioskFor(id):HPC.extra(id));}
 
 const FRAME_MS=140;
 const IDLE_MS=180000;
@@ -238,7 +277,7 @@ let specs=null,library=[],current=null,runId=null,meta={};
 let pollTimer=null,playTimer=null,idleTimer=null;
 let frame=0,total=0,playing=false,lastKnownFrame=-1;
 let arena=null,fusion=null,galaxy=null,view=null,arenaGeneration=-1,failedViews=new Set();
-let gridViews=[],champion={mode:'final',seed:0,data:null};
+let gridViews=[],champion={mode:'final',seed:0,data:null,results:[],env:{}};
 // Full meta.json of a saved run: the library listing leaves out bulky fields
 // (generation statistics, shot history) that only the instrument strip needs.
 const fullMetaCache=new Map();
@@ -252,7 +291,7 @@ let libraryData={favourites:[],showcase:{}};
 // A presentation is an ordered playlist of saved runs. "showcase" is one
 // demo's picks; "slideshow" is every demo's picks back to back.
 let present=null;
-let obstacles=null,target=null;
+let obstacles=null,target=null,chain=null;
 let historyFavsOnly=false,historyLimit=12,compareSel=[],starfield=null;
 let compareTimer=null,compareProgress=0,comparePlaying=false,compareRuns=[];
 // Display speed only: how quickly saved frames are shown.
@@ -268,6 +307,11 @@ function savePrefs(){try{localStorage.setItem('leonardo.demo',JSON.stringify(pre
 // ------------------------------------------------------------------ init --
 async function init(){
   specs=await (await fetch('/api/specs')).json();
+  await HPC.load();refreshOrder();
+  HPC.machineSwitch($('#machineSwitch'));
+  HPC.onChange(()=>{refreshOrder();if(!current)renderPicker();});
+  $('#hpcSettings').onclick=()=>HPC.openSettings(specs.demos);
+  setupRunOn();
   $('#profile').value=prefs.profile||'local';
   $('#backend').value=prefs.backend||'auto';
   $('#frames').value=prefs.frames||70;
@@ -280,7 +324,7 @@ async function init(){
   renderPicker();
   bindChrome();
   const wanted=new URLSearchParams(location.search).get('demo');
-  if(wanted&&KIOSK[wanted]&&specs.demos[wanted])openDemo(wanted);
+  if(wanted&&specs.demos[wanted]&&kioskFor(wanted))openDemo(wanted);
 }
 async function loadLibrary(){
   // Showcase picks can be old runs, so read the whole library rather than
@@ -332,8 +376,20 @@ function describeBackends(){
 // ---------------------------------------------------------------- picker --
 function renderPicker(){
   const host=$('#pickGrid');host.innerHTML='';
-  ORDER.filter(id=>specs.demos[id]).forEach(id=>{
-    const k=KIOSK[id],d=specs.demos[id];
+  ORDER.forEach(id=>{
+    const x=HPC.extra(id);
+    if(x){
+      // A recorded-video item: the tile opens the video player (or its link),
+      // which links back here.
+      const card=document.createElement('a');card.className='pickCard';
+      card.href=x.url||HPC.videoHref(id,{fromDemo:true});if(x.url){card.target='_blank';card.rel='noopener';}
+      card.innerHTML=`<span class="tag">Video</span>
+        <img src="/static/previews/${encodeURIComponent(id)}.webp" alt="" loading="lazy" width="800" height="450">
+        <span class="cardText"><h3>${escapeHtml(x.name)}</h3><p>${escapeHtml(x.tagline)}</p></span>`;
+      card.querySelector('img').onerror=e=>{e.target.onerror=null;e.target.src='/static/previews/videos.webp';};
+      host.appendChild(card);return;
+    }
+    const k=kioskFor(id),d=specs.demos[id];
     const card=document.createElement('button');card.className='pickCard';card.type='button';
     card.innerHTML=`<span class="tag${k.ai?' ai':''}">${escapeHtml(k.tag)}</span>
       <img src="/static/previews/${encodeURIComponent(id)}.webp" alt="" loading="lazy" width="800" height="450">
@@ -341,13 +397,22 @@ function renderPicker(){
     card.onclick=()=>openDemo(id);
     host.appendChild(card);
   });
-  // Pre-recorded videos are not a simulation: the tile opens the video player,
-  // which links back here.
+  // Every video in videos/, for when the lineup has no video item of its own.
+  if(ORDER.some(id=>HPC.extra(id)))return;
   const card=document.createElement('a');card.className='pickCard';card.href='/videos?from=demo';
   card.innerHTML=`<span class="tag">Videos</span>
     <img src="/static/previews/videos.webp" alt="" loading="lazy" width="800" height="450">
     <span class="cardText"><h3>Recorded videos</h3><p>Pre-recorded simulations, played from this computer.</p></span>`;
   host.appendChild(card);
+}
+// "Run on": this computer or a cluster from config/clusters.json.
+function setupRunOn(){
+  const select=$('#runOn');
+  HPC.clusterList().forEach(c=>{const o=document.createElement('option');o.value=c.name;o.textContent=c.label;select.appendChild(o);});
+  if(prefs.runOn&&[...select.options].some(o=>o.value===prefs.runOn))select.value=prefs.runOn;
+  select.onchange=()=>{prefs.runOn=select.value;savePrefs();
+    const c=HPC.clusterList().find(x=>x.name===select.value);
+    if(c?.default_profile&&$('#profile').value!==c.default_profile){$('#profile').value=c.default_profile;$('#profile').dispatchEvent(new Event('change'));}};
 }
 
 // ----------------------------------------------------------- demo screen --
@@ -358,7 +423,7 @@ function openDemo(id,{run=null}={}){
   const changed=id!==current;
   current=id;resetRun();
   history.replaceState(null,'',`/demo?demo=${encodeURIComponent(id)}`);
-  const k=KIOSK[id];
+  const k=kioskFor(id);
   $('#pick').classList.add('hidden');$('#stage').classList.remove('hidden');
   $('#title').textContent=d.name;$('#subtitle').textContent=k.blurb;
   $('#preview').src=`/static/previews/${encodeURIComponent(id)}.webp`;
@@ -382,7 +447,7 @@ function openDemo(id,{run=null}={}){
   const first=run||showcaseRuns(id)[0]||null;
   $('#replay').classList.toggle('hidden',!showcaseRuns(id).length);
   setAction('Ready when you are',first
-    ? 'Change anything above, then run a brand-new simulation on this machine.'
+    ? `Change anything above, then run a brand-new simulation ${$('#runOn').value==='local'?'on this machine':'on '+($('#runOn').selectedOptions[0]?.textContent||'the cluster')}.`
     : 'Nothing saved yet for this experiment — press Run it.');
   renderViewSwitch();
   renderHistory();
@@ -466,11 +531,13 @@ function methodValue(){return $('#method').value||'default';}
 
 function renderControls(){
   const host=$('#controls');host.innerHTML='';controlState={};
+  if(isGame())addTrainingHeader(host);
   controlDefs().forEach(def=>{
     if(def.onlyMethod&&def.onlyMethod!==methodValue())return;
     if(def.method)return addMethodBox(host,def);
     if(def.population)return addPopulationBox(host,def);
     if(def.ghosts)return addGhostBox(host,def);
+    if(def.name)return addNameBox(host,def);
     if(def.setting)return addSettingBox(host,def);
     const p=paramSpec(def.key);if(!p)return;
     controlState[def.key]=Number(p.value);
@@ -549,6 +616,7 @@ function addChoiceBox(host,def,p){
     if(def.key==='obstacle'&&obstacles)obstacles.setPreset(v);
     if(def.key==='target'&&fromUser&&target)target.usePreset();
     if(def.key==='track')refreshGhosts();
+    if(def.key==='sequence'&&chain){if(fromUser)chain.reset();chain.setPreset(v,chainLength());}
   };
   names.forEach((name,i)=>{const b=document.createElement('button');b.type='button';b.textContent=name;
     b.onclick=()=>select(values[i],true);seg.appendChild(b);});
@@ -571,7 +639,7 @@ function addMethodBox(host,def){
   const seg=document.createElement('div');seg.className='seg';el.appendChild(seg);
   methods.forEach(m=>{const b=document.createElement('button');b.type='button';
     b.textContent=capability.method_labels?.[m]||m.replaceAll('_',' ');
-    b.onclick=()=>{$('#method').value=m;renderControls();renderAdvanced();showRunForMethod(m);};
+    b.onclick=()=>{$('#method').value=m;renderControls();renderAdvanced();syncChain();showRunForMethod(m);};
     b.classList.toggle('on',m===methodValue());b.setAttribute('aria-pressed',String(m===methodValue()));
     seg.appendChild(b);});
 }
@@ -615,6 +683,29 @@ function addSettingBox(host,def){
   select(start);
 }
 
+// The AI games keep two sets of controls apart: these (training, used by
+// "Run it") and the test world under the picture (inference on a finished
+// champion). Every visitor trains for the same number of generations, so
+// brains compete on design alone.
+function trainingGenerations(){
+  return Number(controlState._settings?.generations??specs?.profiles?.[$('#profile').value]?.[current]?.generations)||null;
+}
+function addTrainingHeader(host){
+  const el=document.createElement('div');el.className='trainingHead';
+  const gens=trainingGenerations();
+  el.innerHTML=`<span class="phaseTag train">Training</span><b>How your brain will be trained</b>
+    <small>Used when you press <em>Run it</em>.${gens?` Everyone gets the same ${gens} generations: a bigger brain has more weights to tune in that time, and a brain that fits its training world too closely shows it when you test it in a new one.`:''}</small>`;
+  host.appendChild(el);
+}
+function addNameBox(host,def){
+  const el=box(host,def.label||'Your name');
+  const input=document.createElement('input');
+  Object.assign(input,{type:'text',maxLength:24,placeholder:'Name tag',autocomplete:'off',spellcheck:false,className:'nameInput'});
+  input.oninput=()=>{controlState._name=input.value.trim();};
+  el.appendChild(input);
+  if(def.help){const hint=document.createElement('small');hint.className='boxHint';hint.textContent=def.help;el.appendChild(hint);}
+}
+
 // Ghost races: the fastest saved champions on the chosen track race beside
 // the visitor's cars, re-simulated with their own brains.
 function ghostRuns(track){
@@ -645,8 +736,17 @@ function refreshGhosts(){
 // -------------------------------------------------------------- creators --
 // What a visitor makes with their own hands: a wind-tunnel body, a picture for
 // the network to learn, a brain. These are never hidden in demo mode.
+// The sequence builder belongs to the fold mode only; its length follows the
+// preset's chain length (or the value under Advanced) until the visitor edits.
+function chainLength(){return Number($('#s_particles')?.value)||Number(specs?.profiles?.[$('#profile').value]?.molecular_dynamics?.particles)||40;}
+function syncChain(){
+  if(!chain)return;
+  const fold=methodValue()!=='shuttle';
+  chain.setVisible(fold);document.body.classList.toggle('hasBuilder',fold);
+  chain.setPreset(controlState.sequence??0,chainLength());
+}
 function mountBuilders(){
-  const host=$('#brainHost');host.innerHTML='';builder=null;builders=null;obstacles=null;
+  const host=$('#brainHost');host.innerHTML='';builder=null;builders=null;obstacles=null;chain=null;
   document.body.classList.remove('hasBrain');
   if(target)target.stop();target=null;
   const creator=KIOSK[current]?.creator;
@@ -655,6 +755,10 @@ function mountBuilders(){
     document.body.classList.add('hasBuilder');return;
   }
   if(creator==='target'){target=new TargetPicture(host);document.body.classList.add('hasBuilder');return;}
+  if(creator==='chain'){
+    chain=new ChainBuilder(host,{preset:controlState.sequence??0,length:chainLength(),large:true});
+    document.body.classList.add('hasBuilder');syncChain();return;
+  }
   const catalogue=spec()?.brain;
   document.body.classList.toggle('hasBuilder',Boolean(catalogue));
   document.body.classList.toggle('hasBrain',Boolean(catalogue));
@@ -686,6 +790,7 @@ function availableViews(){
     if(failedViews.has(v.id))return false;
     if(!v.needs)return true;
     if(v.needs==='has_reveal'||v.needs==='reveal')return Boolean(meta.has_reveal||meta.reveal);
+    if(v.needs==='arena_lanes')return Number(meta.arena_view?.lanes)>1;
     return Boolean(meta[v.needs]);
   });
 }
@@ -720,7 +825,7 @@ async function setView(id,{autoplay=null}={}){
   const def=viewDef();
   renderInstruments();
   if(def?.kind==='arena')await enterArena(def);
-  else if(def?.kind==='champion')await enterChampion();
+  else if(def?.kind==='champion')await enterChampion(def);
   else if(def?.kind==='grid')await enterGrid();
   else if(def?.kind==='fusion')await enterFusion();
   else if(def?.kind==='galaxy3d')await enterGalaxy();
@@ -731,7 +836,7 @@ async function setView(id,{autoplay=null}={}){
   updateOnScreen();
   const k=KIOSK[current]||{};
   $('#captionRead').textContent=def?.kind==='champion'?(k.readChampion||k.read||'')
-    :def?.kind==='grid'?(k.readGrid||k.read||''):(k.read||'');
+    :def?.kind==='grid'?(k.readGrid||k.read||''):def?.lanes?(k.readLanes||k.read||''):(k.readByMethod?.[meta.method||methodValue()]||k.read||'');
   // The frame timeline belongs to the training run, not to a replay or grid.
   const timeline=!(def?.kind==='champion'||def?.kind==='grid');
   $('#seek').disabled=!timeline||!runId;$('#fsSeek').disabled=$('#seek').disabled;
@@ -822,7 +927,7 @@ function stopPlay(){
   if(playTimer)clearInterval(playTimer);playTimer=null;playing=false;$('#playPause').textContent='▶';
   const kind=canvasKind();
   if(kind==='arena'||kind==='champion')arena?.pause();
-  if(kind==='grid')gridViews.forEach(v=>v.pause());
+  if(kind==='grid'||kind==='champion')gridViews.forEach(v=>v.pause());
   syncFullscreen();
 }
 function setLoop(on,persist=true){
@@ -858,8 +963,8 @@ function startPlay(from=frame){
   if(kind){
     stopPlay();playing=true;$('#playPause').textContent='❚❚';
     if(kind==='arena'&&arena){showFrame(from,total);arena.onloop=generationDriveDone;arena.rate=speed();arena.resume();}
-    if(kind==='champion'&&arena){arena.onloop=()=>{if(present)presentLoopDone();};arena.rate=speed();arena.resume();}
-    if(kind==='grid'){gridViews.forEach((v,i)=>{v.rate=speed();v.onloop=i?null:()=>{if(present)presentLoopDone();};v.resume();});}
+    if(kind==='champion'&&arena&&!gridViews.length){arena.onloop=()=>{if(present)presentLoopDone();};arena.rate=speed();arena.resume();}
+    if(kind==='grid'||(kind==='champion'&&gridViews.length)){gridViews.forEach((v,i)=>{v.rate=speed();v.onloop=i?null:()=>{if(present)presentLoopDone();};v.resume();});}
     syncFullscreen();return;
   }
   if(!loopPlayback&&!present&&from>=total-1)from=0;
@@ -914,7 +1019,7 @@ async function enterArena(def){
   makeArena();
   try{
     await arena.loadArena(`/runs/${runId}/${meta.arena_view.arena||meta.arena_view.folder+'/arena.json'}`);
-    arena.lit=Boolean(def?.lit);
+    arena.lit=Boolean(def?.lit);arena.lanes=Boolean(def?.lanes);arena.ownerName=meta.name||null;
     arenaGeneration=generationAt(frame);
     await arena.showGeneration(`/runs/${runId}/${meta.arena_view.folder}/gen_${pad(arenaGeneration)}.json`);
     if(!playing)arena.pause();
@@ -926,30 +1031,103 @@ async function enterArena(def){
 // --------------------------------------------------------------- champion ---
 // Inference: saved champion networks, frozen, re-driven from a fresh random
 // start on the server (the dashboard's generation lab uses the same endpoint).
-async function enterChampion(){
-  if(!runId||!meta.lab)return markViewUnusable('champion');
+//
+// The test world is separate from the training settings: the same frozen
+// network can be dropped onto another track or into another cave, with more or
+// fewer moths, or into several worlds at once, one per box. Nothing about the
+// network changes, so this is where over-fitting to the training world shows.
+function trainedWorld(){
+  const p=meta.params||{};
+  return current==='neuro_racers'?{track:Number(meta.track?.id??p.track??0)}
+    :{cave:Number(meta.cave??p.cave??11),moths:Number(p.moths??4)};
+}
+function championEnv(){return {...trainedWorld(),boxes:1,...champion.env};}
+function envIsTrained(){const env=championEnv(),t=trainedWorld();return env.boxes===1&&Object.keys(t).every(k=>env[k]===t[k]);}
+function championWorlds(env){
+  if(current==='neuro_racers'){
+    const tracks=Object.keys(paramSpec('track')?.options||{0:''}).map(Number);
+    return env.boxes>1?tracks.map(track=>({track})):[{track:env.track}];
+  }
+  const p=paramSpec('cave')||{min:1,max:999},lo=Number(p.min),span=Number(p.max)-lo+1;
+  return Array.from({length:env.boxes},(_,i)=>({cave:lo+(env.cave-lo+i)%span,moths:env.moths}));
+}
+function championGhosts(env){
+  if(current!=='neuro_racers'||champion.mode!=='race')return [];
+  return ghostRuns(env.track).filter(r=>r.id!==runId).map(r=>r.id);
+}
+async function enterChampion(def){
+  if(!runId||!meta.lab)return markViewUnusable(def?.id||'champion');
   makeArena();
-  const top=Math.max(1,Number(meta.lab.generations)||1);
+  const top=Math.max(1,Number(meta.lab.generations)||1),env=championEnv();
   const gens=champion.mode==='learn'&&current==='neuro_racers'
     ?[...new Set([1,Math.max(1,Math.round(top/2)),top])]:[top];
   if(!champion.seed)champion.seed=Math.floor(Math.random()*1e6);
-  setBusy(true,'Replaying the champion…');
+  const worlds=championWorlds(env),ghosts=championGhosts(env);
+  setBusy(true,worlds.length>1?`Testing the champion in ${worlds.length} ${current==='neuro_racers'?'tracks':'caves'}…`:'Replaying the champion…');
+  let results;
   try{
-    await arena.loadArena(`/runs/${runId}/${meta.arena_view?.arena||'interactive/arena.json'}`);
-    const res=await fetch(`/api/replay/${encodeURIComponent(runId)}?gens=${gens.join(',')}&seed=${champion.seed}`);
-    if(!res.ok)throw new Error(String(res.status));
-    champion.data=await res.json();champion.gens=gens;
-    arena.lit=current==='bat_vs_moth';arena.focus=null;arena.showData(champion.data);
+    results=await Promise.all(worlds.map(w=>{
+      const q=new URLSearchParams({gens:gens.join(','),seed:champion.seed});
+      Object.entries(w).forEach(([k,v])=>q.set(k,v));if(ghosts.length)q.set('ghosts',ghosts.join(','));
+      return fetch(`/api/replay/${encodeURIComponent(runId)}?${q}`).then(r=>{if(!r.ok)throw new Error(String(r.status));return r.json();});
+    }));
+  }catch(_){
+    setBusy(false);
+    // A test world that cannot be run goes back to the training world rather
+    // than losing the view; only a run that cannot replay at all loses it.
+    if(!envIsTrained()){champion.env={};$('#onScreen').textContent='That test world could not be run; back to the training world.';$('#onScreen').classList.remove('hidden');return setView(view);}
+    return markViewUnusable(def?.id||'champion');
+  }
+  if(viewDef()?.kind!=='champion')return;      // switched away meanwhile
+  champion.data=results[0];champion.results=results;champion.gens=gens;
+  const lit=current==='bat_vs_moth'&&Boolean(def?.lit);
+  $('#screen').classList.add('hidden');
+  if(results.length===1){
+    if(results[0].arena){arena.arena=results[0].arena;}
+    else await arena.loadArena(`/runs/${runId}/${meta.arena_view?.arena||'interactive/arena.json'}`);
+    arena.lit=lit;arena.lanes=false;arena.focus=null;arena.ownerName=meta.name||null;arena.showData(results[0]);
     if(!playing)arena.pause();
-    $('#screen').classList.add('hidden');$('#arenaCanvas').classList.remove('hidden');
-    arena.resize();surfaceLive(true);
-  }catch(_){setBusy(false);return markViewUnusable('champion');}
-  setBusy(false);renderInstruments();
+    $('#arenaCanvas').classList.remove('hidden');arena.resize();
+  }else showChampionBoxes(results,lit);
+  surfaceLive(true);setBusy(false);renderInstruments();
+}
+// Several test worlds at once: the frozen champion in each, one per box.
+function showChampionBoxes(results,lit){
+  const host=$('#gridView'),trained=trainedWorld();host.innerHTML='';
+  host.style.gridTemplateColumns=`repeat(${Math.ceil(Math.sqrt(results.length))},minmax(0,1fr))`;
+  gridViews=results.map(data=>{
+    const cell=document.createElement('div');cell.className='gridCell';
+    const canvas=document.createElement('canvas');cell.appendChild(canvas);
+    const label=document.createElement('span');label.className='gridLabel';label.textContent=worldLabel(data,trained);
+    cell.appendChild(label);host.appendChild(cell);
+    const v=new ArenaView(canvas);v.arena=data.arena;v.showBrain=false;v.hud=false;v.lit=lit;v.trails=true;
+    v.ownerName=meta.name||null;v.rate=speed();v.showData(data);if(!playing)v.pause();
+    return v;
+  });
+  $('#arenaCanvas').classList.add('hidden');host.classList.remove('hidden');
+  requestAnimationFrame(()=>gridViews.forEach(v=>v.resize()));
+}
+function worldLabel(data,trained){
+  const rp=data.replay||{},own=data.cars.find(c=>!c.ghost)||data.cars[0];
+  if(current==='neuro_racers'){
+    const home=rp.track===trained.track?' · trained here':'';
+    return `${data.arena?.track||'track'}${home} · ${own.lap_s?`lap ${own.lap_s.toFixed(1)} s`:own.crash>=0?'crashed':`${Number(own.laps).toFixed(2)} laps`}`;
+  }
+  const caught=data.moths.filter(m=>m.caught>=0).length;
+  return `cave ${rp.cave}${rp.cave===trained.cave?' · trained here':''} · ${caught} of ${data.moths.length} caught`;
 }
 function rerollChampion(mode){
   if(mode)champion.mode=mode;
   champion.seed=Math.floor(Math.random()*1e6);
-  if(viewDef()?.kind==='champion')setView('champion');
+  if(viewDef()?.kind==='champion')setView(view);
+}
+// Test-world changes re-run the champion; steppers wait for the clicks to stop.
+let envTimer=null;
+function setChampionEnv(change,{now=false}={}){
+  champion.env={...champion.env,...change};
+  renderInstruments();
+  clearTimeout(envTimer);
+  envTimer=setTimeout(()=>{if(viewDef()?.kind==='champion')setView(view);},now?0:450);
 }
 
 // ------------------------------------------------------------------- grid ---
@@ -1000,7 +1178,7 @@ function generationAt(index){
 function resetRun(){
   if(pollTimer)clearInterval(pollTimer);pollTimer=null;
   stopPlay();exitArena();exitFusion();exitGalaxy();exitGrid();
-  champion={mode:champion.mode,seed:0,data:null};
+  champion={mode:champion.mode,seed:0,data:null,results:[],env:{}};
   $('#onScreen').classList.add('hidden');$('#instruments').classList.add('hidden');
   runId=null;meta={};frame=0;total=0;lastKnownFrame=-1;numbers={};arenaGeneration=-1;view=null;
   failedViews=new Set();
@@ -1042,9 +1220,21 @@ async function startRun(){
     if(obstacles.hasCells()||Number(params.obstacle)===3)request.obstacle_grid=obstacles.cells;
   }
   if(current==='neural_wall'&&target?.custom)request.target_image=target.dataUrl();
+  if(current==='molecular_dynamics'&&chain&&methodValue()!=='shuttle'){const own=chain.getChain();if(own)request.chain=own;}
+  if(isGame()&&controlState._name)request.name=controlState._name;
   if(current==='neuro_racers'&&controlState._ghosts){const ghosts=ghostRuns(params.track).map(r=>r.id);if(ghosts.length)request.ghosts=ghosts;}
   if(builder)request.brain=builder.getSpec();
   if(builders)request.brain=Object.fromEntries(Object.entries(builders).map(([role,b])=>[role,b.getSpec()]));
+  const cluster=$('#runOn').value;
+  if(cluster!=='local'){
+    const id=await HPC.confirmRun(current,request,cluster);
+    if(!id)return;
+    stopPresenting({quiet:true});resetRun();
+    runId=id;total=request.frames;$('#seek').max=Math.max(0,total-1);
+    setBusy(true,'Sending to the cluster…');setStatus('SUBMITTING','running');
+    setAction('Sent to the cluster','It runs there and comes back here when it is finished.');
+    pollTimer=setInterval(poll,1000);return;
+  }
   stopPresenting({quiet:true});resetRun();
   setBusy(true,'Setting up…');setStatus('COMPUTING','running');
   const response=await fetch('/api/run/'+current,{method:'POST',headers:{'content-type':'application/json'},
@@ -1067,6 +1257,8 @@ async function poll(){
   if(!runId)return;
   let m;
   try{m=await (await fetch(`/api/run/${runId}?t=${Date.now()}`)).json();}catch(_){return;}
+  const away=HPC.describe(m);
+  if(away){setBusy(true,away.message);setStatus(away.badge,'running');setAction(`On ${away.label}`,away.message);return;}
   const before=viewSignature();
   meta={...meta,...m};
   if(m.overlay)renderNumbers(m.overlay);
@@ -1164,7 +1356,7 @@ function applyMethods(){
   $('#methodField').classList.toggle('hidden',methods.length<2||headline);
   $('#methodHelp').textContent=capability.method_descriptions?.[select.value]||'';
   select.onchange=()=>{$('#methodHelp').textContent=capability.method_descriptions?.[select.value]||'';
-    renderControls();renderAdvanced();};
+    renderControls();renderAdvanced();syncChain();};
 }
 function applyParallelField(){
   // Demo mode only ever shows a population where a visitor control owns it;
@@ -1241,13 +1433,13 @@ function renderInstruments(){
   if(isGame()&&runId&&(kind==='arena'||kind==='champion'||kind==='grid')){
     const inference=kind==='champion',grid=kind==='grid';
     host.innerHTML=grid?`<div class="instPanel wide"><header><b>One per box</b><small>independent searches</small></header><p class="instText">Every box is a completely separate evolution of the same brain design, started from its own random population. Nothing is shared between boxes, so the differences you see are down to chance.</p></div>`
-      :`<div class="instPanel brainPanel"><header><b>${inference?'The network, frozen':'This generation’s champion'}</b><small>live: node brightness is each neuron’s output; cyan wires push, pink wires pull</small></header><canvas id="brainCanvas"></canvas></div>
+      :`${inference?testWorldPanel():''}<div class="instPanel brainPanel"><header><b>${inference?'The network, frozen':'This generation’s champion'}</b><small>live: node brightness is each neuron’s output; cyan wires push, pink wires pull</small></header><canvas id="brainCanvas"></canvas></div>
       <div class="instPanel"><header><span class="phaseTag ${inference?'infer':'train'}">${inference?'Inference':'Training'}</span><small>${inference?'the network is only being used; nothing is learning':'selection, crossover and mutation, generation by generation'}</small></header>
-      ${inference?'':'<canvas id="trainChart" class="trainChart"></canvas>'}<p id="instText" class="instText"></p>
-      ${inference?`<div class="instButtons">${current==='neuro_racers'?`<button type="button" data-champ="final" class="${champion.mode==='final'?'on':''}">Final champion</button><button type="button" data-champ="learn" class="${champion.mode==='learn'?'on':''}">First · middle · final</button>`:''}<button type="button" data-champ="reroll">New random start</button></div>`:''}</div>`;
+      ${inference?'':'<canvas id="trainChart" class="trainChart"></canvas>'}<p id="instText" class="instText"></p></div>`;
     host.classList.remove('hidden');
-    host.querySelectorAll('[data-champ]').forEach(b=>b.onclick=()=>rerollChampion(b.dataset.champ==='reroll'?null:b.dataset.champ));
-    if(arena)arena.attachBrainCanvas($('#brainCanvas'));
+    if(inference)wireTestWorldPanel(host);
+    const brainOwner=inference&&gridViews.length?gridViews[0]:arena;
+    if(brainOwner)brainOwner.attachBrainCanvas($('#brainCanvas'));
     if(inference)updateInferenceText();else if(!grid)updateTrainingInstruments();
     return;
   }
@@ -1287,15 +1479,67 @@ async function updateTrainingInstruments(){
     drawTrainChart(chart,stats,g,[{key:'catch_rate',label:'catch rate',colour:'#ffbe50'},{key:'jammed_calls',label:'calls jammed',colour:'#ff5ac8'}]);
   }
 }
+// The test world, right under the picture: where the frozen champion is run.
+// These never change the network or start a training run - that is what the
+// training settings further down and "Run it" are for.
+function testWorldPanel(){
+  const env=championEnv(),t=trainedWorld(),racers=current==='neuro_racers';
+  const on=c=>c?' class="on" aria-pressed="true"':' aria-pressed="false"';
+  const cells=[];
+  if(racers){
+    const opts=paramSpec('track')?.options||{};
+    cells.push(`<div class="box wide"><label>Track</label><div class="seg">${Object.entries(opts).map(([v,n])=>
+      `<button type="button" data-env-track="${v}"${on(env.boxes===1&&Number(v)===env.track)}>${escapeHtml(n)}${Number(v)===t.track?' ★':''}</button>`).join('')}
+      <button type="button" data-env-boxes="4"${on(env.boxes>1)}>All four at once</button></div>
+      <small class="boxHint">★ is the track it trained on.</small></div>`);
+    const rivals=ghostRuns(env.track).filter(r=>r.id!==runId);
+    const names=rivals.map(r=>r.name||r.id.slice(-5));
+    cells.push(`<div class="box wide"><label>Who drives</label><div class="seg">
+      <button type="button" data-champ="final"${on(champion.mode==='final')}>Final champion</button>
+      <button type="button" data-champ="learn"${on(champion.mode==='learn')}>First · middle · final</button>
+      <button type="button" data-champ="race"${on(champion.mode==='race')}${rivals.length?'':' disabled'}>Race the ghosts</button></div>
+      <small class="boxHint">${rivals.length?`Race your champion against ${names.map(escapeHtml).join(', ')}: the best saved champions on this track, from the same start.`:'No other saved champions on this track yet.'}</small></div>`);
+  }else{
+    const stepper=(key,label,value,spec)=>`<div class="box"><label>${label}</label><div class="boxRow">
+      <button class="stepBtn" type="button" data-env-step="${key}" data-dir="-1"${value<=Number(spec.min)?' disabled':''} aria-label="Decrease">−</button>
+      <div class="boxValue"><span>${value}</span><small>${value===t[key]?'trained with this':'&nbsp;'}</small></div>
+      <button class="stepBtn" type="button" data-env-step="${key}" data-dir="1"${value>=Number(spec.max)?' disabled':''} aria-label="Increase">+</button></div></div>`;
+    cells.push(stepper('cave','Cave layout',env.cave,paramSpec('cave')||{min:1,max:999}));
+    cells.push(stepper('moths','Moths per cave',env.moths,paramSpec('moths')||{min:2,max:6}));
+    cells.push(`<div class="box wide"><label>Caves at once</label><div class="seg">${[1,4,9,16].map(n=>
+      `<button type="button" data-env-boxes="${n}"${on(env.boxes===n)}>${n}</button>`).join('')}</div>
+      <small class="boxHint">Each box is the next cave layout on from the one above.</small></div>`);
+  }
+  return `<div class="instPanel wide testWorld"><header><span class="phaseTag infer">Test world</span><small>change the world, not the network: the frozen champion is simply run again</small></header>
+    <div class="testGrid">${cells.join('')}</div>
+    <div class="instButtons"><button type="button" data-champ="reroll">New random start</button>${envIsTrained()?'':'<button type="button" data-env-reset>Back to the training world</button>'}</div></div>`;
+}
+function wireTestWorldPanel(host){
+  host.querySelectorAll('[data-champ]').forEach(b=>b.onclick=()=>rerollChampion(b.dataset.champ==='reroll'?null:b.dataset.champ));
+  host.querySelectorAll('[data-env-track]').forEach(b=>b.onclick=()=>setChampionEnv({track:Number(b.dataset.envTrack),boxes:1},{now:true}));
+  host.querySelectorAll('[data-env-boxes]').forEach(b=>b.onclick=()=>setChampionEnv({boxes:Number(b.dataset.envBoxes)},{now:true}));
+  host.querySelectorAll('[data-env-step]').forEach(b=>b.onclick=()=>{
+    const key=b.dataset.envStep,spec=paramSpec(key)||{},env=championEnv();
+    setChampionEnv({[key]:Math.max(Number(spec.min??1),Math.min(Number(spec.max??999),env[key]+Number(b.dataset.dir)))});});
+  host.querySelector('[data-env-reset]')?.addEventListener('click',()=>{champion.env={};setChampionEnv({},{now:true});});
+}
 function updateInferenceText(){
   const text=$('#instText'),data=champion.data;if(!text||!data)return;
-  const seed=data.replay?.seed;
+  const seed=data.replay?.seed,results=champion.results||[data],trained=trainedWorld();
+  if(results.length>1){
+    text.textContent=`The same frozen champion in ${results.length} ${current==='neuro_racers'?'tracks':'caves'}, from random start #${seed}. `
+      +results.map(r=>worldLabel(r,trained)).join(' · ')+'.';
+    return;
+  }
   if(current==='neuro_racers'){
-    const parts=data.cars.map(c=>`${c.label}: ${c.lap_s?`lap ${c.lap_s.toFixed(1)} s`:c.crash>=0?'crashed':`${Number(c.laps).toFixed(2)} laps`}`);
-    text.textContent=`Saved champion network${data.cars.length>1?'s':''}, frozen, driving from a fresh random start (#${seed}) it has never seen. ${parts.join(' · ')}.`;
+    const where=data.replay?.track!==undefined&&data.replay.track!==trained.track?` on the ${data.arena?.track||'new track'}, a track it never trained on,`:'';
+    const parts=data.cars.map(c=>`${c.ghost?c.label:(meta.name?`${meta.name} ${c.label}`:c.label)}: ${c.lap_s?`lap ${c.lap_s.toFixed(1)} s`:c.crash>=0?'crashed':`${Number(c.laps).toFixed(2)} laps`}`);
+    const own=data.cars.filter(c=>!c.ghost).length;
+    text.textContent=`Saved champion network${own>1?'s':''}, frozen, driving${where} from a fresh random start (#${seed}) it has never seen. ${parts.join(' · ')}.`;
   }else{
-    const caught=data.moths.filter(m=>m.caught>=0).length;
-    text.textContent=`The generation ${data.generation} champion bat and its moths, frozen, in a fresh random start (#${seed}). ${caught} of ${data.moths.length} moths caught.`;
+    const caught=data.moths.filter(m=>m.caught>=0).length,rp=data.replay||{};
+    const moved=rp.cave!==undefined&&(rp.cave!==trained.cave||rp.moths!==trained.moths)?` in cave ${rp.cave} with ${rp.moths} moths (it trained in cave ${trained.cave} with ${trained.moths})`:'';
+    text.textContent=`The generation ${data.generation} champion bat and its moths, frozen${moved}, from a fresh random start (#${seed}). ${caught} of ${data.moths.length} moths caught.`;
   }
 }
 function drawTrainChart(canvas,stats,generation,series){

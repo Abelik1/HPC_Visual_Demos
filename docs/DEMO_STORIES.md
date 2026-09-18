@@ -115,11 +115,13 @@ As the storm moves: "Vorticity carries rotating weather systems while moisture i
 
 ## 12. Molecular Machine
 
-**Opening:** "At this scale, a molecule never sits still. Every particle pulls on its neighbours while temperature shakes the entire structure."
+**Invite:** "Write a protein. Oily beads, water-loving beads, plus and minus: what shape will it fold into?"
 
-As the chain rearranges: "This is one trajectory through an enormous space of possible shapes."
+**Opening:** "At this scale nothing sits still. Water kicks every bead billions of times a second, and every bead pulls on every other one."
 
-**Closing:** "Change temperature, attraction or the sequence and it settles somewhere else entirely. Every one of those is a separate experiment."
+As it folds: "The oily beads hide from water together. That one rule is why real proteins have a core, and why a chain with no oil just flops about."
+
+**Machine mode:** "This ring is threaded on an axle; the big beads stop it falling off. Watch the green station. When I flip the switch, nothing pushes the ring: it jiggles along on heat alone until the sticky station catches it. The 2016 Chemistry Nobel was for machines like this."
 
 ## 13. Neuro-Racers
 

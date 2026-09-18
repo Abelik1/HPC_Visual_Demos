@@ -467,31 +467,81 @@
   },
   "molecular_dynamics": {
     "name": "Molecular Machine",
-    "tagline": "Watch one molecule fold, then reveal the virtual laboratory.",
+    "tagline": "Write a protein and watch it fold, or run a machine made of one molecule.",
     "params": {
       "temperature": {
         "min": 250,
         "max": 500,
         "step": 5,
-        "value": 310
-      },
-      "attraction": {
-        "min": 0.4,
-        "max": 2.0,
-        "step": 0.05,
-        "value": 1.0
-      },
-      "solvent": {
-        "min": 0,
-        "max": 1,
-        "step": 0.05,
-        "value": 0.65
+        "value": 310,
+        "label": "Temperature (K)"
       },
       "sequence": {
         "min": 0,
         "max": 3,
         "step": 1,
-        "value": 0
+        "value": 0,
+        "kind": "choice",
+        "label": "Sequence",
+        "options": {
+          "0": "Oily core",
+          "1": "Hairpin",
+          "2": "Charge zipper",
+          "3": "Soluble"
+        },
+        "methods": [
+          "fold"
+        ]
+      },
+      "attraction": {
+        "min": 0.4,
+        "max": 2.0,
+        "step": 0.05,
+        "value": 1.0,
+        "label": "Stickiness",
+        "methods": [
+          "fold"
+        ]
+      },
+      "solvent": {
+        "min": 0,
+        "max": 1,
+        "step": 0.05,
+        "value": 0.65,
+        "label": "Water strength (how hard water pushes oil together)",
+        "methods": [
+          "fold"
+        ]
+      },
+      "salt": {
+        "min": 0,
+        "max": 1,
+        "step": 0.05,
+        "value": 0.3,
+        "label": "Salt (screens the charges)",
+        "methods": [
+          "fold"
+        ]
+      },
+      "drive": {
+        "min": 0.5,
+        "max": 6,
+        "step": 0.25,
+        "value": 3,
+        "label": "Switch strength (how sticky the sticky station is)",
+        "methods": [
+          "shuttle"
+        ]
+      },
+      "switch_every": {
+        "min": 0,
+        "max": 60,
+        "step": 1,
+        "value": 20,
+        "label": "Flip the switch every … frames (0 = never)",
+        "methods": [
+          "shuttle"
+        ]
       }
     }
   },

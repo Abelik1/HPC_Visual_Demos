@@ -42,22 +42,27 @@
 <script>
 const $=s=>document.querySelector(s),video=$('#video');
 let items=[],index=-1;
+// ?folder=raytracer plays one video item from the demo-day lineup; without it,
+// every video under videos/ is listed.
+const query=new URLSearchParams(location.search),folder=query.get('folder'),title=query.get('title');
+if(title){document.querySelector('.videoHead h1').textContent=title;document.title=title+' · Leonardo Visual Demos';}
+const lastKey='videos.last'+(folder?'.'+folder:'');
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const size=b=>b>=1e9?(b/1e9).toFixed(1)+' GB':(b/1e6).toFixed(0)+' MB';
 function select(i,play){
   if(!items.length)return;index=(i+items.length)%items.length;const v=items[index];
   $('#error').classList.add('hidden');video.src=v.url;$('#nowPlaying').textContent=v.name;
   document.querySelectorAll('.videoList button').forEach((b,k)=>b.classList.toggle('selected',k===index));
-  try{localStorage.setItem('videos.last',v.path);}catch(_){}
+  try{localStorage.setItem(lastKey,v.path);}catch(_){}
   if(play)video.play().catch(()=>{});
 }
 async function load(){
-  let data;try{data=await (await fetch('/api/videos',{cache:'no-store'})).json();}catch(e){data={videos:[],folder:'videos/'};}
+  let data;try{data=await (await fetch('/api/videos'+(folder?'?folder='+encodeURIComponent(folder):''),{cache:'no-store'})).json();}catch(e){data={videos:[],folder:'videos/'};}
   items=data.videos||[];
   $('#empty').classList.toggle('hidden',items.length>0);$('#layout').classList.toggle('hidden',!items.length);
   if(!items.length){$('#empty').innerHTML=`<b>No videos yet.</b><br>Copy video files (MP4 recommended) into <code>${esc(data.folder)}</code> and press <b>Refresh list</b>.<br>Subfolders are fine. To use another folder, start the viewer with <code>LEONARDO_VIDEO_DIR</code> set to it.`;return;}
   $('#list').innerHTML=items.map((v,k)=>`<button data-i="${k}">${esc(v.name)}<small>${esc(v.path)} · ${size(v.size)}</small></button>`).join('');
-  let last=null;try{last=localStorage.getItem('videos.last');}catch(_){}
+  let last=null;try{last=localStorage.getItem(lastKey);}catch(_){}
   const keep=index>=0&&video.src?items.findIndex(v=>video.src.endsWith(v.url)):-1;
   if(keep<0)select(Math.max(0,items.findIndex(v=>v.path===last)),false);
   else{index=keep;document.querySelectorAll('.videoList button').forEach((b,k)=>b.classList.toggle('selected',k===index));}

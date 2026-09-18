@@ -64,7 +64,8 @@ This file applies to every solver in this directory. Read the matching
   fused CuPy kernels must match it; random draws stay on the seeded host RNG.
   See `docs/demos/bat_vs_moth/AGENTS.md`.
 - `molecular_dynamics.py`: preserve stable integration, bounded all-pairs work,
-  and the coarse-grained—not atomistic—description.
+  and the coarse-grained—not atomistic—description. The fused `FOLD_KERNEL`
+  must match `fold_forces()`. See `docs/demos/molecular_dynamics/AGENTS.md`.
 
 ## Verification
 

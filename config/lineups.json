@@ -1,0 +1,52 @@
+{
+  "active": "leonardo",
+  "machines": {
+    "discoverer": {
+      "label": "Discoverer",
+      "demos": [
+        "galaxy_collision_3d",
+        "fluid",
+        "neuro_racers",
+        "black_hole",
+        "molecular_dynamics"
+      ]
+    },
+    "leonardo": {
+      "label": "Leonardo",
+      "demos": [
+        "nbody_murb",
+        "raytracer",
+        "fusion_plasma",
+        "cosmic_web",
+        "bat_vs_moth",
+        "pacman_agentic"
+      ]
+    }
+  },
+  "archived": [
+    "galaxy_collision",
+    "neural_wall",
+    "pbh",
+    "crystal",
+    "weather_ensemble",
+    "reaction_diffusion"
+  ],
+  "extras": {
+    "raytracer": {
+      "name": "Raytracer",
+      "tagline": "A dragon in gold, blue and glass, ray-traced inside a Cornell box on the GPU.",
+      "category": "Physics",
+      "kind": "video",
+      "folder": "raytracer",
+      "url": ""
+    },
+    "pacman_agentic": {
+      "name": "Pac-Man Agentic",
+      "tagline": "Gianluca's AI agents learning to play Pac-Man.",
+      "category": "AI & learning",
+      "kind": "video",
+      "folder": "pacman",
+      "url": ""
+    }
+  }
+}

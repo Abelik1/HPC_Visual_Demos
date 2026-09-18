@@ -113,10 +113,31 @@ class SmallDemoTests(unittest.TestCase):
             self.assertEqual(json.loads((Path(t)/'meta.json').read_text())['status'],'complete')
     def test_molecular_dynamics(self):
         with tempfile.TemporaryDirectory() as t:
-            c=RunContext(Path(t),'molecular_dynamics','local',2,{'temperature':310,'attraction':1.0,'solvent':.65,'sequence':0},'numpy')
-            MolecularDynamicsDemo(c,{'particles':18,'total_steps':4,'ensemble':1,'sweep_particles':14,'sweep_steps':3}).run()
-            self.assertTrue((Path(t)/'reveal.jpg').exists())
-            self.assertEqual(json.loads((Path(t)/'meta.json').read_text())['status'],'complete')
+            c=RunContext(Path(t),'molecular_dynamics','local',2,{'temperature':310,'attraction':1.0,'solvent':.65,'sequence':0},'numpy',method='fold')
+            MolecularDynamicsDemo(c,{'particles':18,'total_steps':40,'bend':2.5}).run()
+            meta=json.loads((Path(t)/'meta.json').read_text())
+            self.assertEqual(meta['status'],'complete')
+            # The physics demos no longer end on a grid of copies.
+            self.assertFalse((Path(t)/'reveal.jpg').exists())
+            state=json.loads((Path(t)/'interactive/frame_0001.json').read_text())
+            self.assertEqual(state['kind'],'molecule-3d')
+            self.assertEqual(len(state['positions']),18)
+    def test_molecular_custom_chain(self):
+        with tempfile.TemporaryDirectory() as t:
+            c=RunContext(Path(t),'molecular_dynamics','local',1,{'temperature':310,'_chain':'HHPP+-HHPP'},'numpy',method='fold')
+            MolecularDynamicsDemo(c,{'particles':40,'total_steps':20}).run()
+            meta=json.loads((Path(t)/'meta.json').read_text())
+            self.assertEqual(meta['chain'],'HHPP+-HHPP')
+            self.assertEqual(len(json.loads((Path(t)/'interactive/frame_0000.json').read_text())['positions']),10)
+    def test_molecular_shuttle(self):
+        with tempfile.TemporaryDirectory() as t:
+            c=RunContext(Path(t),'molecular_dynamics','local',3,{'temperature':310,'drive':3,'switch_every':1},'numpy',method='shuttle')
+            MolecularDynamicsDemo(c,{'shuttle_steps':60}).run()
+            meta=json.loads((Path(t)/'meta.json').read_text())
+            self.assertEqual(meta['status'],'complete')
+            self.assertEqual(meta['summary']['flips'],2)
+            state=json.loads((Path(t)/'interactive/frame_0002.json').read_text())
+            self.assertTrue(state['bonds'])
     def test_self_gravitating_galaxy_3d(self):
         with tempfile.TemporaryDirectory() as t:
             c=RunContext(Path(t),'galaxy_collision_3d','local',2,

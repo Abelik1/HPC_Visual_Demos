@@ -1,0 +1,61 @@
+{
+  "discoverer": {
+    "label": "Discoverer",
+    "host": "login.brainplusplus.bg",
+    "port": 2226,
+    "user": "abelik",
+    "identity": "",
+    "login_setup": "source /etc/profile >/dev/null 2>&1; module load slurm >/dev/null 2>&1",
+    "root": "/weka/ehpc-school-2026/abelik/Leonardo_Visual_Demos",
+    "runs_root": "/weka/ehpc-school-2026/abelik/runs/dashboard",
+    "python": "/weka/ehpc-school-2026/abelik/venvs/visual-demos/bin/python",
+    "python_overrides": {
+      "fusion_plasma/guardian": "/weka/ehpc-school-2026/abelik/venvs/visual-demos-torch/bin/python"
+    },
+    "account": "ehpc-school-2026",
+    "qos": "ehpc-school-2026",
+    "partition": "",
+    "walltime": "02:00:00",
+    "sbatch": ["--nodes=1", "--ntasks=8", "--cpus-per-task=16", "--mem=1000G", "--gres=gpu:4"],
+    "srun": ["--exact", "--ntasks=1", "--cpus-per-task=16", "--mem=220G", "--gres=gpu:1"],
+    "job_setup": [
+      "source /etc/profile",
+      "module load slurm",
+      "module load python312",
+      "export CUPY_CACHE_DIR=/weka/ehpc-school-2026/abelik/cupy-cache",
+      "export LEONARDO_DEMO_TUNING_CACHE=/weka/ehpc-school-2026/abelik/cupy-cache/kernel_tuning.json",
+      "export LEONARDO_DEMO_CPU_WORKERS=12 OMP_NUM_THREADS=12 OPENBLAS_NUM_THREADS=12"
+    ],
+    "resources_note": "One GB200 GPU inside the team's one-node, four-GPU allocation shape.",
+    "default_profile": "hpc",
+    "cert_email": ""
+  },
+  "leonardo": {
+    "label": "Leonardo",
+    "host": "login01-ext.leonardo.cineca.it",
+    "port": 22,
+    "user": "abelik00",
+    "identity": "~/.ssh/cineca_leonardo",
+    "login_setup": "",
+    "root": "$WORK/Leonardo_Visual_Demos",
+    "runs_root": "$FAST/leonardo_visual_demos/dashboard",
+    "python": "$WORK/venvs/leonardo-visual-demos/bin/python",
+    "python_overrides": {},
+    "account": "YOUR_ACTIVE_PROJECT_ACCOUNT",
+    "qos": "boost_qos_dbg",
+    "partition": "boost_usr_prod",
+    "walltime": "00:30:00",
+    "sbatch": ["--nodes=1", "--ntasks-per-node=1", "--cpus-per-task=8", "--gres=gpu:1", "--mem=64000"],
+    "srun": ["--cpu-bind=cores"],
+    "job_setup": [
+      "module purge",
+      "module load profile/base",
+      "module load cuda/12.2",
+      "export CUPY_CACHE_DIR=${WORK:-$HOME}/.cache/cupy",
+      "export LEONARDO_DEMO_CPU_WORKERS=${SLURM_CPUS_PER_TASK:-8} OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-8}"
+    ],
+    "resources_note": "One A100 on a Booster node (boost_qos_dbg allows 30 minutes).",
+    "default_profile": "hpc",
+    "cert_email": ""
+  }
+}

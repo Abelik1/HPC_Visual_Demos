@@ -17,12 +17,16 @@ class Galaxy3DView {
     const data=await response.json();
     if(serial!==this.loadSerial)return;
     const n=Array.isArray(data.positions)?data.positions.length:0;
+    // The Molecular Machine saves ball-and-stick states in the same folder
+    // layout; they are drawn by drawMolecule below.
+    if(data.kind==='molecule-3d'){if(!n||data.types?.length!==n)throw new Error('3D molecule frame is invalid');this.data=data;this.molecule=true;this.resize();return;}
+    this.molecule=false;
     if(data.kind!=='nbody-galaxy-3d'||!n||data.origin?.length!==n||data.component?.length!==n)throw new Error('3D particle frame is invalid');
     this.data=data;this.resize();
   }
 
   reset(){this.yaw=-.34;this.pitch=.48;this.zoom=this.focus==='all'?1:14;this.resize();}
-  setFocus(value){this.focus=['all','mw','m31'].includes(value)?value:'all';this.zoom=this.focus==='all'?1:14;if(this.focus==='mw'){this.yaw=0;this.pitch=0;}this.draw();}
+  setFocus(value){if(this.molecule){this.draw();return;}this.focus=['all','mw','m31'].includes(value)?value:'all';this.zoom=this.focus==='all'?1:14;if(this.focus==='mw'){this.yaw=0;this.pitch=0;}this.draw();}
   setHalo(value){this.showHalo=Boolean(value);this.draw();}
   resize(){const rect=this.canvas.getBoundingClientRect();if(!rect.width||!rect.height)return;this.dpr=Math.min(window.devicePixelRatio||1,2);const w=Math.round(rect.width*this.dpr),h=Math.round(rect.height*this.dpr);if(this.canvas.width!==w||this.canvas.height!==h){this.canvas.width=w;this.canvas.height=h;}this.draw();}
   onDown(event){event.preventDefault();event.stopPropagation();this.drag={id:event.pointerId,x:event.clientX,y:event.clientY,yaw:this.yaw,pitch:this.pitch};this.canvas.setPointerCapture(event.pointerId);this.canvas.classList.add('isPanning');}
@@ -31,7 +35,7 @@ class Galaxy3DView {
 
   rotated(point,centre=[0,0,0]){let x=point[0]-centre[0],y=point[1]-centre[1],z=point[2]-centre[2],cy=Math.cos(this.yaw),sy=Math.sin(this.yaw),cp=Math.cos(this.pitch),sp=Math.sin(this.pitch);let xx=x*cy+z*sy,zz=-x*sy+z*cy,yy=y*cp-zz*sp;return [xx,yy,y*sp+zz*cp];}
   galaxyCentres(){const p=this.data.positions,origin=this.data.origin,centres=[];for(const which of [0,1]){let x=0,y=0,z=0,n=0;for(let i=0;i<p.length;i++){if(origin[i]!==which||this.data.component[i]===2)continue;x+=p[i][0];y+=p[i][1];z+=p[i][2];n++;}centres.push(n?[x/n,y/n,z/n]:[0,0,0]);}return centres;}
-  centre(){const centres=this.galaxyCentres();if(this.focus==='mw')return centres[0];if(this.focus==='m31')return centres[1];return [(centres[0][0]+centres[1][0])/2,(centres[0][1]+centres[1][1])/2,(centres[0][2]+centres[1][2])/2];}
+  centre(){if(this.molecule){const p=this.data.positions,c=[0,0,0];for(const q of p){c[0]+=q[0];c[1]+=q[1];c[2]+=q[2];}return c.map(v=>v/p.length);}const centres=this.galaxyCentres();if(this.focus==='mw')return centres[0];if(this.focus==='m31')return centres[1];return [(centres[0][0]+centres[1][0])/2,(centres[0][1]+centres[1][1])/2,(centres[0][2]+centres[1][2])/2];}
   colour(origin,component,catalogue,stellarColour){
     if(component===2)return origin===0?[42,108,166,48]:[158,70,48,48];
     if(component===1)return origin===0?[225,240,255,225]:[255,222,178,225];
@@ -52,8 +56,31 @@ class Galaxy3DView {
     if(component===1)return {colour:origin===0?[225,238,255]:[255,220,174],radius:2.0,alpha:210};
     return {colour:origin===0?[92,194,255]:[255,128,66],radius:1.45,alpha:205};
   }
+  // Ball and stick, back to front, each bead a lit sphere in its type colour.
+  drawMolecule(){
+    const ctx=this.ctx,w=this.canvas.width,h=this.canvas.height,d=this.data,centre=this.centre();
+    const extent=Math.max(3,Number(d.extent)||8),scale=Math.min(w,h)*(d.mode==="shuttle"?.46:.6)/extent*this.zoom,rad=Math.max(2,.42*scale);
+    const pts=d.positions.map(q=>{const r=this.rotated(q,centre);return {x:w*.5+r[0]*scale,y:h*.5-r[1]*scale,z:r[2]};});
+    const bonds=d.chain?pts.slice(1).map((_,i)=>[i,i+1]):(d.bonds||[]);
+    const items=bonds.map(([a,b])=>({z:(pts[a].z+pts[b].z)/2-1e-3,a,b,bond:true})).concat(pts.map((p,i)=>({z:p.z,a:i})));
+    items.sort((a,b)=>a.z-b.z);
+    ctx.globalCompositeOperation='source-over';ctx.filter='none';
+    if(this.transparent)ctx.clearRect(0,0,w,h);else{ctx.fillStyle='rgb(2,5,14)';ctx.fillRect(0,0,w,h);}
+    const shade=z=>Math.max(.38,Math.min(1.05,.72+.28*z/extent));
+    for(const it of items){
+      const s=shade(it.z);
+      if(it.bond){const A=pts[it.a],B=pts[it.b];ctx.strokeStyle=`rgba(${176*s|0},${200*s|0},${226*s|0},.9)`;ctx.lineWidth=Math.max(2,rad*.42);ctx.lineCap='round';ctx.beginPath();ctx.moveTo(A.x,A.y);ctx.lineTo(B.x,B.y);ctx.stroke();continue;}
+      const p=pts[it.a],c=d.palette[d.types[it.a]]||[200,200,200],r=rad*(d.sizes?.[d.types[it.a]]||1)*(.9+.1*Math.max(-1,Math.min(1,p.z/extent)));
+      const g=ctx.createRadialGradient(p.x-r*.35,p.y-r*.4,r*.1,p.x,p.y,r);
+      g.addColorStop(0,`rgb(${Math.min(255,c[0]*s+90)|0},${Math.min(255,c[1]*s+90)|0},${Math.min(255,c[2]*s+90)|0})`);
+      g.addColorStop(.55,`rgb(${c[0]*s|0},${c[1]*s|0},${c[2]*s|0})`);g.addColorStop(1,`rgb(${c[0]*s*.45|0},${c[1]*s*.45|0},${c[2]*s*.45|0})`);
+      ctx.fillStyle=g;ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);ctx.fill();
+    }
+    this.drawAxes(centre,scale);
+  }
   draw(){
     if(!this.data||!this.canvas.width||!this.canvas.height)return;
+    if(this.molecule)return this.drawMolecule();
     const ctx=this.ctx,w=this.canvas.width,h=this.canvas.height,centre=this.centre();
     const extent=Math.max(30,Number(this.data.extent_kpc)||500);
     const scale=Math.min(w/(2.15*extent),h/(1.45*extent))*this.zoom;

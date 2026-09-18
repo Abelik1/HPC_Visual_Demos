@@ -13,7 +13,7 @@ from run_demo import run, load_profiles, load_specs, profile_setting_schema, can
 from leonardo_demos.registry import DEMOS
 from leonardo_demos.backend import probe as probe_backends
 from leonardo_demos.neuroevo import BrainError, brain_catalogue, validate_brains
-from leonardo_demos import run_bundles
+from leonardo_demos import run_bundles, lineups, remote
 
 ROOT=Path(__file__).resolve().parent; RUNS=ROOT/'runs'; RUNS.mkdir(exist_ok=True)
 app=FastAPI(title='Leonardo Visual Demos')
@@ -48,6 +48,10 @@ class RunReq(BaseModel):
     # demo's block catalogue in config/demo_specs.json.
     brain: dict | None = None
     ghosts: list[str] | None = Field(default=None, max_length=5)
+    # The visitor's name tag: shown on their champion and when it races as a ghost.
+    name: str | None = Field(default=None, max_length=24)
+    # Molecular Machine: a visitor-written sequence of H, P, + and - beads.
+    chain: str | None = Field(default=None, max_length=400)
 
 def save_target_image(data_url: str, destination: Path) -> None:
     """Validate a canvas PNG and save a bounded RGB target image."""
@@ -78,12 +82,20 @@ def demo_mode(): return (ROOT/'web/demo.html').read_text(encoding='utf-8')
 def videos_page(): return (ROOT/'web/videos.html').read_text(encoding='utf-8')
 
 @app.get('/api/videos')
-def videos():
-    """Every video file under the video folder, subfolders included."""
+def videos(folder:str|None=None):
+    """Every video file under the video folder, subfolders included.
+
+    `folder` narrows the list to one subfolder: a video demo in the lineup
+    (the raytracer, say) plays only its own recordings.
+    """
     from urllib.parse import quote
-    files=sorted((f for f in VIDEOS.rglob('*') if f.is_file() and f.suffix.lower() in VIDEO_TYPES),
+    base=VIDEOS
+    if folder:
+        if not lineups.FOLDER.match(folder): raise HTTPException(422,'invalid folder name')
+        base=VIDEOS/folder; base.mkdir(exist_ok=True)
+    files=sorted((f for f in base.rglob('*') if f.is_file() and f.suffix.lower() in VIDEO_TYPES),
                  key=lambda f:f.relative_to(VIDEOS).as_posix().lower())
-    return {'folder':str(VIDEOS),
+    return {'folder':str(base),
             'videos':[{'name':f.stem.replace('_',' ').replace('-',' ').strip(),
                        'path':f.relative_to(VIDEOS).as_posix(),
                        'size':f.stat().st_size,
@@ -248,8 +260,16 @@ def import_run_bundles():
     try: run_bundles.import_pending(RUNS,[IMPORT_DIR,ROOT],update_library)
     except Exception as exc: print(f'Importing run bundles failed: {exc}')
 
-@app.post('/api/run/{demo}')
-def start(demo:str,req:RunReq):
+def new_run_id(demo:str)->str:
+    return f'{demo}_{time.strftime("%Y%m%d_%H%M%S")}_{uuid.uuid4().hex[:5]}'
+
+def prepare_run(demo:str,req:RunReq,rd:Path,*,remote:bool=False,dry:bool=False):
+    """Validate a run request and return run() keyword arguments.
+
+    Shared by local runs and cluster runs so both accept exactly the same
+    requests. `dry` validates without writing anything (the confirmation
+    dialog); `remote` rejects inputs that only exist on this PC.
+    """
     if demo not in DEMOS: raise HTTPException(404,'unknown demo')
     requested={'numpy':'cpu','cuda':'gpu','cupy':'gpu'}.get(req.backend,req.backend)
     if requested!='auto' and requested not in DEMOS[demo].supported_backends:
@@ -285,7 +305,6 @@ def start(demo:str,req:RunReq):
         if limits['type']=='integer' and not float(value).is_integer():
             raise HTTPException(422, f'{name} must be a whole number')
         clean_settings[name]=int(value) if limits['type']=='integer' else float(value)
-    rid=f'{demo}_{time.strftime("%Y%m%d_%H%M%S")}_{uuid.uuid4().hex[:5]}'; rd=RUNS/rid
     params=dict(req.params)
     if req.parallel_count is not None:
         if req.parallel_count not in {1,4,9,16,25,36,49,64}:
@@ -310,7 +329,20 @@ def start(demo:str,req:RunReq):
             raise HTTPException(422, 'a custom brain is only supported by the AI game demos')
         try: params['_brain']=validate_brains(req.brain,catalogue)
         except BrainError as error: raise HTTPException(422, str(error))
+    if req.chain:
+        if demo != 'molecular_dynamics':
+            raise HTTPException(422, 'a bead sequence is only used by the Molecular Machine')
+        from leonardo_demos.demos.molecular_dynamics import parse_chain
+        try: parse_chain(req.chain)
+        except ValueError as error: raise HTTPException(422, str(error))
+        params['_chain']=req.chain.strip().upper()
+    if req.name and req.name.strip():
+        if brain_catalogue(load_specs(),demo) is None:
+            raise HTTPException(422, 'a name tag is only used by the AI game demos')
+        params['_name']=' '.join(''.join(c for c in req.name if c.isprintable()).split())[:24]
     if req.ghosts:
+        if remote:
+            raise HTTPException(422, 'ghost races use champions saved on this PC; turn them off for a cluster run')
         if demo != 'neuro_racers':
             raise HTTPException(422, 'ghost races are only supported by Neuro-Racers')
         ghost_dirs=[]
@@ -324,13 +356,150 @@ def start(demo:str,req:RunReq):
         if demo != 'neural_wall':
             raise HTTPException(422, 'a custom drawing is only supported by the neural-network wall')
         target_path=rd/'target.png'
-        rd.mkdir(parents=True, exist_ok=True)
-        save_target_image(req.target_image, target_path)
+        if not dry:
+            rd.mkdir(parents=True, exist_ok=True)
+            save_target_image(req.target_image, target_path)
         params['_target_path']=str(target_path)
-    kwargs=dict(demo=demo,profile=req.profile,frames=req.frames,params=params,backend=req.backend,
+    return dict(demo=demo,profile=req.profile,frames=req.frames,params=params,backend=req.backend,
                 run_dir=rd,method=method,numerical_substeps=req.numerical_substeps,
                 settings_override=clean_settings,precision=req.precision)
+
+@app.post('/api/run/{demo}')
+def start(demo:str,req:RunReq):
+    rid=new_run_id(demo); rd=RUNS/rid
+    kwargs=prepare_run(demo,req,rd)
     threading.Thread(target=_supervise_run,args=(rid,rd,kwargs),daemon=True).start(); return {'id':rid}
+
+# ---- demo-day lineups: which demos each machine's demo day shows ----------
+class LineupReq(BaseModel):
+    active: str = 'all'
+    machines: dict = Field(default_factory=dict)
+    archived: list[str] = Field(default_factory=list)
+    extras: dict = Field(default_factory=dict)
+
+class ActiveLineupReq(BaseModel):
+    active: str
+
+def _lineup_payload():
+    data=lineups.load()
+    for extra in data['extras'].values():
+        if extra.get('kind')=='video':
+            folder=VIDEOS/extra.get('folder','')
+            extra['videos']=sum(1 for f in folder.rglob('*') if f.is_file() and f.suffix.lower() in VIDEO_TYPES) if folder.is_dir() else 0
+    return data
+
+@app.get('/api/lineups')
+def get_lineups(): return _lineup_payload()
+
+@app.put('/api/lineups')
+def put_lineups(req:LineupReq):
+    try: clean=lineups.validate(req.model_dump(),set(DEMOS))
+    except ValueError as error: raise HTTPException(422,str(error))
+    lineups.save(clean)
+    for extra in clean['extras'].values(): (VIDEOS/extra['folder']).mkdir(exist_ok=True)
+    return _lineup_payload()
+
+@app.put('/api/lineups/active')
+def put_active_lineup(req:ActiveLineupReq):
+    data=lineups.load(); data['active']=req.active
+    try: clean=lineups.validate(data,set(DEMOS))
+    except ValueError as error: raise HTTPException(422,str(error))
+    lineups.save(clean); return _lineup_payload()
+
+# ---- cluster runs: submit to Discoverer / Leonardo, fetch the result ------
+class RemoteRunReq(BaseModel):
+    cluster: str
+    walltime: str | None = Field(default=None, max_length=16)
+    request: RunReq
+
+class ClusterSettingsReq(BaseModel):
+    values: dict = Field(default_factory=dict)
+
+def _cluster_or_404(name):
+    try: return remote.cluster(name)
+    except KeyError: raise HTTPException(404,'unknown cluster')
+
+@app.get('/api/clusters')
+def clusters():
+    out={}
+    for name in remote.load_clusters():
+        c=remote.cluster(name); view=remote.public_view(c)
+        view['certificate']=remote.certificate_status(c); out[name]=view
+    return {'clusters':out,'jobs':remote.active_jobs(RUNS)}
+
+@app.put('/api/clusters/{name}')
+def update_cluster(name:str,req:ClusterSettingsReq):
+    try: c=remote.save_overrides(name,req.values)
+    except KeyError: raise HTTPException(404,'unknown cluster')
+    except ValueError as error: raise HTTPException(422,str(error))
+    return remote.public_view(c)
+
+@app.post('/api/clusters/{name}/check')
+def check_cluster(name:str):
+    return remote.check(_cluster_or_404(name))
+
+@app.post('/api/clusters/{name}/certificate')
+def refresh_certificate(name:str):
+    try: remote.open_certificate_login(_cluster_or_404(name))
+    except remote.RemoteError as error: raise HTTPException(422,str(error))
+    return {'opened':True}
+
+def _remote_plan(demo,body,*,dry):
+    c=_cluster_or_404(body.cluster)
+    walltime=body.walltime or c.get('walltime')
+    if not remote.WALLTIME.match(walltime or ''): raise HTTPException(422,'time limit must look like HH:MM:SS')
+    rid=new_run_id(demo)
+    kwargs=prepare_run(demo,body.request,RUNS/rid,remote=True,dry=dry)
+    return c,walltime,rid,kwargs
+
+@app.post('/api/remote/plan/{demo}')
+def remote_plan(demo:str,body:RemoteRunReq):
+    """Everything the confirmation dialog lists before a cluster run starts."""
+    c,walltime,_,kwargs=_remote_plan(demo,body,dry=True)
+    spec=load_specs()[demo]; preset=load_profiles()[kwargs['profile']].get(demo,{})
+    params=[{'key':k,'label':p.get('label') or k.replace('_',' '),'value':kwargs['params'].get(k,p.get('value')),
+             'default':p.get('value'),'options':p.get('options')} for k,p in spec['params'].items()]
+    overrides=kwargs['settings_override']
+    settings=[{'key':k,'value':overrides.get(k,preset.get(k)),'preset':preset.get(k),
+               'changed':k in overrides and overrides[k]!=preset.get(k)}
+              for k in dict.fromkeys([*preset,*overrides])]
+    extras=[]
+    if '_parallel_count' in kwargs['params']: extras.append(f"Independent runs: {kwargs['params']['_parallel_count']}")
+    if '_obstacle_grid' in kwargs['params']: extras.append('Your drawn obstacle shape')
+    if '_brain' in kwargs['params']: extras.append('The brain built with the block builder')
+    if '_target_path' in kwargs['params']: extras.append('Your own target picture')
+    if '_chain' in kwargs['params']: extras.append(f"Your own sequence: {kwargs['params']['_chain']}")
+    warnings=[]
+    if not c.get('account') or c.get('account')==remote.PLACEHOLDER_ACCOUNT:
+        warnings.append(f"No Slurm account is set for {c['label']}. Open HPC settings and enter it.")
+    cert=remote.certificate_status(c)
+    if cert and not cert.get('valid'):
+        warnings.append(f"The {c['label']} SSH certificate: {cert['detail']}. Refresh it in HPC settings first.")
+    elif cert and cert.get('seconds_left',1e9)<3600:
+        warnings.append(f"The {c['label']} SSH certificate expires soon ({cert['detail']}); fetching may fail after that.")
+    if kwargs['profile']!=c.get('default_profile','hpc'):
+        warnings.append(f"Quality preset is '{kwargs['profile']}'. Pick HPC in the run settings to use the cluster at full scale.")
+    return {'cluster':remote.public_view(c),'resources':remote.resources(c,walltime),
+            'python':remote.python_for(c,demo,kwargs['method']),
+            'demo':{'id':demo,'name':spec.get('name',demo)},
+            'method':kwargs['method'],'method_label':DEMOS[demo].method_labels.get(kwargs['method'],kwargs['method']),
+            'profile':kwargs['profile'],'frames':kwargs['frames'],'backend':kwargs['backend'],
+            'precision':kwargs['precision'],'params':params,'settings':settings,'extras':extras,
+            'warnings':warnings}
+
+@app.post('/api/remote/run/{demo}')
+def remote_run(demo:str,body:RemoteRunReq):
+    c,walltime,rid,kwargs=_remote_plan(demo,body,dry=False)
+    files={'target.png':RUNS/rid/'target.png'} if '_target_path' in kwargs['params'] else {}
+    remote.create_job(RUNS,rid,c,kwargs,walltime,files)
+    return {'id':rid,'cluster':c['name']}
+
+@app.post('/api/remote/cancel/{rid}')
+def remote_cancel(rid:str):
+    if not run_demo_name(rid): raise HTTPException(404,'unknown run')
+    try: remote.cancel(RUNS,rid)
+    except remote.RemoteError as error: raise HTTPException(422,str(error))
+    return {'id':rid,'cancelling':True}
 
 # Every simulation runs in its own spawned process rather than a thread of the
 # viewer. PyTorch and CuPy each bundle a different build of cublasLt64_13.dll;
@@ -686,11 +855,13 @@ def zoom_view(rid:str,cx:float=0.0,cy:float=0.0,span:float=1.0,
                              'X-DeepZoom-Detail':str(detail_depth)})
 
 @app.get('/api/replay/{rid}')
-def replay(rid:str,gens:str,seed:int=0):
+def replay(rid:str,gens:str,seed:int=0,track:int|None=None,cave:int|None=None,moths:int|None=None,ghosts:str|None=None):
     """Replay saved generations' champions from a fresh random start.
 
     Computed on the CPU in this process: one cave or a handful of cars is
     milliseconds of NumPy, and it never creates a CUDA context here.
+    ``track``, ``cave`` and ``moths`` test the frozen networks in a different
+    world; ``ghosts`` (comma-separated run ids) races other saved champions.
     """
     rd=_run_dir(rid)
     meta=json.loads((rd/'meta.json').read_text(encoding="utf-8"))
@@ -702,7 +873,25 @@ def replay(rid:str,gens:str,seed:int=0):
     if not 1<=len(wanted)<=6: raise HTTPException(422,'choose between 1 and 6 generations')
     missing=[g for g in wanted if not (rd/'checkpoints'/f'gen_{g:04d}.npz').exists()]
     if missing: raise HTTPException(404,f'generation(s) not saved yet: {missing}')
-    return demo_class.replay(rd,meta,wanted,int(seed)%(1<<31))
+    params=(load_specs().get(meta.get('demo')) or {}).get('params',{})
+    env={}
+    for key,value in (('track',track),('cave',cave),('moths',moths)):
+        if value is None: continue
+        limits=params.get(key)
+        if not limits or not float(limits['min'])<=value<=float(limits['max']):
+            raise HTTPException(422,f'{key} is not a setting of this demo, or is out of range')
+        env[key]=int(value)
+    if ghosts:
+        if meta.get('demo')!='neuro_racers': raise HTTPException(422,'ghost races are only supported by Neuro-Racers')
+        ids=[g for g in ghosts.split(',') if g.strip()]
+        if len(ids)>5: raise HTTPException(422,'race at most 5 ghosts')
+        env['ghosts']=[]
+        for ghost in ids:
+            gd=(RUNS/ghost).resolve()
+            if RUNS.resolve() not in gd.parents or not (gd/'champion.npz').exists():
+                raise HTTPException(422,f'ghost run {ghost} has no saved champion')
+            env['ghosts'].append(str(gd))
+    return demo_class.replay(rd,meta,wanted,int(seed)%(1<<31),env)
 
 @app.get('/api/run/{rid}')
 def status(rid:str):
@@ -746,6 +935,9 @@ if __name__=='__main__':
     print(f'Leonardo Visual Demos -> {url}')
     # Large bundles take minutes to unpack; runs appear in the list as each lands.
     threading.Thread(target=import_run_bundles,name='run-bundle-import',daemon=True).start()
+    # Cluster jobs submitted before a restart are still running; keep watching them.
+    resumed=remote.resume_jobs(RUNS)
+    if resumed: print(f'Watching {len(resumed)} cluster job(s) again: {", ".join(resumed)}')
     try: webbrowser.open(url)
     except Exception: pass
     uvicorn.run(app,host='127.0.0.1',port=port)

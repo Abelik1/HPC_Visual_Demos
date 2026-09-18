@@ -11,7 +11,7 @@
     "neural_wall": {"networks": 16, "tile": 32, "total_steps": 160},
     "fusion_plasma": {"n": 64, "total_steps": 180, "ensemble": 9, "sweep_n": 36, "sweep_steps": 90, "tracers": 90, "trail": 8, "batch": 32, "horizon": 12, "train_updates": 10, "display_steps": 16, "particles": 90, "shots": 3, "learning_rate": 0.004},
     "weather_ensemble": {"n": 48, "total_steps": 160, "ensemble": 9, "sweep_n": 30, "sweep_steps": 90},
-    "molecular_dynamics": {"particles": 56, "total_steps": 240, "ensemble": 9, "sweep_particles": 28, "sweep_steps": 100},
+    "molecular_dynamics": {"particles": 24, "total_steps": 6000, "shuttle_steps": 30000, "bend": 2.5},
     "neuro_racers": {"population": 48, "generations": 6, "sim_steps": 450, "record_every": 3, "record_cars": 24, "ensemble": 4, "reveal_population": 24, "reveal_generations": 4},
     "bat_vs_moth": {"population": 32, "generations": 6, "hunt_steps": 300, "record_every": 2, "moth_head_start": 3, "ensemble": 4, "reveal_population": 16, "reveal_generations": 3},
     "nbody_murb": {"bodies": 2000, "iterations": 360, "warmup": 1, "width": 960, "height": 540}
@@ -111,11 +111,10 @@
       "sweep_steps": 260
     },
     "molecular_dynamics": {
-      "particles": 72,
-      "total_steps": 800,
-      "ensemble": 16,
-      "sweep_particles": 32,
-      "sweep_steps": 280
+      "particles": 40,
+      "total_steps": 40000,
+      "shuttle_steps": 100000,
+      "bend": 2.5
     },
     "neuro_racers": {
       "population": 160,
@@ -234,11 +233,10 @@
       "sweep_steps": 600
     },
     "molecular_dynamics": {
-      "particles": 220,
-      "total_steps": 1600,
-      "ensemble": 25,
-      "sweep_particles": 72,
-      "sweep_steps": 650
+      "particles": 80,
+      "total_steps": 150000,
+      "shuttle_steps": 160000,
+      "bend": 2.5
     },
     "neuro_racers": {
       "population": 1024,
@@ -357,11 +355,10 @@
       "sweep_steps": 1200
     },
     "molecular_dynamics": {
-      "particles": 640,
-      "total_steps": 3200,
-      "ensemble": 64,
-      "sweep_particles": 160,
-      "sweep_steps": 1400
+      "particles": 240,
+      "total_steps": 1500000,
+      "shuttle_steps": 400000,
+      "bend": 2.5
     },
     "neuro_racers": {
       "population": 8192,

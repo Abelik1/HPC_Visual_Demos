@@ -105,6 +105,10 @@ walk-up viewer with large controls, the explanation printed under the picture
 and every advanced setting behind one presenter panel. See
 [docs/DEMO_MODE.md](docs/DEMO_MODE.md).
 
+Both pages show the lineup of the active **demo day** (Discoverer or Leonardo),
+and either can send a run to Discoverer or Leonardo and play the result when it
+comes back. See [docs/CLUSTER_RUNS.md](docs/CLUSTER_RUNS.md).
+
 To generate an individual run directly:
 
 ```bash

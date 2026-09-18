@@ -266,18 +266,27 @@ part of the exhibition story, not calibrated predictions of a named storm.
 
 ## Molecular Machine / molecular dynamics
 
-This is coarse-grained 3-D molecular dynamics. Consecutive particles have
-harmonic bonds; non-neighbours interact through a softened, type-dependent
-Lennard-Jones force; a deterministic thermostat controls kinetic temperature.
-All non-bonded pairs are evaluated, so the displayed pair-evaluation count and
-the quadratic scaling story are real. Every reveal tile is an independently
-integrated trajectory with its own initial velocities and sequence pattern.
+Coarse-grained 3-D Langevin dynamics in reduced units, in two modes.
 
-The particles are beads, not individual atoms. There is no explicit water,
-electrostatics, chemical bonding, force-field parameterisation or physical
-time calibration, and the model must not be presented as a drug-binding or
-protein-structure prediction. Its role is to visualise molecular ensembles and
-the computational structure of pair forces.
+**Fold** is an off-lattice version of the HP model (Dill, 1985). Beads are
+water-avoiding (H), water-loving (P) or charged. Consecutive beads are joined
+by harmonic bonds with a bending stiffness. Every non-bonded pair has a
+repulsive core; H-H pairs attract with a strength standing in for the
+hydrophobic effect, and charges interact through a screened (Debye-Hückel)
+potential whose range shrinks with salt. A BAOAB Langevin thermostat supplies
+the random kicks and friction of implicit water. The results that matter are
+qualitative and robust: H-rich chains collapse around an oily core, a chain
+with no H stays a coil, opposite charges pair up, and heating unfolds the
+core. All non-bonded pairs are evaluated, so the pair-evaluation count is real.
+
+**Shuttle** is a cartoon rotaxane: a stiff ring threaded on an axle with two
+binding stations and bulky stoppers. The switch only changes which station is
+sticky. Nothing pushes the ring; it moves by thermal diffusion and is trapped
+where binding is strong. This is the physics of switchable molecular shuttles
+(Stoddart and co-workers; 2016 Nobel Prize in Chemistry).
+
+Neither mode is a force field. There is no explicit water, no atom types, no
+calibrated time, and no structure prediction: beads stand for groups of atoms.
 
 ## Neuro-Racers
 

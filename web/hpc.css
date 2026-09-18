@@ -1,0 +1,79 @@
+/* Demo-day lineups and cluster runs (web/hpc.js). Self-contained so the
+   dashboard and demo mode, which have different stylesheets, share it. */
+.hpcSwitch{display:inline-flex;align-items:center;gap:4px;padding:4px;border:1px solid #26436a;border-radius:14px;background:#07101f}
+.hpcSwitchLabel{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#7d93b6;padding:0 8px 0 6px}
+.hpcSwitch button{font:inherit;font-size:14px;color:#c9d7ee;background:transparent;border:1px solid transparent;border-radius:10px;padding:7px 14px;cursor:pointer}
+.hpcSwitch button:hover{color:#fff;background:#0d1b33}
+.hpcSwitch button[aria-pressed="true"]{color:#04111f;background:#67f0d0;font-weight:600}
+.hpcGear{font:inherit;font-size:14px;color:#c9d7ee;background:#07101f;border:1px solid #26436a;border-radius:12px;padding:9px 14px;cursor:pointer}
+.hpcGear:hover{border-color:#67f0d0;color:#fff}
+
+.hpcModal{position:fixed;inset:0;z-index:1000;background:rgba(2,5,12,.72);display:flex;align-items:flex-start;justify-content:center;padding:5vh 16px;overflow:auto;
+  font-family:inherit;color:#e6eefb}
+.hpcPanel{width:min(640px,100%);background:#0a1426;border:1px solid #26436a;border-radius:18px;box-shadow:0 24px 80px rgba(0,0,0,.55);display:flex;flex-direction:column}
+.hpcPanel.wide{width:min(1080px,100%)}
+.hpcPanel>header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #172945}
+.hpcPanel>header b{font-size:19px}
+.hpcClose{font:inherit;background:none;border:0;color:#9fb3d3;font-size:18px;cursor:pointer;padding:4px 8px}
+.hpcBody{padding:16px 20px;display:flex;flex-direction:column;gap:12px}
+.hpcPanel>footer{display:flex;gap:10px;justify-content:flex-end;align-items:center;padding:14px 20px;border-top:1px solid #172945;flex-wrap:wrap}
+.hpcPanel>footer:empty{display:none}
+.hpcPrimary,.hpcSecondary{font:inherit;font-size:14px;border-radius:11px;padding:9px 16px;cursor:pointer}
+.hpcPrimary{background:#67f0d0;color:#04111f;border:1px solid #67f0d0;font-weight:600}
+.hpcPrimary:disabled{opacity:.5;cursor:wait}
+.hpcSecondary{background:#0b1630;color:#e6eefb;border:1px solid #26436a}
+.hpcSecondary:hover{border-color:#67f0d0}
+.hpcLink{font:inherit;background:none;border:0;color:#67f0d0;cursor:pointer;text-decoration:underline;padding:0}
+.hpcHint{color:#8ea3c4;font-size:13.5px;line-height:1.55;margin:0}
+.hpcHint code,.hpcBody code{color:#9fe9ff;font-size:12.5px;word-break:break-all}
+.hpcWarn{margin:0;padding:10px 12px;border-radius:10px;background:#2a1d08;border:1px solid #7a5a18;color:#ffd78a;font-size:14px}
+.hpcStatus{margin-right:auto;font-size:13.5px;color:#8ea3c4}
+.hpcStatus.good,.hpcChecks .good,.hpcCert.good,td.good{color:#67f0d0}
+.hpcStatus.bad,.hpcChecks .bad,.hpcCert.bad,td.bad{color:#ff8f8f}
+.hpcTabs{display:flex;gap:6px;border-bottom:1px solid #172945;padding-bottom:10px}
+.hpcTabs button{font:inherit;font-size:14px;background:none;border:1px solid transparent;border-radius:10px;color:#9fb3d3;padding:7px 12px;cursor:pointer}
+.hpcTabs button[aria-pressed="true"]{border-color:#26436a;background:#0d1b33;color:#fff}
+.hpcTab{display:flex;flex-direction:column;gap:12px}
+.hpcColumns{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.hpcCol{border:1px solid #172945;border-radius:14px;padding:10px;background:#07101f}
+.hpcCol h4,.hpcCluster h4{margin:0 0 8px;font-size:15px}
+.hpcCol h4 small,.hpcCluster h4 small{color:#7d93b6;font-weight:400;font-size:12.5px;margin-left:6px}
+.hpcCol ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+.hpcCol li{display:flex;flex-direction:column;gap:5px;border:1px solid #1b2f50;border-radius:10px;padding:7px 8px;background:#0a1426}
+.hpcCol li.hpcEmpty{color:#5f7496;font-size:13px;border-style:dashed}
+.hpcItem{font-size:14px}
+.hpcTag{font-style:normal;font-size:11px;color:#04111f;background:#9fe9ff;border-radius:6px;padding:1px 5px;margin-left:4px}
+.hpcItemTools{display:flex;gap:4px}
+.hpcItemTools button{font:inherit;font-size:12px;background:#0b1630;color:#c9d7ee;border:1px solid #26436a;border-radius:7px;padding:2px 7px;cursor:pointer}
+.hpcItemTools button:disabled{opacity:.35;cursor:default}
+.hpcItemTools select,.hpcFields input,.hpcExtra input,#hpcWalltime{font:inherit;font-size:13px;background:#07101f;color:#e6eefb;border:1px solid #26436a;border-radius:8px;padding:4px 6px}
+.hpcItemTools select{flex:1;min-width:0}
+.hpcSub{margin:6px 0 0;font-size:15px}
+.hpcExtras{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.hpcExtra{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%;border:1px solid #172945;border-radius:12px;padding:10px;background:#07101f;box-sizing:border-box}
+.hpcExtra label,.hpcFields label{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:#8ea3c4}
+.hpcExtra .span2{grid-column:span 2}
+.hpcCluster{border:1px solid #172945;border-radius:14px;padding:12px;background:#07101f}
+.hpcFields{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+.hpcRow{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.hpcRow .hpcStatus{margin:0 0 0 6px}
+.hpcCert{font-size:13.5px;margin:10px 0 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.hpcChecks{list-style:none;margin:8px 0 0;padding:0;font-size:13.5px;display:flex;flex-direction:column;gap:4px}
+.hpcChecks:empty{display:none}
+.hpcChecks b{margin-right:6px}
+.hpcSummary{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.hpcSummary>div{border:1px solid #172945;border-radius:10px;padding:8px 10px;background:#07101f;display:flex;flex-direction:column;gap:3px}
+.hpcSummary small{color:#7d93b6;font-size:11.5px;text-transform:uppercase;letter-spacing:.08em}
+.hpcTable{width:100%;border-collapse:collapse;font-size:13.5px}
+.hpcTable td,.hpcTable th{padding:6px 8px;border-bottom:1px solid #132540;text-align:left;vertical-align:top}
+.hpcTable th{color:#7d93b6;font-weight:500;font-size:12px}
+.hpcTable small{display:block;color:#7d93b6}
+.hpcTable tr.changed td:first-child{border-left:3px solid #67f0d0}
+.hpcTable tr.changed td:nth-child(2){color:#67f0d0;font-weight:600}
+.hpcDetails summary{cursor:pointer;color:#c9d7ee;font-size:14px;padding:4px 0}
+.hpcList{margin:0;padding-left:20px;font-size:13.5px;color:#c9d7ee}
+.runOn{display:flex;flex-direction:column}
+@media (max-width:640px){.hpcExtra{grid-template-columns:1fr}.hpcExtra .span2{grid-column:auto}.hpcSwitchLabel{display:none}}
+.dayBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 14px}
+.pickAside #machineSwitch{align-self:flex-end}
+body.demoOpen .dayBar{display:none}

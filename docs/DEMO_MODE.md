@@ -11,11 +11,20 @@ program. Anything you set up in one is visible in the other.
 
 | Full dashboard | Demo mode |
 | --- | --- |
-| 14 demos, categories, search, archive tab | 9 demos as large cards, in a fixed order |
+| The active demo day's lineup, categories, search, archive tab | The same lineup as large cards, in the lineup's order |
 | Every parameter as a slider | Two or three headline parameters as large value boxes and named buttons |
 | Overlay dock on the right, each card toggled on | One always-visible caption: what is happening, three live numbers, how to read the picture |
 | Quality preset, compute, frames, solver, ensemble and profile values all on the page | All of it behind the ⚙ presenter drawer |
 | The reveal, and the ensemble width, in the run panel | The population as two big buttons, and only on the demos where it is the experiment |
+
+## Two demo days
+
+Which demos appear, and in what order, is the active **demo day** (Discoverer
+or Leonardo) from `config/lineups.json`. Switch it with the buttons on the
+picker, and edit the lists under **⚙ Lineups & HPC**. Demos without a
+hand-written entry in `KIOSK` get a default one built from their first three
+parameters. The drawer's **Run on** sends *Run it* to a cluster after a
+confirmation. See `docs/CLUSTER_RUNS.md`.
 
 ## The scale reveal, reconsidered
 
@@ -41,8 +50,10 @@ In demo mode specifically:
   being evolved in parallel — put the population on the page as a visitor
   control, with two ways to look at it:
   * **All together** — the whole recorded population in one arena, overlaid.
-  * **One per box** — one champion per box, one box per independent search.
-    The number of boxes is the **Independent searches / caves** control.
+  * **One per box** — for Neuro-Racers, the same training as *All together*
+    with every car on its own copy of the track (the best 16 cars). For Bat vs
+    Moth, one champion per box, one box per cave; the number of boxes is the
+    **Independent caves** control.
 * **Neural-network wall** puts the same idea as **Networks trained at once**
   (1 · 4 · 16 · 36 · 64). The run itself does the reveal: it shows the champion
   first, then pulls back to the whole wall.
@@ -130,13 +141,17 @@ to the play button; with it off, playback stops on the last frame.
 
 * **Neuro-Racers and Bat vs Moth** have three views. **Training** replays the
   evolving population one generation at a time, and each drive plays to its
-  end before the next generation starts. **Champion drives / hunts** is
-  inference: the saved champion network, frozen, driving from a random start
-  it has never seen (Neuro-Racers can also race the first, middle and final
-  champions against each other). **One per box** animates every independent
-  search side by side. The live network and a training chart sit under the
-  picture, never over it. Runs made before this version show one per box as a
-  still image; run them again to animate it.
+  end before the next generation starts. A Neuro-Racers drive ends early
+  (after a two-second hold) once every car on screen has crashed or stalled,
+  so the hopeless early generations go by quickly instead of running the race
+  clock out. **Champion drives / hunts** is inference: the saved champion
+  network, frozen, driving from a random start it has never seen (Neuro-Racers
+  can also race the first, middle and final champions against each other).
+  **One per box** is still training: for Neuro-Racers it replays the same
+  generations as Training, but each car on its own copy of the track; for Bat
+  vs Moth it animates every independent cave side by side. The live network
+  and a training chart sit under the picture, never over it. Bat vs Moth runs
+  made before the animated grid show one per box as a still image.
 * **Star in a Bottle**: the Mode 1 / Mode 2 buttons also switch the picture to a
   saved run of that mode, and a label on the picture says which mode is on
   screen. Guardian runs show three panels underneath: the frozen network flying

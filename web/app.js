@@ -22,7 +22,7 @@ const stories={
  neural_wall:["A network learns to redraw a picture from pixel coordinates alone.","Its weights are the compressed file; the picture going in is raw colour values.","Squeeze harder and fine detail is the first thing to go.","A JPEG of the same size is the honest benchmark."],
  fusion_plasma:["A coherent wave circles the magnetic bottle.","Luminous tracers follow drift derived from the evolving field.","Their trails expose changing toroidal and poloidal flow.","Heating feeds the plasma until coherent motion turns into turbulence."],
  weather_ensemble:["Begin from today’s global observations.","The atmosphere carries vorticity and moisture around the planet.","Tiny uncertainties grow as the forecast races five days ahead.","A tiny change to the starting state sends the storm somewhere else."],
- molecular_dynamics:["Begin with one loose molecular chain.","Every particle attracts, repels and pulls on its bonded neighbours.","The chain rearranges while temperature and solvent compete.","Temperature, attraction and solvent quality decide the shape it settles into."]
+ molecular_dynamics:["At this scale nothing sits still: water kicks every bead, all the time.","Fold: oily beads hide from water together, which is why proteins have a core.","Every bead feels every other bead, every step.","Machine: the switch does not push the ring; it only changes where the ring is caught."]
 };
 
 // Mode 2 replaces the story, the legend and the readout panel: it is the same
@@ -91,7 +91,7 @@ const legends={
   neural_wall:'Left: the picture squeezed to the training size. Right: what the winning network redraws from its weights. Tile labels give each network\'s size ratio and quality in dB; red means bigger than the picture.',
   fusion_plasma:'The torus texture is the evolving field; luminous trails are passive tracers following its derived drift.',
   weather_ensemble:'Cloud colour combines moisture and vorticity on the simulated globe; the bright marker follows the cyclone centre.',
-  molecular_dynamics:'Atoms are depth-sorted; bonds and non-bonded forces evolve the coarse-grained chain in 3D.'
+  molecular_dynamics:'Fold: amber beads avoid water, cyan like it, blue is plus, pink is minus. Machine: the gold ring rides the grey axle; the bright green station is the sticky one.'
 };
 // Running the same model many times over is only the experiment where a
 // population is genuinely being trained, or a trained controller re-tested on
@@ -105,7 +105,7 @@ const revealDemos=new Set(['neural_wall','neuro_racers','bat_vs_moth']);
 // time computing a reveal nobody can open.
 const ensembleDemos=new Set([
   'black_hole','pbh','cosmic_web','galaxy_collision','reaction_diffusion',
-  'crystal','fusion_plasma','weather_ensemble','molecular_dynamics','neural_wall'
+  'crystal','fusion_plasma','weather_ensemble','neural_wall'
 ]);
 // Mode 2 trains a policy and then re-tests it against instability drives it has
 // not seen; mode 1 only re-runs the same passive field.
@@ -146,7 +146,7 @@ const demoInformation={
   neural_wall:['A neural network as an image codec','Each coordinate network receives only x and y and predicts red, green and blue. Everything it knows is stored in its weights, so their size is the size of the compressed picture.','Sizes count the picture as raw 8-bit RGB and the network as stored float32 weights. The winner is the best network that is actually smaller than the picture; a same-size JPEG is reported alongside so the comparison stays honest.'],
   fusion_plasma:['One magnetic bottle, two questions','Mode 1 evolves a reduced nonlinear plasma-wave field on a periodic lattice, wraps it onto a torus and lets passive tracers expose the drift it produces. Mode 2 keeps that field as the turbulence source and hands the coils to a small neural policy.','Mode 2 runs a series of virtual shots. Each shot is the identical experiment - same field, same markers, same disturbance - with the policy held frozen, so the physics on screen is never perturbed by training. Between shots the network is scored on the markers it lost to the wall and optimized against them. Magnetic lines are explanatory confinement geometry, not a solved equilibrium.'],
   weather_ensemble:['Why forecasts become uncertain','A reduced rotating atmosphere advects vorticity and moisture around a globe. Small changes to the initial state grow into different storm tracks.','Raising the initial uncertainty perturbs the starting state; small differences there grow into a different storm track by day five.'],
-  molecular_dynamics:['Forces reshape a molecular chain','Bonded and non-bonded particles move in 3D while temperature, attraction and solvent quality compete.','This is coarse-grained molecular dynamics: each sphere represents more than one atom. Temperature, attraction and solvent quality compete to decide the folded shape.']
+  molecular_dynamics:['Fold a protein, or run a molecular machine','Fold: write a chain of oily, water-loving and charged beads and watch it curl up. Machine: a ring threaded on an axle (a rotaxane) that a switch sends between two stations.','Coarse-grained Langevin dynamics in reduced units: each bead stands for a group of atoms, harmonic bonds and bending, all-pairs excluded volume, H-H attraction for the hydrophobic effect and screened charges. Illustrative, not a force field.']
 };
 
 function escapeHtml(value){return String(value??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
@@ -210,7 +210,7 @@ function renderViewerDock(){let modes=$('#modeControls'),controls=$('#overlayCon
 async function loadFrameOverlay(frame){if(!runId)return;try{let response=await fetch(`/runs/${runId}/frame_data/frame_${String(frame).padStart(4,'0')}.json?t=${Date.now()}`);if(!response.ok)return;let body=await response.json();if(frame===playbackFrame){frameOverlay=body.values||{};renderOverlayCards();}}catch(_){}}
 function showUiMessage(message){currentStory=String(message);overlayEnabled.add('story');renderViewerDock();}
 
-async function init(){specs=await (await fetch('/api/specs')).json();renderGallery();applyBackends();applyMethods();bindTimelineControls();await loadLibrary();let query=new URLSearchParams(location.search);let requestedRun=query.get('run'),requestedDemo=query.get('demo');let saved=requestedRun&&library.find(item=>item.id===requestedRun);if(saved)openRun(saved);else if(requestedDemo&&specs.demos[requestedDemo])openDemo(requestedDemo);}
+async function init(){specs=await (await fetch('/api/specs')).json();await HPC.load();HPC.machineSwitch($('#machineSwitch'));HPC.onChange(()=>{if(galleryCategory!==ARCHIVE)galleryCategory='All experiments';renderGallery();});$('#hpcSettings').onclick=()=>HPC.openSettings(specs.demos);setupRunOn();renderGallery();applyBackends();applyMethods();bindTimelineControls();await loadLibrary();let query=new URLSearchParams(location.search);let requestedRun=query.get('run'),requestedDemo=query.get('demo');let saved=requestedRun&&library.find(item=>item.id===requestedRun);if(saved)openRun(saved);else if(requestedDemo&&specs.demos[requestedDemo])openDemo(requestedDemo);}
 
 // ---- compute backend ------------------------------------------------
 function applyBackends(){
@@ -389,46 +389,74 @@ function openRun(r){
 $('#libRefresh').onclick=loadLibrary;
 $('#libFavourites').onclick=()=>{libraryFavouritesOnly=!libraryFavouritesOnly;showAllRuns=false;renderLibrary();};
 $('#libMore').onclick=()=>{showAllRuns=!showAllRuns;renderLibrary();if(!showAllRuns)$('#library').scrollIntoView({block:'start'});};
-const demoCategories={black_hole:'Universe',pbh:'Universe',cosmic_web:'Universe',galaxy_collision:'Universe',galaxy_collision_3d:'Universe',nbody_murb:'Universe',fluid:'Physics',fusion_plasma:'Physics',reaction_diffusion:'Patterns & life',crystal:'Patterns & life',molecular_dynamics:'Patterns & life',weather_ensemble:'Physics',neural_wall:'AI & learning'};
-// Demos that still run but are not ready for visitors. They are hidden from
-// the main gallery and listed only under the Archive tab; saved runs and
-// direct ?demo= links keep working.
-const archivedDemos=new Set(['pbh','crystal','molecular_dynamics','weather_ensemble','reaction_diffusion']);
+const demoCategories={black_hole:'Universe',pbh:'Universe',cosmic_web:'Universe',galaxy_collision:'Universe',galaxy_collision_3d:'Universe',nbody_murb:'Universe',fluid:'Physics',fusion_plasma:'Physics',reaction_diffusion:'Patterns & life',crystal:'Patterns & life',molecular_dynamics:'Patterns & life',weather_ensemble:'Physics',neural_wall:'AI & learning',neuro_racers:'AI & learning',bat_vs_moth:'AI & learning'};
+// Which demos appear, and in what order, comes from the active demo day's
+// lineup (config/lineups.json, edited under "Lineups & HPC"). Archived demos
+// are listed only under the Archive tab; saved runs and direct ?demo= links
+// keep working for every demo.
 const ARCHIVE='Archive';
 let galleryCategory='All experiments';
+function galleryItem(id){
+  const x=HPC.extra(id);
+  if(x)return {id,name:x.name,tagline:x.tagline,category:x.category||'Physics',video:true,href:x.url||HPC.videoHref(id),external:Boolean(x.url),count:x.videos};
+  const d=specs.demos[id];if(!d)return null;
+  return {id,name:d.name,tagline:d.tagline,category:demoCategories[id]||'Physics',href:`/?demo=${encodeURIComponent(id)}`};
+}
 function renderGallery(){
   const host=$('#gallery'),filters=$('#categoryFilters'),query=$('#demoSearch').value.trim().toLowerCase();
   const archiveView=galleryCategory===ARCHIVE;
   host.innerHTML='';filters.innerHTML='';
-  // A category whose demos are all archived would only ever show an empty grid.
-  const activeCategories=new Set(Object.keys(specs.demos).filter(id=>!archivedDemos.has(id)).map(id=>demoCategories[id]||'Physics'));
+  const shown=HPC.items(Object.keys(specs.demos)).map(galleryItem).filter(Boolean);
+  const archived=(HPC.lineup.archived||[]).map(galleryItem).filter(Boolean);
+  // A category with nothing in today's lineup would only ever show an empty grid.
+  const activeCategories=new Set(shown.map(item=>item.category));
   ['All experiments','Universe','Physics','Patterns & life','AI & learning'].filter(category=>category==='All experiments'||activeCategories.has(category)).concat(ARCHIVE).forEach(category=>{
     const button=document.createElement('button');button.textContent=category;
-    if(category===ARCHIVE){button.classList.add('archiveTab');button.title='Demos that are not ready for visitors yet';}
+    if(category===ARCHIVE){button.classList.add('archiveTab');button.title='Demos that are not part of either demo day';}
     button.classList.toggle('selected',category===galleryCategory);button.setAttribute('aria-pressed',String(category===galleryCategory));
     button.onclick=()=>{galleryCategory=category;renderGallery();[...filters.children].find(item=>item.textContent===category)?.focus();};filters.appendChild(button);
   });
   let count=0;
-  Object.entries(specs.demos).forEach(([id,d])=>{
-    const category=demoCategories[id]||'Physics',archived=archivedDemos.has(id);
-    if(archived!==archiveView)return;
-    if(!archiveView&&galleryCategory!=='All experiments'&&galleryCategory!==category)return;
-    if(query&&!`${d.name} ${d.tagline} ${category}`.toLowerCase().includes(query))return;
+  (archiveView?archived:shown).forEach(item=>{
+    if(!archiveView&&galleryCategory!=='All experiments'&&galleryCategory!==item.category)return;
+    if(query&&!`${item.name} ${item.tagline} ${item.category}`.toLowerCase().includes(query))return;
     count++;
-    const card=document.createElement('article');card.className='card'+(archived?' archived':'');
-    card.innerHTML=`<a class="cardLink" href="/?demo=${encodeURIComponent(id)}"><div class="cardImage"><img src="/static/previews/${encodeURIComponent(id)}.webp" alt="" loading="lazy" width="800" height="450"><span class="num">${String(count).padStart(2,'0')}</span>${archived?'<span class="archiveBadge">Archived</span>':''}</div><div class="cardBody"><span class="cardCategory">${escapeHtml(category)}</span><h3>${escapeHtml(d.name)}</h3><p>${escapeHtml(d.tagline)}</p><div class="go">${archived?'Open work in progress':'Explore simulation'} <span aria-hidden="true">↗</span></div></div></a>`;
-    card.querySelector('a').onclick=event=>{if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();openDemo(id);};host.appendChild(card);
+    const machines=HPC.active()==='all'?HPC.machinesOf(item.id).map(HPC.machineLabel):[];
+    const card=document.createElement('article');card.className='card'+(archiveView?' archived':'');
+    card.innerHTML=`<a class="cardLink" href="${escapeHtml(item.href)}"${item.external?' target="_blank" rel="noopener"':''}><div class="cardImage"><img src="/static/previews/${encodeURIComponent(item.id)}.webp" alt="" loading="lazy" width="800" height="450"><span class="num">${String(count).padStart(2,'0')}</span>${archiveView?'<span class="archiveBadge">Archived</span>':item.video?'<span class="archiveBadge">Video</span>':''}</div><div class="cardBody"><span class="cardCategory">${escapeHtml(item.category)}${machines.length?' · '+escapeHtml(machines.join(' + ')):''}</span><h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(item.tagline)}</p><div class="go">${item.video?(item.external?'Open link':`Play recorded video${item.count===0?' (none yet)':''}`):archiveView?'Open work in progress':'Explore simulation'} <span aria-hidden="true">↗</span></div></div></a>`;
+    // Video items have no preview of their own until one is added.
+    card.querySelector('img').onerror=e=>{e.target.onerror=null;e.target.src='/static/previews/videos.webp';};
+    if(!item.video)card.querySelector('a').onclick=event=>{if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();openDemo(item.id);};
+    host.appendChild(card);
   });
-  $('#demoCount').textContent=Object.keys(specs.demos).filter(id=>!archivedDemos.has(id)).length;
-  $('#galleryResults').textContent=archiveView?`${count} archived experiment${count===1?'':'s'} · not yet ready for visitors`:`${count} experiment${count===1?'':'s'}${galleryCategory==='All experiments'?' to explore':` in ${galleryCategory.toLowerCase()}`}`;
-  if(!count)host.innerHTML=`<p class="galleryEmpty">${archiveView?'No archived experiments match.':'No experiments found. Try another search or category.'}</p>`;
+  $('#demoCount').textContent=shown.length;
+  const day=HPC.active()==='all'?'':` for the ${HPC.machineLabel(HPC.active())} demo day`;
+  $('#galleryResults').textContent=archiveView?`${count} archived experiment${count===1?'':'s'} · not part of either demo day`:`${count} experiment${count===1?'':'s'}${galleryCategory==='All experiments'?day||' to explore':` in ${galleryCategory.toLowerCase()}`}`;
+  if(!count)host.innerHTML=`<p class="galleryEmpty">${archiveView?'No archived experiments match.':'No experiments found. Try another search or category, or add demos to this day under Lineups & HPC.'}</p>`;
+}
+// "Run on": this computer, or one of the clusters in config/clusters.json.
+function setupRunOn(){
+  const select=$('#runOn');
+  HPC.clusterList().forEach(c=>{const o=document.createElement('option');o.value=c.name;o.textContent=c.label;select.appendChild(o);});
+  let saved=null;try{saved=localStorage.getItem('leonardo.runOn');}catch(_){}
+  if(saved&&[...select.options].some(o=>o.value===saved))select.value=saved;
+  const describe=()=>{const c=HPC.clusterList().find(x=>x.name===select.value);
+    $('#runLabel').textContent=c?`Run on ${c.label}…`:'Run simulation';
+    $('#runOnHelp').textContent=c?'You confirm every setting first; the run is fetched back here when it ends':'Runs here, frames appear as they are written';};
+  select.onchange=()=>{try{localStorage.setItem('leonardo.runOn',select.value);}catch(_){}
+    // A cluster run is only worth it at cluster scale: offer its preset.
+    const c=HPC.clusterList().find(x=>x.name===select.value);
+    if(c&&c.default_profile&&$('#profile').value!==c.default_profile&&[...$('#profile').options].some(o=>o.value===c.default_profile)){
+      $('#profile').value=c.default_profile;$('#profile').dispatchEvent(new Event('change'));}
+    describe();};
+  describe();
 }
 $('#demoSearch').oninput=renderGallery;
 $('#previewReplay').onclick=()=>{const latest=library.find(item=>item.demo===current);if(latest)openRun(latest);};
 function hideReveal(){let sw=$('.screenWrap');sw.classList.remove('revealing');$('#scaleReveal').classList.remove('show');$('#screen').style.opacity=1;}
 function stopPlayback(){if(playbackTimer)clearInterval(playbackTimer);playbackTimer=null;playbackPlaying=false;updatePlaybackButton();}
 function updatePlaybackButton(){$('#playPause').textContent=playbackPlaying?'Pause':'Play';}
-function setPlaybackControls(enabled){$('#playPause').disabled=!enabled;$('#playbackRate').disabled=!enabled;$('#frameSeek').disabled=!enabled;$('#reveal').disabled=!(enabled&&revealAvailable());$('#deepZoom').disabled=!(enabled&&deepManifest);$('#fusionView').disabled=!(enabled&&fusionManifest&&current==='fusion_plasma');$('#galaxy3dView').disabled=!(enabled&&galaxy3dManifest&&current==='galaxy_collision_3d');updatePlaybackButton();}
+function setPlaybackControls(enabled){$('#playPause').disabled=!enabled;$('#playbackRate').disabled=!enabled;$('#frameSeek').disabled=!enabled;$('#reveal').disabled=!(enabled&&revealAvailable());$('#deepZoom').disabled=!(enabled&&deepManifest);$('#fusionView').disabled=!(enabled&&fusionManifest&&current==='fusion_plasma');$('#galaxy3dView').disabled=!(enabled&&galaxy3dManifest&&has3dView(current));updatePlaybackButton();}
 function frameAvailable(){return Boolean(runId&&lastFrame>=0);}
 function updateViewport(){let wrap=$('.screenWrap');wrap.style.setProperty('--view-zoom',zoom);wrap.style.setProperty('--view-pan-x',`${panX}px`);wrap.style.setProperty('--view-pan-y',`${panY}px`);wrap.classList.toggle('isZoomed',zoom>1);let enabled=frameAvailable()&&!deepActive&&!fusionActive&&!galaxy3dActive&&!window.GameDemos?.active;$('#zoomIn').disabled=!enabled;$('#zoomOut').disabled=!enabled||zoom<=1;$('#zoomReset').disabled=!enabled||zoom===1;$('#zoomReset').textContent=`${zoom.toFixed(zoom%1?1:0)}×`;}
 function resetViewport(){zoom=1;panX=0;panY=0;updateViewport();}
@@ -465,6 +493,16 @@ function addNeuralTargetTools(host,defaultKind){
   canvas.addEventListener('pointermove',event=>{if(drawing)paint(event);});
   canvas.addEventListener('pointerup',()=>{drawing=false;last=null;});canvas.addEventListener('pointercancel',()=>{drawing=false;last=null;});
 }
+// Molecular Machine: write your own sequence (web/chain_builder.js). It follows
+// the Sequence preset until edited, and belongs to the fold mode only.
+let chainBuilder=null;
+function addChainBuilder(host){
+  const select=$('#p_sequence'),length=()=>Number($('#s_particles')?.value)||40;
+  chainBuilder=new ChainBuilder(host,{preset:select?Number(select.value):0,length:length()});
+  if(select)select.addEventListener('change',()=>{chainBuilder.reset();chainBuilder.setPreset(select.value,length());});
+  const sync=()=>chainBuilder.setVisible($('#method').value!=='shuttle');
+  $('#method').addEventListener('change',sync);sync();
+}
 function addFluidBuilder(host){
   // The builder draws the chosen preset so the grid matches what the solver
   // will actually build; see web/obstacle_builder.js.
@@ -491,10 +529,13 @@ function openDemo(id){let spec=specs&&specs.demos?specs.demos[id]:null;
   $('#demoPreview').src=`/static/previews/${encodeURIComponent(id)}.webp`;
   $('#previewReplay').classList.toggle('hidden',!library.some(item=>item.demo===id));
   current=id;applyBackends();applyMethods();
-  resetRunState();current=id;activeViewMode='frames';preferFusion3d=id==='fusion_plasma';overlayEnabled=new Set();currentStory=(stories[id]||[''])[0];$('#gallery').classList.add('hidden');$('#library').classList.add('hidden');$('#stage').classList.remove('hidden');let d=specs.demos[id];$('#fusionView').classList.toggle('hidden',id!=='fusion_plasma');$('#galaxy3dView').classList.toggle('hidden',id!=='galaxy_collision_3d');$('#stageTitle').textContent=d.name;$('#stageTag').textContent=d.tagline;$('#stageEyebrow').textContent=(demoCategories[id]||'Science')+' / INTERACTIVE SIMULATION';let s=$('#sliders');s.innerHTML='';fluidBuilder=null;Object.entries(d.params).forEach(([k,p])=>{if(id==='neural_wall'&&k==='target')return;addParameterControl(s,k,p);});applyParameterMethods();if(id==='neural_wall')addNeuralTargetTools(s,d.params.target.value);if(id==='fluid')addFluidBuilder(s);window.GameDemos?.mount(s,id);renderProfileSettings();configureParallelControl();configureRevealControl();updateTimelineHelp();clearSimulationSurface();renderDemoInfo();renderStageRuns();renderViewerDock();$('#status').textContent='READY';$('#status').style.color='';$('#bar').style.width='0';$('#metric1').textContent='frame —';$('#metric2').textContent='elapsed —';$('#metric3').textContent='backend —';window.scrollTo(0,0);$('#back').focus({preventScroll:true});return true;}
+  resetRunState();current=id;activeViewMode='frames';preferFusion3d=id==='fusion_plasma';overlayEnabled=new Set();currentStory=(stories[id]||[''])[0];$('#gallery').classList.add('hidden');$('#library').classList.add('hidden');$('#stage').classList.remove('hidden');let d=specs.demos[id];$('#fusionView').classList.toggle('hidden',id!=='fusion_plasma');$('#galaxy3dView').classList.toggle('hidden',!has3dView(id));$('#stageTitle').textContent=d.name;$('#stageTag').textContent=d.tagline;$('#stageEyebrow').textContent=(demoCategories[id]||'Science')+' / INTERACTIVE SIMULATION';let s=$('#sliders');s.innerHTML='';fluidBuilder=null;Object.entries(d.params).forEach(([k,p])=>{if(id==='neural_wall'&&k==='target')return;addParameterControl(s,k,p);});applyParameterMethods();if(id==='neural_wall')addNeuralTargetTools(s,d.params.target.value);if(id==='fluid')addFluidBuilder(s);chainBuilder=null;if(id==='molecular_dynamics')addChainBuilder(s);window.GameDemos?.mount(s,id);renderProfileSettings();configureParallelControl();configureRevealControl();updateTimelineHelp();clearSimulationSurface();renderDemoInfo();renderStageRuns();renderViewerDock();$('#status').textContent='READY';$('#status').style.color='';$('#bar').style.width='0';$('#metric1').textContent='frame —';$('#metric2').textContent='elapsed —';$('#metric3').textContent='backend —';window.scrollTo(0,0);$('#back').focus({preventScroll:true});return true;}
 $('#back').onclick=()=>{document.body.classList.remove('demoOpen');history.replaceState(null,'','/');resetRunState();$('#stage').classList.add('hidden');$('#gallery').classList.remove('hidden');$('#library').classList.remove('hidden');loadLibrary();window.scrollTo(0,0);$('#demoSearch').focus({preventScroll:true});};
-$('#run').onclick=async()=>{if(!current)return;let settings;try{settings=collectProfileSettings();}catch(error){showUiMessage(error.message);return;}resetRunState();let ps={};Object.keys(specs.demos[current].params).forEach(k=>{if(current==='neural_wall'&&k==='target')ps[k]=neuralTarget.kind;else ps[k]=parameterValue(k);});let req={profile:$('#profile').value,frames:Number($('#frames').value),params:ps,settings,backend:$('#backend').value,method:$('#method').value};if(parallelDemos.has(current))req.parallel_count=Number($('#parallelCount').value);else if(ensembleSetElsewhere())req.parallel_count=1;if(current==='fluid'&&fluidBuilder)req.obstacle_grid=fluidBuilder.cells;if(current==='neural_wall'&&neuralTarget.custom)req.target_image=$('#targetCanvas').toDataURL('image/png');window.GameDemos?.decorateRequest(req);let response=await fetch('/api/run/'+current,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(req)});if(!response.ok){let detail='Request rejected';try{let body=await response.json();detail=body.detail||detail;}catch(_){ }$('#status').textContent='FAILED TO START';showUiMessage(detail);return;}runId=(await response.json()).id;$('#status').textContent='COMPUTING';$('#status').style.color='#67f0d0';timer=setInterval(poll,300);};
-async function poll(){if(!runId)return;let m=await (await fetch('/api/run/'+runId+'?t='+Date.now())).json();let overlaysChanged=String(m.overlays)!==String(currentMeta.overlays)||m.method!==currentMeta.method;currentMeta=m;if(overlaysChanged)renderViewerDock();window.GameDemos?.onMeta(m);let total=Number($('#frames').value);if(m.fusion_view)fusionManifest=m.fusion_view;if(m.galaxy3d_view)galaxy3dManifest=m.galaxy3d_view;if(m.frame!==undefined&&m.frame>=0){lastFrame=m.frame;playbackTotal=total;frameOverlay=m.overlay||frameOverlay;$('#frameSeek').max=Math.max(0,total-1);showFrame(m.frame,total);renderOverlayCards();if(current==='fusion_plasma'&&fusionManifest&&preferFusion3d&&!fusionActive&&!fusionEntering)enterFusion();$('#metric2').textContent=`elapsed ${(m.elapsed||0).toFixed(1)} s`;$('#metric3').textContent=`backend ${m.backend||'—'}`;}if(m.status==='complete'){clearInterval(timer);timer=null;deepManifest=m.zoom||null;fusionManifest=m.fusion_view||fusionManifest;galaxy3dManifest=m.galaxy3d_view||galaxy3dManifest;playbackTotal=Number(m.frames)||total;$('#frameSeek').max=Math.max(0,playbackTotal-1);$('#status').textContent='COMPLETE';loadLibrary();$('#metric3').textContent=`backend ${m.backend||'—'}`;setPlaybackControls(true);startPlayback(0);if(current==='fusion_plasma'&&fusionManifest&&preferFusion3d&&!fusionActive)enterFusion();}if(m.status==='failed'){clearInterval(timer);timer=null;$('#status').textContent='FAILED';showUiMessage(m.error||'Simulation failed');}}
+function buildRunRequest(){let settings;try{settings=collectProfileSettings();}catch(error){showUiMessage(error.message);return null;}let ps={};Object.keys(specs.demos[current].params).forEach(k=>{if(current==='neural_wall'&&k==='target')ps[k]=neuralTarget.kind;else ps[k]=parameterValue(k);});let req={profile:$('#profile').value,frames:Number($('#frames').value),params:ps,settings,backend:$('#backend').value,method:$('#method').value};if(parallelDemos.has(current))req.parallel_count=Number($('#parallelCount').value);else if(ensembleSetElsewhere())req.parallel_count=1;if(current==='fluid'&&fluidBuilder)req.obstacle_grid=fluidBuilder.cells;if(current==='neural_wall'&&neuralTarget.custom)req.target_image=$('#targetCanvas').toDataURL('image/png');if(current==='molecular_dynamics'&&chainBuilder&&$('#method').value!=='shuttle'){let own=chainBuilder.getChain();if(own)req.chain=own;}window.GameDemos?.decorateRequest(req);return req;}
+$('#run').onclick=async()=>{if(!current)return;let req=buildRunRequest();if(!req)return;let cluster=$('#runOn').value;
+  if(cluster!=='local'){let id=await HPC.confirmRun(current,req,cluster);if(!id)return;resetRunState();runId=id;$('#status').textContent='SUBMITTING';$('#status').style.color='#ffd78a';timer=setInterval(poll,1000);return;}
+  resetRunState();let response=await fetch('/api/run/'+current,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(req)});if(!response.ok){let detail='Request rejected';try{let body=await response.json();detail=body.detail||detail;}catch(_){ }$('#status').textContent='FAILED TO START';showUiMessage(detail);return;}runId=(await response.json()).id;$('#status').textContent='COMPUTING';$('#status').style.color='#67f0d0';timer=setInterval(poll,300);};
+async function poll(){if(!runId)return;let m=await (await fetch('/api/run/'+runId+'?t='+Date.now())).json();let away=HPC.describe(m);if(away){$('#status').textContent=away.badge;$('#status').style.color='#ffd78a';$('#metric1').textContent=away.message;if(away.progress!==null)$('#bar').style.width=`${Math.round(away.progress*100)}%`;return;}if($('#status').style.color)$('#status').style.color='#67f0d0';let overlaysChanged=String(m.overlays)!==String(currentMeta.overlays)||m.method!==currentMeta.method;currentMeta=m;if(overlaysChanged)renderViewerDock();window.GameDemos?.onMeta(m);let total=Number($('#frames').value);if(m.fusion_view)fusionManifest=m.fusion_view;if(m.galaxy3d_view)galaxy3dManifest=m.galaxy3d_view;if(m.frame!==undefined&&m.frame>=0){lastFrame=m.frame;playbackTotal=total;frameOverlay=m.overlay||frameOverlay;$('#frameSeek').max=Math.max(0,total-1);showFrame(m.frame,total);renderOverlayCards();if(current==='fusion_plasma'&&fusionManifest&&preferFusion3d&&!fusionActive&&!fusionEntering)enterFusion();$('#metric2').textContent=`elapsed ${(m.elapsed||0).toFixed(1)} s`;$('#metric3').textContent=`backend ${m.backend||'—'}`;}if(m.status==='complete'){clearInterval(timer);timer=null;deepManifest=m.zoom||null;fusionManifest=m.fusion_view||fusionManifest;galaxy3dManifest=m.galaxy3d_view||galaxy3dManifest;playbackTotal=Number(m.frames)||total;$('#frameSeek').max=Math.max(0,playbackTotal-1);$('#status').textContent='COMPLETE';loadLibrary();$('#metric3').textContent=`backend ${m.backend||'—'}`;setPlaybackControls(true);startPlayback(0);if(current==='fusion_plasma'&&fusionManifest&&preferFusion3d&&!fusionActive)enterFusion();}if(m.status==='failed'){clearInterval(timer);timer=null;$('#status').textContent='FAILED';showUiMessage(m.error||'Simulation failed');}}
 async function showReveal(){if(!runId)return;exitFusion();exitGalaxy3d();window.GameDemos?.exit();stopPlayback();let m=await (await fetch('/api/run/'+runId)).json();if(m.reveal){let sw=$('.screenWrap');sw.classList.add('revealing');$('#scaleReveal').classList.add('show');$('#screen').style.opacity=.15;setTimeout(()=>{$('#screen').src=`/runs/${runId}/${m.reveal}?t=${Date.now()}`;$('#screen').style.opacity=1;currentStory=storyLines()[3]||currentStory;renderOverlayCards();},220);}}
 const viewport=$('.screenWrap');
 viewport.addEventListener('wheel',event=>{if(deepActive||fusionActive||galaxy3dActive||window.GameDemos?.active)return;if(!frameAvailable())return;event.preventDefault();let rect=viewport.getBoundingClientRect();viewport.style.setProperty('--view-origin-x',`${(event.clientX-rect.left)/rect.width*100}%`);viewport.style.setProperty('--view-origin-y',`${(event.clientY-rect.top)/rect.height*100}%`);changeZoom(event.deltaY<0?.5:-.5);},{passive:false});
@@ -551,16 +592,20 @@ $('#fusionView').onclick=()=>fusionActive?exitFusion(true):enterFusion();
 document.querySelectorAll('[data-fusion-layer]').forEach(button=>button.onclick=()=>{if(!fusion)return;let layer=button.dataset.fusionLayer;fusion.setLayer(layer,!fusionLayerState(layer));updateFusionLayerButtons();let guardian=fusion.isGuardian();currentStory=layer==='escapes'?(fusion.showEscapes?'Every burst on the wall is a marker the confining field failed to hold.':'Wall losses are hidden; the markers still leave confinement in the simulation.'):fusion.showMagnetic?'Helical lines now overlay the computed plasma. They are illustrative confinement geometry shaped by the coil commands, not a solved tokamak equilibrium.':guardian?'Markers are coloured by how close they are to the wall; the policy is holding them with three coil commands.':'Passive tracers follow drift derived from the computed plasma-wave field.';renderOverlayCards();});
 $('#fusionParticles').onchange=()=>{if(!fusion)return;fusion.setParticleFilter($('#fusionParticles').value);currentStory=$('#fusionParticles').value==='all'?'All tracer families are visible.':'Only one colour family is visible; the underlying plasma state is unchanged.';renderOverlayCards();};
 $('#fusionReset').onclick=()=>{if(fusion)fusion.reset();};
+function has3dView(id){return id==='galaxy_collision_3d'||id==='molecular_dynamics';}
 function exitGalaxy3d(){galaxy3dActive=false;$('#galaxy3dCanvas').classList.add('hidden');$('#galaxy3dTools').classList.add('hidden');$('#screen').classList.remove('hidden');$('#galaxy3dView').textContent='Rotate 3D';updateViewport();}
 function updateGalaxyViewButtons(){document.querySelectorAll('[data-galaxy-focus]').forEach(button=>button.classList.toggle('selected',galaxy3d&&galaxy3d.focus===button.dataset.galaxyFocus));$('#galaxyHalo').classList.toggle('selected',Boolean(galaxy3d?.showHalo));}
 async function enterGalaxy3d(){
-  if(!runId||!galaxy3dManifest||current!=='galaxy_collision_3d')return;
+  if(!runId||!galaxy3dManifest||!has3dView(current))return;
   exitDeep();exitFusion();hideReveal();resetViewport();
   if(!galaxy3d)galaxy3d=new Galaxy3DView($('#galaxy3dCanvas'));
   try{
     await galaxy3d.load(`/runs/${runId}/${galaxy3dManifest.folder}/frame_${String(playbackFrame).padStart(4,'0')}.json?t=${Date.now()}`);
     galaxy3d.setFocus('all');galaxy3dActive=true;$('#screen').classList.add('hidden');$('#galaxy3dCanvas').classList.remove('hidden');$('#galaxy3dTools').classList.remove('hidden');$('#galaxy3dView').textContent='Exit 3D view';
     updateGalaxyViewButtons();updateViewport();galaxy3d.resize();
+    // The galaxy's focus and halo buttons mean nothing for a molecule.
+    document.querySelectorAll('[data-galaxy-focus],#galaxyHalo').forEach(b=>b.classList.toggle('hidden',current!=='galaxy_collision_3d'));
+    if(current==='molecular_dynamics'){currentStory='Drag to turn the molecule; the wheel zooms. Each frame is the saved 3-D state of every bead.';renderOverlayCards();return;}
     currentStory='This is a real softened all-pairs super-particle calculation, conditioned by Gaia/PHAT morphology. It is illustrative rather than a fitted equilibrium prediction; use Milky Way or M31 focus to inspect the starting discs.';renderOverlayCards();
   }catch(error){exitGalaxy3d();showUiMessage(`Interactive 3D view unavailable: ${error.message}`);}
 }

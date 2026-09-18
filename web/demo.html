@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Leonardo · Demo Day</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/static/games.css?v=5"><link rel="stylesheet" href="/static/demo.css?v=8"></head>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Leonardo · Demo Day</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/static/games.css?v=5"><link rel="stylesheet" href="/static/demo.css?v=9"><link rel="stylesheet" href="/static/hpc.css?v=2"></head>
 <body class="kiosk">
 
 <!-- ============================ PICKER ============================ -->
@@ -10,8 +10,10 @@
       <p>Every one of these is a real simulation. Choose one, change something, and run it yourself.</p>
     </div>
     <div class="pickAside">
+      <div id="machineSwitch"></div>
       <button id="slideshowStart" class="slideshowBtn" type="button"><span aria-hidden="true">▶</span> Start slideshow</button>
       <div id="pickBackend" class="badge">CHECKING COMPUTE…</div>
+      <button id="hpcSettings" class="hpcGear" type="button">⚙ Lineups &amp; HPC</button>
       <a class="ghostLink" href="/">Full dashboard →</a>
     </div>
   </header>
@@ -157,6 +159,7 @@
         <label>Quality preset <select id="profile"><option value="benchmark">Benchmark (fastest)</option><option value="local" selected>Local</option><option value="desktop">Desktop</option><option value="hpc">HPC</option></select><small>Sets the starting compute workload.</small></label>
         <label>Compute <select id="backend"><option value="auto">Auto</option><option value="cpu">CPU</option><option value="gpu">GPU</option><option value="hybrid">GPU + CPU pipeline</option></select><small id="backendHelp"></small></label>
         <label id="methodField" class="hidden">Solver <select id="method"></select><small id="methodHelp"></small></label>
+        <label>Run on <select id="runOn"><option value="local">This computer</option></select><small id="runOnHelp">Where “Run it” computes. A cluster run asks you to confirm its settings first.</small></label>
         <label>Frames <input id="frames" type="number" min="1" max="600" value="70"><small>Saved frames in the time-lapse.</small></label>
         <label id="parallelField" class="hidden">Independent runs <select id="parallelCount"><option value="1">1 · single run</option><option value="4">4</option><option value="9">9</option><option value="16">16</option><option value="25">25</option><option value="36">36</option><option value="49">49</option><option value="64">64</option></select><small>How many separate searches the grid view shows.</small></label>
       </div>
@@ -190,9 +193,11 @@
 </div>
 
 <script src="/static/obstacle_builder.js?v=1"></script>
+<script src="/static/chain_builder.js?v=4"></script>
 <script src="/static/brain_builder.js?v=3"></script>
-<script src="/static/arena_view.js?v=7"></script>
+<script src="/static/arena_view.js?v=8"></script>
 <script src="/static/fusion_view.js?v=5"></script>
-<script src="/static/galaxy3d_view.js?v=4"></script>
-<script src="/static/demo.js?v=9"></script>
+<script src="/static/galaxy3d_view.js?v=5"></script>
+<script src="/static/hpc.js?v=1"></script>
+<script src="/static/demo.js?v=12"></script>
 </body></html>
