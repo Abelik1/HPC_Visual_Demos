@@ -449,7 +449,14 @@ def _remote_plan(demo,body,*,dry):
     walltime=body.walltime or c.get('walltime')
     if not remote.WALLTIME.match(walltime or ''): raise HTTPException(422,'time limit must look like HH:MM:SS')
     rid=new_run_id(demo)
-    kwargs=prepare_run(demo,body.request,RUNS/rid,remote=True,dry=dry)
+    request=body.request
+    if request.backend=='auto':
+        # On a cluster "auto" means the device this demo is planned for
+        # (config/hpc_plan.json), never whatever the node happens to have.
+        method=DEMOS[demo].default_method if request.method=='default' else request.method
+        planned=remote.demo_needs(demo,method).get('backend','auto')
+        if planned!='auto': request=request.model_copy(update={'backend':planned})
+    kwargs=prepare_run(demo,request,RUNS/rid,remote=True,dry=dry)
     return c,walltime,rid,kwargs
 
 @app.post('/api/remote/plan/{demo}')
@@ -470,8 +477,9 @@ def remote_plan(demo:str,body:RemoteRunReq):
     if '_target_path' in kwargs['params']: extras.append('Your own target picture')
     if '_chain' in kwargs['params']: extras.append(f"Your own sequence: {kwargs['params']['_chain']}")
     warnings=[]
-    if not c.get('account') or c.get('account')==remote.PLACEHOLDER_ACCOUNT:
-        warnings.append(f"No Slurm account is set for {c['label']}. Open HPC settings and enter it.")
+    res=remote.resources(c,walltime,demo,kwargs['method'])
+    if remote.account_missing(c,res):
+        warnings.append(f"No Slurm account is set for {c['label']} ({'CPU' if res['device']=='cpu' else 'GPU'} partition). Open HPC settings and enter it.")
     cert=remote.certificate_status(c)
     if cert and not cert.get('valid'):
         warnings.append(f"The {c['label']} SSH certificate: {cert['detail']}. Refresh it in HPC settings first.")
@@ -479,7 +487,7 @@ def remote_plan(demo:str,body:RemoteRunReq):
         warnings.append(f"The {c['label']} SSH certificate expires soon ({cert['detail']}); fetching may fail after that.")
     if kwargs['profile']!=c.get('default_profile','hpc'):
         warnings.append(f"Quality preset is '{kwargs['profile']}'. Pick HPC in the run settings to use the cluster at full scale.")
-    return {'cluster':remote.public_view(c),'resources':remote.resources(c,walltime),
+    return {'cluster':remote.public_view(c),'resources':res,
             'python':remote.python_for(c,demo,kwargs['method']),
             'demo':{'id':demo,'name':spec.get('name',demo)},
             'method':kwargs['method'],'method_label':DEMOS[demo].method_labels.get(kwargs['method'],kwargs['method']),

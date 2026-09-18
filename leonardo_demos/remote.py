@@ -33,11 +33,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULTS = ROOT / "config" / "clusters.json"
+PLAN = ROOT / "config" / "hpc_plan.json"          # per-demo device and resources
 LOCAL = ROOT / "config" / "clusters.local.json"   # dashboard edits; git-ignored
 POLL_SECONDS = 15
 SSH_TIMEOUT = 60
 EDITABLE = {"host", "port", "user", "identity", "root", "runs_root", "python", "account", "qos",
-            "partition", "walltime", "cert_email", "default_profile"}
+            "partition", "walltime", "cert_email", "default_profile", "cpu_account", "cpu_partition", "cpu_qos"}
 PLACEHOLDER_ACCOUNT = "YOUR_ACTIVE_PROJECT_ACCOUNT"
 WALLTIME = re.compile(r"^(\d{1,2}-)?\d{1,2}:\d{2}:\d{2}$")
 # What a node needs to run any demo. The dashboard itself (app.py, web/) never
@@ -322,27 +323,88 @@ def python_for(c: dict, demo: str, method: str) -> str:
     return overrides.get(f"{demo}/{method}") or overrides.get(demo) or c["python"]
 
 
-def resources(c: dict, walltime: str | None = None) -> dict:
-    return {"account": c.get("account"), "qos": c.get("qos"), "partition": c.get("partition"),
-            "walltime": walltime or c.get("walltime"), "sbatch": list(c.get("sbatch") or []),
-            "srun": list(c.get("srun") or []), "note": c.get("resources_note", "")}
+def load_plan() -> dict:
+    try:
+        return json.loads(PLAN.read_text(encoding="utf-8")).get("demos", {})
+    except (OSError, ValueError):
+        return {}
+
+
+def demo_needs(demo: str, method: str | None = None) -> dict:
+    """Device and size one run of this demo needs (config/hpc_plan.json).
+
+    A method entry (e.g. the molecular shuttle, which is CPU-only) overrides the
+    demo's defaults. Unknown demos get one GPU and eight cores.
+    """
+    entry = dict(load_plan().get(demo) or {})
+    methods = entry.pop("methods", {}) or {}
+    if method and method in methods:
+        entry.update(methods[method])
+    need = {"device": "gpu", "gpus": 1, "cpus": 8, "mem_gb": 64, "backend": "auto"}
+    need.update({k: entry[k] for k in ("device", "gpus", "cpus", "mem_gb", "backend", "why") if k in entry})
+    if need["device"] == "cpu":
+        need["gpus"] = 0
+    return need
+
+
+def resources(c: dict, walltime: str | None = None, demo: str | None = None, method: str | None = None) -> dict:
+    """The Slurm request for one run: only the devices the demo actually uses.
+
+    Every earlier job asked Discoverer for a whole node (4 GPUs, 128 cores) and
+    used one GPU: billing counts every allocated GPU and core, busy or not.
+    """
+    need = demo_needs(demo or "", method)
+    node = c.get("gpu_node" if need["device"] == "gpu" else "cpu_node") or c.get("gpu_node") or {}
+    gpus = min(int(need["gpus"]), int(node.get("gpus", need["gpus"]) or 0)) if need["device"] == "gpu" else 0
+    cpus = min(int(need["cpus"]), int(node.get("cpus", need["cpus"])))
+    mem = min(int(need["mem_gb"]), int(node.get("mem_gb", need["mem_gb"])))
+    if need["device"] == "cpu":
+        account = c.get("cpu_account") or c.get("account")
+        partition = c.get("cpu_partition", c.get("partition"))
+        qos = c.get("cpu_qos", c.get("qos"))
+    else:
+        account, partition, qos = c.get("account"), c.get("partition"), c.get("qos")
+    flags = ["--nodes=1", "--ntasks=1", f"--cpus-per-task={cpus}", f"--mem={mem}G"]
+    if gpus:
+        flags.append(f"--gres=gpu:{gpus}")
+    flags += list(c.get("sbatch_extra") or [])
+    weights = c.get("billing") or {}
+    billing = None
+    if weights:
+        billing = round(gpus * float(weights.get("gpu", 0)) + cpus * float(weights.get("cpu", 0)), 2)
+    return {"device": need["device"], "gpus": gpus, "cpus": cpus, "mem_gb": mem, "backend": need["backend"],
+            "why": need.get("why", ""), "account": account, "qos": qos, "partition": partition,
+            "walltime": walltime or c.get("walltime"), "sbatch": flags,
+            "srun": ["--ntasks=1", f"--cpus-per-task={cpus}"] + list(c.get("srun_extra") or []),
+            "billing_per_hour": billing,
+            "note": (f"{gpus} GPU{'s' if gpus != 1 else ''} + {cpus} cores" if gpus else f"CPU only: {cpus} cores")
+                    + f", {mem} GB" + (f" (billing about {billing}/h)" if billing is not None else "")}
+
+
+def account_missing(c: dict, res: dict) -> bool:
+    return not res.get("account") or res.get("account") == PLACEHOLDER_ACCOUNT
 
 
 def job_script(c: dict, run_dir: str, demo: str, method: str, walltime: str) -> str:
+    res = resources(c, walltime, demo, method)
     lines = ["#!/bin/bash", f"#SBATCH --job-name=lvd-{demo[:24]}",
              f"#SBATCH --output={run_dir}/slurm.log", f"#SBATCH --error={run_dir}/slurm.log",
-             f"#SBATCH --time={walltime}", f"#SBATCH --account={c['account']}"]
-    if c.get("qos"):
-        lines.append(f"#SBATCH --qos={c['qos']}")
-    if c.get("partition"):
-        lines.append(f"#SBATCH --partition={c['partition']}")
-    lines += [f"#SBATCH {flag}" for flag in c.get("sbatch") or []]
-    lines += ["", "# Written by the Leonardo Visual Demos dashboard (leonardo_demos/remote.py)."]
+             f"#SBATCH --time={walltime}", f"#SBATCH --account={res['account']}"]
+    if res.get("qos"):
+        lines.append(f"#SBATCH --qos={res['qos']}")
+    if res.get("partition"):
+        lines.append(f"#SBATCH --partition={res['partition']}")
+    lines += [f"#SBATCH {flag}" for flag in res["sbatch"]]
+    lines += ["", "# Written by the Leonardo Visual Demos dashboard (leonardo_demos/remote.py).",
+              f"# Device plan: {res['note']}. {res.get('why', '')}".rstrip()]
     lines += list(c.get("job_setup") or [])
+    # Frame workers and BLAS threads follow the cores actually allocated.
+    lines += ["export LEONARDO_DEMO_CPU_WORKERS=${SLURM_CPUS_PER_TASK:-1} OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}",
+              "export OPENBLAS_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1} MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}"]
     lines += ["set -eo pipefail", "export PYTHONUNBUFFERED=1", f"cd {q(c['root'])}",
               "echo \"[$(date +%T)] $(hostname) - job $SLURM_JOB_ID\"",
               "command -v nvidia-smi >/dev/null && nvidia-smi -L || true",
-              " ".join(["srun", *(c.get("srun") or []), q(python_for(c, demo, method)),
+              " ".join(["srun", *res["srun"], q(python_for(c, demo, method)),
                         "tools/run_job.py", q(run_dir + "/job.json")]),
               "echo \"[$(date +%T)] done\""]
     return "\n".join(lines) + "\n"
@@ -470,8 +532,9 @@ def _lifecycle(runs: Path, rid: str) -> None:
 
 
 def _submit(c: dict, rd: Path, rid: str, remote: dict) -> None:
-    if not c.get("account") or c.get("account") == PLACEHOLDER_ACCOUNT:
-        raise RemoteError(f"No Slurm account is set for {c['label']}. Enter it in HPC settings.")
+    job = json.loads((rd / "job.json").read_text(encoding="utf-8"))
+    if account_missing(c, resources(c, None, job["demo"], job.get("method"))):
+        raise RemoteError(f"No Slurm account is set for {c['label']} (this demo's partition). Enter it in HPC settings.")
     _update(rd, stage="syncing", message=f"Checking the {c['label']} checkout…")
     sync_code(c, say=lambda message: _update(rd, message=message))
     _update(rd, stage="submitting", message=f"Submitting to {c['label']}…")

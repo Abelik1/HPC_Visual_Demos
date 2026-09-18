@@ -7,6 +7,7 @@ from ..base import Demo
 from ..backend import to_numpy
 from ..render import add_title, add_progress, save_frame, font
 from ..colors import palette
+from ..pipeline import FramePipeline
 
 W,H=1280,720
 LBM_TAU=.57
@@ -74,7 +75,7 @@ lbm_fused(const real* __restrict__ src, real* __restrict__ dst,
 
 
 class FluidDemo(Demo):
-    timing_methods={"init":"initialization","step":"simulation","advect":"visualization","render":"render"}
+    timing_methods={"init":"initialization","step":"simulation","advect":"visualization"}
     precisions=("fp32","fp64")
     id="fluid"; title="Virtual wind tunnel"
     _lbm_kernels={}
@@ -217,14 +218,17 @@ class FluidDemo(Demo):
         return f,ux,uy,vort,rho
 
     # ---- tracers -------------------------------------------------------
+    # Tracers live on the same device as the lattice, so a frame never has to
+    # copy the full velocity field to the host just to move 3,000 points.
     def seed_tracers(self,n,nx,ny,rng):
         x=rng.uniform(0,nx,n); y=rng.uniform(0,ny,n)
         return np.stack([x,y],axis=1)
     def sample(self,field,pts,nx,ny):
         """Bilinear sample of a lattice field at particle positions."""
-        x=np.clip(pts[:,0],0,nx-1.001); y=np.clip(pts[:,1],0,ny-1.001)
-        x0=x.astype(np.int32); y0=y.astype(np.int32)
-        x1=np.minimum(x0+1,nx-1); y1=np.minimum(y0+1,ny-1)
+        xp=self.ctx.xp
+        x=xp.clip(pts[:,0],0,nx-1.001); y=xp.clip(pts[:,1],0,ny-1.001)
+        x0=x.astype(xp.int32); y0=y.astype(xp.int32)
+        x1=xp.minimum(x0+1,nx-1); y1=xp.minimum(y0+1,ny-1)
         fx=x-x0; fy=y-y0
         return (field[y0,x0]*(1-fx)*(1-fy)+field[y0,x1]*fx*(1-fy)
                 +field[y1,x0]*(1-fx)*fy+field[y1,x1]*fx*fy)
@@ -237,75 +241,47 @@ class FluidDemo(Demo):
         visible streakline, which is what makes the flow direction readable in a
         still frame.
         """
+        xp=self.ctx.xp
         pts=trail[:,-1,:].copy()
         for _ in range(substeps):
             vx=self.sample(ux,pts,nx,ny); vy=self.sample(uy,pts,nx,ny)
-            pts=pts+np.stack([vx,vy],axis=1)*(dt/substeps)
-        ix=np.clip(pts[:,0].astype(np.int32),0,nx-1); iy=np.clip(pts[:,1].astype(np.int32),0,ny-1)
+            pts=pts+xp.stack([vx,vy],axis=1)*(dt/substeps)
+        ix=xp.clip(pts[:,0].astype(xp.int32),0,nx-1); iy=xp.clip(pts[:,1].astype(xp.int32),0,ny-1)
         inside=mask[iy,ix]
-        stalled=np.hypot(pts[:,0]-trail[:,-1,0],pts[:,1]-trail[:,-1,1])<1e-3
+        stalled=xp.hypot(pts[:,0]-trail[:,-1,0],pts[:,1]-trail[:,-1,1])<1e-3
         gone=(pts[:,0]>=nx-1)|(pts[:,0]<0)|(pts[:,1]<0)|(pts[:,1]>=ny-1)|inside|stalled
-        trail=np.concatenate([trail[:,1:,:],pts[:,None,:]],axis=1)
+        trail=xp.concatenate([trail[:,1:,:],pts[:,None,:]],axis=1)
         k=int(gone.sum())
         if k:
             # Reinject at the inlet and collapse the trail so no streak is drawn
             # spanning the whole domain.
             nx0=rng.uniform(0,3.0,k); ny0=rng.uniform(0,ny-1,k)
-            trail[gone]=np.stack([nx0,ny0],axis=1)[:,None,:]
+            trail[gone]=xp.asarray(np.stack([nx0,ny0],axis=1),dtype=trail.dtype)[:,None,:]
         return trail
 
     # ---- rendering -----------------------------------------------------
-    def render(self,ux,uy,vort,rho,trail,nx,ny,speed):
-        sx,sy=W/nx,H/ny
-        spd=np.sqrt(ux*ux+uy*uy)
-        # Background is flow SPEED on a cool palette. The old frame showed
-        # |vorticity| on a fire palette, which read as "this region is hot"
-        # rather than "the air is moving here".
-        bg=palette(np.clip(spd/max(1e-6,speed*1.9),0,1),'ice')
-        im=Image.fromarray(bg,'RGB').resize((W,H),Image.Resampling.BILINEAR)
-        # Vorticity tints the wake so shed vortices stay readable.
-        v=np.abs(to_numpy(vort)); v=np.clip(np.log1p(v*220)/3.2,0,1)
-        tint=Image.fromarray((np.stack([v*255,v*90,v*30],-1)).astype(np.uint8),'RGB').resize((W,H),Image.Resampling.BILINEAR)
-        im=Image.blend(im,tint,.20)
-        d=ImageDraw.Draw(im,'RGBA')
-        # Streaklines: the tail of each tracer's path, brightening toward the
-        # head, so a single still frame already shows which way the air goes.
-        K=trail.shape[1]
-        for k in range(1,K):
-            a=int(38+150*(k/(K-1))**1.7); wdt=1 if k<K*.6 else 2
-            seg=np.stack([trail[:,k-1,:],trail[:,k,:]],axis=1)
-            jump=np.hypot(seg[:,1,0]-seg[:,0,0],seg[:,1,1]-seg[:,0,1])>nx*.25
-            for (p0,p1),bad in zip(seg,jump):
-                if bad: continue
-                d.line((p0[0]*sx,p0[1]*sy,p1[0]*sx,p1[1]*sy),fill=(214,244,255,a),width=wdt)
-        for cx,cy in trail[:,-1,:]:
-            d.ellipse((cx*sx-1.7,cy*sy-1.7,cx*sx+1.7,cy*sy+1.7),fill=(255,255,255,230))
-        # Direction glyphs on a coarse grid.
+    def frame_payload(self,ux,uy,vort,rho,trail,nx,ny,speed):
+        """Everything one frame needs, reduced on the device to output size.
+
+        The picture is 1280x720 whatever the lattice. Copying three full
+        3840x2160 fields to the host every frame cost more than the physics;
+        this ships a 1280x720 image, the tracer trails and the glyph samples.
+        """
+        xp=self.ctx.xp
+        spd=xp.sqrt(ux*ux+uy*uy)
+        # Background is flow SPEED on a cool palette; vorticity tints the wake
+        # so shed vortices stay readable.
+        s=xp.clip(_resample(xp,spd/max(1e-6,speed*1.9),W,H),0,1)
+        v=_resample(xp,xp.clip(xp.log1p(xp.abs(vort)*220)/3.2,0,1),W,H)
+        bg=xp.stack([xp.clip(0.08+0.75*s*s,0,1),xp.clip(0.12+0.88*s,0,1),xp.clip(0.28+0.72*xp.sqrt(s),0,1)],-1)
+        tint=xp.stack([v,v*(90/255),v*(30/255)],-1)
+        image=xp.clip((bg*0.8+tint*0.2)*255,0,255).astype(xp.uint8)
         stepx=max(1,nx//26); stepy=max(1,ny//14)
-        for j in range(stepy//2,ny,stepy):
-            for i in range(stepx//2,nx,stepx):
-                vx,vy=float(ux[j,i]),float(uy[j,i])
-                m=math.hypot(vx,vy)
-                if m<speed*.09: continue
-                L=min(26,7+m/max(1e-6,speed)*13)
-                x0,y0=i*sx,j*sy; dx,dy=vx/m*L,vy/m*L
-                a=int(90+120*min(1,m/max(1e-6,speed*1.5)))
-                d.line((x0-dx*.5,y0-dy*.5,x0+dx*.5,y0+dy*.5),fill=(150,225,255,a),width=2)
-                ang=math.atan2(dy,dx)
-                for s in (2.5,-2.5):
-                    d.line((x0+dx*.5,y0+dy*.5,
-                            x0+dx*.5-6*math.cos(ang+s*.4),y0+dy*.5-6*math.sin(ang+s*.4)),
-                           fill=(180,236,255,a),width=2)
-        # Draw the exact bounce-back mask, including every custom grid block.
-        solid=Image.fromarray((self.obstacle_mask*255).astype(np.uint8),'L').resize((W,H),Image.Resampling.NEAREST)
-        body=Image.new('RGBA',(W,H),(7,12,24,0)); body.putalpha(solid)
-        im=Image.alpha_composite(im.convert('RGBA'),body).convert('RGB')
-        d=ImageDraw.Draw(im,'RGBA')
-        edge=self.obstacle_mask & ~(np.roll(self.obstacle_mask,1,0)&np.roll(self.obstacle_mask,-1,0)&np.roll(self.obstacle_mask,1,1)&np.roll(self.obstacle_mask,-1,1))
-        outline=Image.fromarray((edge*255).astype(np.uint8),'L').resize((W,H),Image.Resampling.NEAREST).filter(ImageFilter.MaxFilter(3))
-        stroke=Image.new('RGBA',(W,H),(190,232,255,0)); stroke.putalpha(outline.point(lambda p:int(p*.82)))
-        im=Image.alpha_composite(im.convert('RGBA'),stroke).convert('RGB')
-        return im,spd
+        gy=xp.arange(stepy//2,ny,stepy); gx=xp.arange(stepx//2,nx,stepx)
+        return {"image":to_numpy(image),"trail":to_numpy(trail).astype(np.float32),
+                "gux":to_numpy(ux[gy][:,gx]),"guy":to_numpy(uy[gy][:,gx]),
+                "gx":to_numpy(gx),"gy":to_numpy(gy),"nx":nx,"ny":ny,"speed":speed}
+
     def panel(self,im,ux,uy,rho,nx,ny,speed,mach_note):
         d=ImageDraw.Draw(im,'RGBA')
         ox,oy=self.obstacle_centre; orad=self.obstacle_radius
@@ -337,37 +313,122 @@ class FluidDemo(Demo):
         preset=int(self.ctx.params.get('obstacle',0))
         custom=self.ctx.params.get('_obstacle_grid')
         f,c,w,mask=self.init(nx,ny,speed,preset,custom)
+        xp=self.ctx.xp
         rng=np.random.default_rng(11)
         ntr=int(self.settings.get('tracers',900))
         K=int(self.settings.get('trail',12))
-        trail=np.repeat(self.seed_tracers(ntr,nx,ny,rng)[:,None,:],K,axis=1)
+        trail=xp.asarray(np.repeat(self.seed_tracers(ntr,nx,ny,rng)[:,None,:],K,axis=1).astype(np.float32))
         # Tracers are a visualisation of the same velocity field, advanced with
         # an amplified visual time step so the streaks span useful distances.
         boost=float(self.settings.get('tracer_boost',9.0))
-        for i in range(self.ctx.frames):
-            step_target=int(round(total*(i+1)/self.ctx.frames))
-            spf=max(1,step_target-done); done=step_target
-            f,ux,uy,vort,rho=self.step(f,c,w,mask,speed,spf)
-            uxn,uyn,rhon=to_numpy(ux),to_numpy(uy),to_numpy(rho)
-            # Several small advection sub-steps keep streaks smooth and stop
-            # particles tunnelling through the cylinder.
-            trail=self.advect(trail,uxn,uyn,nx,ny,rng,min(spf,14)*boost,self.obstacle_mask)
-            im,spd=self.render(uxn,uyn,vort,rhon,trail,nx,ny,speed)
-            re=speed*(2*self.obstacle_radius)/((.57-.5)/3)
-            im=add_title(im,"Virtual wind tunnel",f"D2Q9 lattice-Boltzmann · {nx}×{ny} cells · {self.ctx.backend_name}")
-            add_progress(im,(i+1)/self.ctx.frames,"LAMINAR START","VORTEX WAKE")
-            ox,oy=self.obstacle_centre; x0,x1,_,_=self.obstacle_bounds; pressure=(rhon-1.0)/3.0
-            front=float(pressure[int(oy),max(0,x0-2)]); back=float(pressure[int(oy),min(nx-1,x1+2)])
-            self.ctx.save_frame(im,self.ctx.frame_path(i)); self.ctx.write_status(i,"Updating lattice cells",{
-                "inlet speed":f"{speed:.4f}","Reynolds number":f"{re:,.0f}","grid":f"{nx} × {ny}",
-                "obstacle preset":OBSTACLE_NAMES[preset],
-                "custom blocks":f"{int(np.asarray(custom).sum()) if custom else 0}",
-                "front pressure":f"{front:+.5f}","wake pressure":f"{back:+.5f}","lattice step":f"{done:,} / {total:,}",
-                "precision":self.ctx.precision_spec["label"]})
+        obstacle=_obstacle_layers(self.obstacle_mask)
+        ox,oy=self.obstacle_centre; x0,x1,_,_=self.obstacle_bounds
+        re=speed*(2*self.obstacle_radius)/((.57-.5)/3)
+        subtitle_backend=self.ctx.backend_name
+        # Physics on the device, drawing on the allocated CPU cores, overlapped.
+        with FramePipeline(self.ctx,workers=_draw_workers(self.ctx)) as frames:
+            for i in range(self.ctx.frames):
+                step_target=int(round(total*(i+1)/self.ctx.frames))
+                spf=max(1,step_target-done); done=step_target
+                f,ux,uy,vort,rho=self.step(f,c,w,mask,speed,spf)
+                # Several small advection sub-steps keep streaks smooth and stop
+                # particles tunnelling through the cylinder.
+                trail=self.advect(trail,ux,uy,nx,ny,rng,min(spf,14)*boost,mask)
+                with self.ctx.stage("visualization"):
+                    payload=self.frame_payload(ux,uy,vort,rho,trail,nx,ny,speed)
+                    front=float((rho[int(oy),max(0,x0-2)]-1.0)/3.0); back=float((rho[int(oy),min(nx-1,x1+2)]-1.0)/3.0)
+                payload.update(obstacle=obstacle,progress=(i+1)/self.ctx.frames,
+                               subtitle=f"D2Q9 lattice-Boltzmann · {nx}×{ny} cells · {subtitle_backend}")
+                frames.submit(i,draw_fluid_frame,payload,self.ctx.frame_path(i),"Updating lattice cells",{
+                    "inlet speed":f"{speed:.4f}","Reynolds number":f"{re:,.0f}","grid":f"{nx} × {ny}",
+                    "obstacle preset":OBSTACLE_NAMES[preset],
+                    "custom blocks":f"{int(np.asarray(custom).sum()) if custom else 0}",
+                    "front pressure":f"{front:+.5f}","wake pressure":f"{back:+.5f}","lattice step":f"{done:,} / {total:,}",
+                    "precision":self.ctx.precision_spec["label"]})
+        im=Image.open(self.ctx.frame_path(self.ctx.frames-1)).convert('RGB')
         rev=im.copy(); d=ImageDraw.Draw(rev,'RGBA')
         cols,rows=4,2
         for r in range(rows):
             for cc in range(cols):
-                x0=cc*W/cols; x1=(cc+1)*W/cols; y0=r*H/rows; y1=(r+1)*H/rows
+                x0,x1=cc*W/cols,(cc+1)*W/cols; y0,y1=r*H/rows,(r+1)*H/rows
                 d.rectangle((x0,y0,x1,y1),outline=(124,232,255,190),width=4)
         rp=self.ctx.run_dir/'reveal.jpg'; self.ctx.save_frame(rev,rp); self.ctx.finish(rp)
+
+
+def _resample(xp,a,w,h):
+    """Box-average by the whole-number factor, then bilinear to exactly w x h."""
+    ny,nx=a.shape
+    f=max(1,min(nx//w,ny//h))
+    if f>1:
+        a=a[:ny//f*f,:nx//f*f].reshape(ny//f,f,nx//f,f).mean(axis=(1,3))
+        ny,nx=a.shape
+    ys=xp.clip((xp.arange(h,dtype=xp.float32)+.5)*ny/h-.5,0,ny-1)
+    xs=xp.clip((xp.arange(w,dtype=xp.float32)+.5)*nx/w-.5,0,nx-1)
+    y0=xp.floor(ys).astype(xp.int32); x0=xp.floor(xs).astype(xp.int32)
+    y1=xp.minimum(y0+1,ny-1); x1=xp.minimum(x0+1,nx-1)
+    fy=(ys-y0)[:,None]; fx=(xs-x0)[None,:]
+    top=a[y0][:,x0]*(1-fx)+a[y0][:,x1]*fx
+    bottom=a[y1][:,x0]*(1-fx)+a[y1][:,x1]*fx
+    return top*(1-fy)+bottom*fy
+
+
+def _draw_workers(ctx):
+    """Drawing processes: the allocated cores, minus one for the solver loop."""
+    return max(1,min(ctx.cpu_workers-1,16,max(1,ctx.frames//6)))
+
+
+def _obstacle_layers(mask):
+    """The obstacle body and its outline at output size, as small PNGs."""
+    import io
+    solid=Image.fromarray((mask*255).astype(np.uint8),'L').resize((W,H),Image.Resampling.NEAREST)
+    edge=mask & ~(np.roll(mask,1,0)&np.roll(mask,-1,0)&np.roll(mask,1,1)&np.roll(mask,-1,1))
+    outline=Image.fromarray((edge*255).astype(np.uint8),'L').resize((W,H),Image.Resampling.NEAREST).filter(ImageFilter.MaxFilter(3))
+    out=[]
+    for layer in (solid,outline):
+        buf=io.BytesIO(); layer.save(buf,format='PNG'); out.append(buf.getvalue())
+    return out
+
+
+def draw_fluid_frame(p):
+    """Draw one wind-tunnel frame from a frame_payload (runs in a worker)."""
+    import io
+    nx,ny,speed=p["nx"],p["ny"],p["speed"]
+    sx,sy=W/nx,H/ny
+    im=Image.fromarray(p["image"],'RGB')
+    d=ImageDraw.Draw(im,'RGBA')
+    # Streaklines: the tail of each tracer's path, brightening toward the
+    # head, so a single still frame already shows which way the air goes.
+    trail=p["trail"]; K=trail.shape[1]
+    for k in range(1,K):
+        a=int(38+150*(k/(K-1))**1.7); wdt=1 if k<K*.6 else 2
+        seg=np.stack([trail[:,k-1,:],trail[:,k,:]],axis=1)
+        jump=np.hypot(seg[:,1,0]-seg[:,0,0],seg[:,1,1]-seg[:,0,1])>nx*.25
+        for (p0,p1),bad in zip(seg,jump):
+            if bad: continue
+            d.line((p0[0]*sx,p0[1]*sy,p1[0]*sx,p1[1]*sy),fill=(214,244,255,a),width=wdt)
+    for cx,cy in trail[:,-1,:]:
+        d.ellipse((cx*sx-1.7,cy*sy-1.7,cx*sx+1.7,cy*sy+1.7),fill=(255,255,255,230))
+    # Direction glyphs on a coarse grid.
+    for jj,j in enumerate(p["gy"]):
+        for ii,i in enumerate(p["gx"]):
+            vx,vy=float(p["gux"][jj,ii]),float(p["guy"][jj,ii])
+            m=math.hypot(vx,vy)
+            if m<speed*.09: continue
+            L=min(26,7+m/max(1e-6,speed)*13)
+            x0,y0=i*sx,j*sy; dx,dy=vx/m*L,vy/m*L
+            a=int(90+120*min(1,m/max(1e-6,speed*1.5)))
+            d.line((x0-dx*.5,y0-dy*.5,x0+dx*.5,y0+dy*.5),fill=(150,225,255,a),width=2)
+            ang=math.atan2(dy,dx)
+            for s in (2.5,-2.5):
+                d.line((x0+dx*.5,y0+dy*.5,
+                        x0+dx*.5-6*math.cos(ang+s*.4),y0+dy*.5-6*math.sin(ang+s*.4)),
+                       fill=(180,236,255,a),width=2)
+    # Draw the exact bounce-back mask, including every custom grid block.
+    solid=Image.open(io.BytesIO(p["obstacle"][0])); outline=Image.open(io.BytesIO(p["obstacle"][1]))
+    body=Image.new('RGBA',(W,H),(7,12,24,0)); body.putalpha(solid)
+    im=Image.alpha_composite(im.convert('RGBA'),body)
+    stroke=Image.new('RGBA',(W,H),(190,232,255,0)); stroke.putalpha(outline.point(lambda v:int(v*.82)))
+    im=Image.alpha_composite(im,stroke).convert('RGB')
+    im=add_title(im,"Virtual wind tunnel",p["subtitle"])
+    add_progress(im,p["progress"],"LAMINAR START","VORTEX WAKE")
+    return im

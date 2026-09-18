@@ -15,20 +15,37 @@
     "account": "ehpc-school-2026",
     "qos": "ehpc-school-2026",
     "partition": "",
-    "walltime": "02:00:00",
-    "sbatch": ["--nodes=1", "--ntasks=8", "--cpus-per-task=16", "--mem=1000G", "--gres=gpu:4"],
-    "srun": ["--exact", "--ntasks=1", "--cpus-per-task=16", "--mem=220G", "--gres=gpu:1"],
+    "walltime": "00:40:00",
     "job_setup": [
       "source /etc/profile",
       "module load slurm",
       "module load python312",
       "export CUPY_CACHE_DIR=/weka/ehpc-school-2026/abelik/cupy-cache",
-      "export LEONARDO_DEMO_TUNING_CACHE=/weka/ehpc-school-2026/abelik/cupy-cache/kernel_tuning.json",
-      "export LEONARDO_DEMO_CPU_WORKERS=12 OMP_NUM_THREADS=12 OPENBLAS_NUM_THREADS=12"
+      "export LEONARDO_DEMO_TUNING_CACHE=/weka/ehpc-school-2026/abelik/cupy-cache/kernel_tuning.json"
     ],
-    "resources_note": "One GB200 GPU inside the team's one-node, four-GPU allocation shape.",
+    "resources_note": "Only what each demo needs (config/hpc_plan.json). A GB200 node is 4 GPUs + 144 cores; the reservation is gpu-11/12.",
     "default_profile": "hpc",
-    "cert_email": ""
+    "cert_email": "",
+    "gpu_node": {
+      "gpus": 4,
+      "cpus": 144,
+      "mem_gb": 1500
+    },
+    "cpu_node": {
+      "gpus": 4,
+      "cpus": 144,
+      "mem_gb": 1500
+    },
+    "cpu_account": "",
+    "cpu_partition": "",
+    "cpu_qos": "ehpc-school-2026",
+    "billing": {
+      "gpu": 1.0,
+      "cpu": 0.027778,
+      "source": "defq TRESBillingWeights: CPU=0.027778, GRES/gpu=1.0 (memory not billed)"
+    },
+    "sbatch_extra": [],
+    "srun_extra": []
   },
   "leonardo": {
     "label": "Leonardo",
@@ -42,20 +59,34 @@
     "python": "$WORK/venvs/leonardo-visual-demos/bin/python",
     "python_overrides": {},
     "account": "YOUR_ACTIVE_PROJECT_ACCOUNT",
-    "qos": "boost_qos_dbg",
+    "qos": "",
     "partition": "boost_usr_prod",
-    "walltime": "00:30:00",
-    "sbatch": ["--nodes=1", "--ntasks-per-node=1", "--cpus-per-task=8", "--gres=gpu:1", "--mem=64000"],
-    "srun": ["--cpu-bind=cores"],
+    "walltime": "00:40:00",
     "job_setup": [
       "module purge",
       "module load profile/base",
       "module load cuda/12.2",
-      "export CUPY_CACHE_DIR=${WORK:-$HOME}/.cache/cupy",
-      "export LEONARDO_DEMO_CPU_WORKERS=${SLURM_CPUS_PER_TASK:-8} OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-8}"
+      "export CUPY_CACHE_DIR=${WORK:-$HOME}/.cache/cupy"
     ],
-    "resources_note": "One A100 on a Booster node (boost_qos_dbg allows 30 minutes).",
+    "resources_note": "GPU demos: Booster (4x A100 64 GB + 32 cores per node, boost_usr_prod). CPU demos: DCGP (112 cores per node, dcgp_usr_prod), which may use a different account.",
     "default_profile": "hpc",
-    "cert_email": ""
+    "cert_email": "",
+    "gpu_node": {
+      "gpus": 4,
+      "cpus": 32,
+      "mem_gb": 480
+    },
+    "cpu_node": {
+      "gpus": 0,
+      "cpus": 112,
+      "mem_gb": 480
+    },
+    "cpu_account": "",
+    "cpu_partition": "dcgp_usr_prod",
+    "cpu_qos": "",
+    "sbatch_extra": [],
+    "srun_extra": [
+      "--cpu-bind=cores"
+    ]
   }
 }

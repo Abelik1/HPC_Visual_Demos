@@ -63,14 +63,28 @@ class RemoteRunTests(unittest.TestCase):
         self.assertTrue(particles["changed"])
         self.assertTrue(any("preset" in w for w in plan["warnings"]))
 
-    def test_job_script_uses_cluster_shape_and_python_override(self):
+    def test_job_script_requests_only_the_devices_the_demo_uses(self):
         c = remote.cluster("discoverer")
         script = remote.job_script(c, "/runs/r1", "fusion_plasma", "guardian", "01:00:00")
         self.assertIn("#SBATCH --account=ehpc-school-2026", script)
-        self.assertIn("#SBATCH --gres=gpu:4", script)
-        self.assertIn("--gres=gpu:1", script.splitlines()[-2])
+        # One GPU, never the whole four-GPU node.
+        self.assertIn("#SBATCH --gres=gpu:1", script)
+        self.assertNotIn("gpu:4", script)
         self.assertIn("visual-demos-torch", script)
         self.assertIn('tools/run_job.py "/runs/r1/job.json"', script)
+        # The molecular shuttle is CPU-only: no GPU request at all.
+        shuttle = remote.job_script(c, "/runs/r2", "molecular_dynamics", "shuttle", "00:20:00")
+        self.assertNotIn("--gres", shuttle)
+        self.assertIn("--cpus-per-task=2", shuttle)
+
+    def test_leonardo_cpu_demos_go_to_dcgp(self):
+        c = remote.cluster("leonardo")
+        res = remote.resources(c, None, "nbody_murb", "cpu+omp")
+        self.assertEqual(res["gpus"], 0)
+        self.assertEqual(res["partition"], "dcgp_usr_prod")
+        gpu = remote.resources(c, None, "cosmic_web", "default")
+        self.assertEqual((gpu["gpus"], gpu["partition"]), (1, "boost_usr_prod"))
+        self.assertLessEqual(gpu["cpus"], 8)    # a quarter of a Booster node per GPU
 
     def test_walltime_and_injection_are_rejected(self):
         with self.assertRaises(ValueError):

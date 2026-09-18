@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
@@ -14,6 +15,7 @@ from ..plasma_control import (
     make_trainer, risk_of, sample_periodic, transition_numpy,
 )
 from ..render import add_progress, add_title, font, mosaic
+from ..pipeline import FramePipeline
 
 
 # AXIS_GAIN lives in plasma_control so the renderer and the training objective
@@ -138,12 +140,14 @@ class FusionPlasmaDemo(Demo):
 
     @staticmethod
     def turbulence(real, imag):
-        amp = np.sqrt(real * real + imag * imag)
-        phase = np.arctan2(imag, real)
-        dx = np.angle(np.exp(1j * (np.roll(phase, 1, 1) - phase)))
-        dy = np.angle(np.exp(1j * (np.roll(phase, 1, 0) - phase)))
-        amp_grad = np.abs(np.roll(amp, 1, 0) - amp) + np.abs(np.roll(amp, 1, 1) - amp)
-        return float(np.mean(np.abs(dx) + np.abs(dy)) / np.pi + 0.25 * np.mean(amp_grad))
+        xp = _xp_of(real)
+        amp = xp.sqrt(real * real + imag * imag)
+        phase = xp.arctan2(imag, real)
+        wrap = lambda d: xp.arctan2(xp.sin(d), xp.cos(d))
+        dx = wrap(xp.roll(phase, 1, 1) - phase)
+        dy = wrap(xp.roll(phase, 1, 0) - phase)
+        amp_grad = xp.abs(xp.roll(amp, 1, 0) - amp) + xp.abs(xp.roll(amp, 1, 1) - amp)
+        return float(xp.mean(xp.abs(dx) + xp.abs(dy)) / np.pi + 0.25 * xp.mean(amp_grad))
 
     @staticmethod
     def turbulence_map(real, imag):
@@ -179,28 +183,44 @@ class FusionPlasmaDemo(Demo):
         gradient supplies an E x B-like drift around coherent structures. The
         result is measured in turns of the torus per solver step.
         """
-        real, imag = to_numpy(real), to_numpy(imag)
-        amp = np.sqrt(real * real + imag * imag)
-        phase = np.arctan2(imag, real)
-        phase_x = 0.5 * np.angle(np.exp(1j * (np.roll(phase, -1, 1) - np.roll(phase, 1, 1))))
-        phase_y = 0.5 * np.angle(np.exp(1j * (np.roll(phase, -1, 0) - np.roll(phase, 1, 0))))
-        amp_x = 0.5 * (np.roll(amp, -1, 1) - np.roll(amp, 1, 1))
-        amp_y = 0.5 * (np.roll(amp, -1, 0) - np.roll(amp, 1, 0))
+        # Computed wherever the field lives: copying a 1536^2 complex field to
+        # the host every frame cost more than the solver itself.
+        xp = _xp_of(real)
+        amp = xp.sqrt(real * real + imag * imag)
+        phase = xp.arctan2(imag, real)
+        wrap = lambda d: xp.arctan2(xp.sin(d), xp.cos(d))
+        phase_x = 0.5 * wrap(xp.roll(phase, -1, 1) - xp.roll(phase, 1, 1))
+        phase_y = 0.5 * wrap(xp.roll(phase, -1, 0) - xp.roll(phase, 1, 0))
+        amp_x = 0.5 * (xp.roll(amp, -1, 1) - xp.roll(amp, 1, 1))
+        amp_y = 0.5 * (xp.roll(amp, -1, 0) - xp.roll(amp, 1, 0))
         confinement = max(0.55, math.sqrt(float(magnetic_field) / 5.0))
         drive = max(0.25, float(heating) / 25.0)
         toroidal = 0.00105 * drive / confinement
         flow_u = toroidal + 0.0024 * phase_x / np.pi - 0.0042 * amp_y / confinement
         flow_v = 0.0019 * phase_y / np.pi + 0.0042 * amp_x / confinement
-        return flow_u.astype(np.float32), flow_v.astype(np.float32)
+        return flow_u.astype(xp.float32), flow_v.astype(xp.float32)
 
     @staticmethod
     def _sample_periodic(field, uv):
         """Bilinearly sample a 2-D periodic field at normalised (u, v)."""
-        return sample_periodic(field, uv[:, 0], uv[:, 1])
+        xp = _xp_of(field)
+        if xp is np:
+            return sample_periodic(field, uv[:, 0], uv[:, 1])
+        ny, nx = field.shape
+        fx = xp.mod(uv[:, 0], 1.0) * nx
+        fy = xp.mod(uv[:, 1], 1.0) * ny
+        x0 = xp.floor(fx).astype(xp.int32) % nx
+        y0 = xp.floor(fy).astype(xp.int32) % ny
+        x1, y1 = (x0 + 1) % nx, (y0 + 1) % ny
+        ax, ay = fx - xp.floor(fx), fy - xp.floor(fy)
+        return (field[y0, x0] * (1 - ax) * (1 - ay) + field[y0, x1] * ax * (1 - ay)
+                + field[y1, x0] * (1 - ax) * ay + field[y1, x1] * ax * ay)
 
     def advance_tracers(self, trails, real, imag, magnetic_field, heating, solver_steps):
         """Advect passive tracers through the current simulated flow field."""
         flow_u, flow_v = self.flow_field(real, imag, magnetic_field, heating)
+        xp = _xp_of(flow_u)
+        trails = xp.asarray(trails)
         head = trails[:, -1, :].copy()
         substeps = max(1, min(8, int(math.ceil(max(1, solver_steps) / 8))))
         dt = float(max(1, solver_steps)) / substeps
@@ -208,10 +228,10 @@ class FusionPlasmaDemo(Demo):
         for _ in range(substeps):
             du = self._sample_periodic(flow_u, head)
             dv = self._sample_periodic(flow_v, head)
-            head[:, 0] = np.mod(head[:, 0] + dt * du, 1.0)
-            head[:, 1] = np.mod(head[:, 1] + dt * dv, 1.0)
-            sampled_speed += float(np.mean(np.sqrt(du * du + dv * dv)))
-        trails = np.roll(trails, -1, axis=1)
+            head[:, 0] = xp.mod(head[:, 0] + dt * du, 1.0)
+            head[:, 1] = xp.mod(head[:, 1] + dt * dv, 1.0)
+            sampled_speed += float(xp.mean(xp.sqrt(du * du + dv * dv)))
+        trails = xp.roll(trails, -1, axis=1)
         trails[:, -1, :] = head
         return trails, sampled_speed / substeps
 
@@ -258,7 +278,10 @@ class FusionPlasmaDemo(Demo):
     # ---- torus surface --------------------------------------------------
     def _shell_points(self, real, imag, size, angle, compact):
         """Depth-sorted coloured points sampling the plasma surface."""
-        real, imag = to_numpy(real), to_numpy(imag)
+        ny, nx = real.shape
+        # Only the sampled lattice points are drawn; copy just those.
+        pre = max(1, int(math.ceil(ny / (80 if not compact else 45))))
+        real, imag = to_numpy(real[::pre, ::pre]), to_numpy(imag[::pre, ::pre])
         ny, nx = real.shape
         amp = np.sqrt(real * real + imag * imag)
         phase = (np.arctan2(imag, real) + np.pi) / (2 * np.pi)
@@ -266,7 +289,7 @@ class FusionPlasmaDemo(Demo):
         rgb = palette(texture, "plasma", normalize_input=False)
         # Sampling every second lattice row keeps the point renderer quick at
         # Leonardo resolutions while still deriving every colour from state.
-        stride = max(1, int(math.ceil(ny / (80 if not compact else 45))))
+        stride = 1
         vv, uu = np.mgrid[0:ny:stride, 0:nx:stride]
         vv, uu = vv.ravel(), uu.ravel()
         v = 2 * np.pi * vv / ny
@@ -800,10 +823,9 @@ class FusionPlasmaDemo(Demo):
 
     # ---- interactive state ----------------------------------------------
     def _texture_payload(self, real, imag):
-        real, imag = to_numpy(real), to_numpy(imag)
         ny, nx = real.shape
         stride = max(1, int(math.ceil(ny / 96)))
-        real, imag = real[::stride, ::stride], imag[::stride, ::stride]
+        real, imag = to_numpy(real[::stride, ::stride]), to_numpy(imag[::stride, ::stride])
         amp = np.sqrt(real * real + imag * imag)
         phase = (np.arctan2(imag, real) + np.pi) / (2 * np.pi)
         texture = np.clip(0.62 * amp / 1.25 + 0.38 * phase, 0, 1)
@@ -831,17 +853,26 @@ class FusionPlasmaDemo(Demo):
                                  "default_view_mode": "fusion3d"})
         return path
 
+    def _passive_manifest(self, real, imag, trails, magnetic_field, heating, density):
+        manifest = self._passive_manifest_body(self._texture_payload(real, imag), trails, magnetic_field,
+                                               heating, density)
+        return manifest
+
     def write_interactive_view(self, real, imag, trails, magnetic_field, heating,
                                density, frame=None):
         """Persist a compact state for the browser's live rotatable canvas."""
-        texture = self._texture_payload(real, imag)
+        manifest = self._passive_manifest_body(self._texture_payload(real, imag), to_numpy(trails),
+                                               magnetic_field, heating, density)
+        return self._write_view(manifest, frame)
+
+    def _passive_manifest_body(self, texture, trails, magnetic_field, heating, density):
         manifest = {
             "version": 2,
             "kind": "fusion-torus",
             "mode": "passive",
             "shape": [int(texture.shape[0]), int(texture.shape[1])],
             "texture": np.rint(texture * 255).astype(np.uint8).ravel().tolist(),
-            "trails": np.round(np.asarray(trails, dtype=np.float32), 5).tolist(),
+            "trails": (np.round(np.asarray(trails, dtype=np.float32), 5).tolist() if trails is not None else None),
             "magnetic_field": float(magnetic_field),
             "heating": float(heating),
             "density": float(density),
@@ -849,7 +880,7 @@ class FusionPlasmaDemo(Demo):
             "field_pitch": self.field_pitch(magnetic_field),
             "note": "Magnetic lines are illustrative helical confinement geometry, not a solved equilibrium.",
         }
-        return self._write_view(manifest, frame)
+        return manifest
 
     def write_guardian_view(self, real, imag, particles, axis, state, action,
                             magnetic_field, heating, density, stats, frame=None):
@@ -915,21 +946,38 @@ class FusionPlasmaDemo(Demo):
             int(self.settings.get("trail", 12)),
         )
         done = 0
-        for i in range(self.ctx.frames):
-            target = int(round(total * (i + 1) / self.ctx.frames))
-            solver_steps = max(1, target - done)
-            real, imag = self.step(real, imag, b, heating, density, solver_steps)
-            done = target
-            trails, tracer_speed = self.advance_tracers(trails, real, imag, b, heating, solver_steps)
-            image = self.hero(real, imag, i, done, total, trails)
-            self.ctx.save_frame(image, self.ctx.frame_path(i))
-            self.write_interactive_view(real, imag, trails, b, heating, density, frame=i)
-            score=self.turbulence(to_numpy(real),to_numpy(imag)); regime="phase turbulence" if score>.075 else "coherent confinement"
-            self.ctx.write_status(i, f"plasma lattice step {done:,} · {len(trails):,} tracers",{
-                "mode":"passive confinement",
-                "magnetic field":f"{b:.1f} T","heating power":f"{heating:.0f} MW","density":f"{density:.2f} n₀",
-                "regime":regime,"turbulence index":f"{score:.3f}","passive tracers":f"{len(trails):,}",
-                "mean drift":f"{tracer_speed*360:.3f}° / step","solver step":f"{done:,} / {total:,}"})
+        # Physics and the frame's reductions on the device; drawing the torus,
+        # the tracer ribbons and the 3-D view file on the allocated CPU cores.
+        workers = max(1, min(self.ctx.cpu_workers - 1, 16, max(1, self.ctx.frames // 6)))
+        with FramePipeline(self.ctx, workers=workers) as frames:
+            for i in range(self.ctx.frames):
+                target = int(round(total * (i + 1) / self.ctx.frames))
+                solver_steps = max(1, target - done)
+                real, imag = self.step(real, imag, b, heating, density, solver_steps)
+                done = target
+                with self.ctx.stage("visualization"):
+                    trails, tracer_speed = self.advance_tracers(trails, real, imag, b, heating, solver_steps)
+                    score = self.turbulence(real, imag)
+                    angle = i * 0.010
+                    payload = {
+                        "points": self._shell_points(real, imag, (1280, 720), angle, False),
+                        "trails": to_numpy(trails).astype(np.float32), "angle": angle,
+                        "subtitle": (f"field-driven plasma tracers · {real.shape[1]}×{real.shape[0]} periodic lattice · "
+                                     f"solver step {done:,}/{total:,} · {self.ctx.backend_name}"),
+                        "progress": done / total,
+                        "view": {"path": str(self.ctx.run_dir / "modes" / "fusion3d" / f"frame_{i:04d}.json"),
+                                 "manifest": self._passive_manifest(real, imag, None, b, heating, density)},
+                    }
+                if i == 0:
+                    self._write_view({**payload["view"]["manifest"], "trails": []}, 0)
+                regime = "phase turbulence" if score > .075 else "coherent confinement"
+                frames.submit(i, draw_passive_frame, payload, self.ctx.frame_path(i),
+                              f"plasma lattice step {done:,} · {len(trails):,} tracers", {
+                    "mode":"passive confinement",
+                    "magnetic field":f"{b:.1f} T","heating power":f"{heating:.0f} MW","density":f"{density:.2f} n₀",
+                    "regime":regime,"turbulence index":f"{score:.3f}","passive tracers":f"{len(trails):,}",
+                    "mean drift":f"{tracer_speed*360:.3f}° / step","solver step":f"{done:,} / {total:,}"})
+        trails = to_numpy(trails)
 
         # Retain one final-state file so older viewers can still open new runs.
         self.write_interactive_view(real, imag, trails, b, heating, density)
@@ -1172,3 +1220,40 @@ class FusionPlasmaDemo(Demo):
             labels=labels,
             label_fill=(180, 238, 255),
         )
+
+
+def _xp_of(array):
+    """NumPy or CuPy, whichever module owns this array."""
+    module = type(array).__module__
+    if module.startswith("cupy"):
+        import cupy
+        return cupy
+    return np
+
+
+def draw_passive_frame(p):
+    """Draw one passive-mode frame and write its 3-D view file (worker process)."""
+    import json as _json
+    demo = FusionPlasmaDemo.__new__(FusionPlasmaDemo)   # drawing helpers only; no solver state
+    size = (1280, 720)
+    base = Image.new("RGB", size, (2, 4, 12)).convert("RGBA")
+    glow = Image.new("RGBA", size, (0, 0, 0, 0))
+    sharp = Image.new("RGBA", size, (0, 0, 0, 0))
+    gd, sd = ImageDraw.Draw(glow, "RGBA"), ImageDraw.Draw(sharp, "RGBA")
+    radius = demo._paint_shell(gd, sd, p["points"], size, False)
+    halo = glow.filter(ImageFilter.GaussianBlur(max(2, radius * 3)))
+    image = Image.alpha_composite(Image.alpha_composite(base, halo), sharp).convert("RGB")
+    image = demo._draw_tracers(image, p["trails"], size, p["angle"])
+    image = add_title(image, "Star in a Bottle", p["subtitle"], badge="LIVE FIELD + FLOW")
+    add_progress(image, p["progress"], "COHERENT WAVES", "TURBULENT PLASMA")
+    view = p.get("view")
+    if view:
+        manifest = dict(view["manifest"])
+        manifest["trails"] = np.round(np.asarray(p["trails"], dtype=np.float32), 5).tolist()
+        target = Path(view["path"])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(".tmp")
+        tmp.write_text(_json.dumps(manifest, separators=(",", ":")), encoding="utf-8")
+        tmp.replace(target)
+    return image
+
