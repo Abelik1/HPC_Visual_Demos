@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Leonardo · Demo Day</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/static/games.css?v=5"><link rel="stylesheet" href="/static/demo.css?v=9"><link rel="stylesheet" href="/static/hpc.css?v=2"></head>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Leonardo · Demo Day</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/static/games.css?v=5"><link rel="stylesheet" href="/static/demo.css?v=10"><link rel="stylesheet" href="/static/hpc.css?v=2"></head>
 <body class="kiosk">
 
 <!-- ============================ PICKER ============================ -->
@@ -182,6 +182,7 @@
       </details>
       <div class="fieldGrid">
         <label>When nobody has touched it for 3 minutes <select id="idleAction"><option value="none">Do nothing</option><option value="picker">Go back to the picker</option><option value="slideshow">Start the slideshow</option></select><small>For an unattended stand.</small></label>
+        <label class="switchField"><input id="guardianTraining" type="checkbox"> Visitors can train a new Star in a Bottle guardian<small>Off: Mode 2 shows the controller trained ahead of time, and <em>Run it</em> is hidden.</small></label>
         <label>Each slideshow simulation plays for at least <select id="slideDwell"><option value="10">10 seconds</option><option value="20" selected>20 seconds</option><option value="40">40 seconds</option><option value="60">1 minute</option></select><small>A run that finishes sooner loops until then.</small></label>
       </div>
       <div class="drawerFoot">
@@ -196,8 +197,8 @@
 <script src="/static/chain_builder.js?v=4"></script>
 <script src="/static/brain_builder.js?v=3"></script>
 <script src="/static/arena_view.js?v=8"></script>
-<script src="/static/fusion_view.js?v=5"></script>
+<script src="/static/fusion_view.js?v=8"></script>
 <script src="/static/galaxy3d_view.js?v=5"></script>
 <script src="/static/hpc.js?v=1"></script>
-<script src="/static/demo.js?v=12"></script>
+<script src="/static/demo.js?v=13"></script>
 </body></html>

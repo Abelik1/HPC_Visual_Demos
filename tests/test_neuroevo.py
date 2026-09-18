@@ -79,6 +79,13 @@ class BrainSpecTests(unittest.TestCase):
                 replay(run.name, "3")                      # generation not saved
             with self.assertRaises(HTTPException):
                 replay(run.name, "1,2,3,4,5,6,7")          # too many at once
+            (run / "checkpoints" / "gen_0001.npz").write_bytes(b"")
+            with self.assertRaises(HTTPException):
+                replay(run.name, "1", track=9)             # no such track
+            with self.assertRaises(HTTPException):
+                replay(run.name, "1", cave=5)              # not a Neuro-Racers setting
+            with self.assertRaises(HTTPException):
+                replay(run.name, "1", ghosts="../outside")
 
     def test_api_validates_brains_and_ghosts(self):
         over = {"sensors": OVER_BUDGET, "hidden": [16, 16], "actions": ["steer", "throttle"]}
@@ -88,6 +95,8 @@ class BrainSpecTests(unittest.TestCase):
             start("fluid", RunReq(brain=preset("tiny")))
         with self.assertRaises(HTTPException):
             start("neuro_racers", RunReq(brain=preset("tiny"), ghosts=["../outside"]))
+        with self.assertRaises(HTTPException):
+            start("fluid", RunReq(name="Sam"))                  # name tags are for the AI games
 
 
 class PopulationTests(unittest.TestCase):
@@ -190,6 +199,18 @@ class RacingBehaviourTests(unittest.TestCase):
             self.assertEqual(one["cars"][0]["x"], again["cars"][0]["x"])          # a seed replays exactly
             self.assertNotEqual(one["cars"][0]["x"][0], other["cars"][0]["x"][0])  # a new seed is a new start
             self.assertEqual(len(one["brains"]), 2)
+            # The test world: the same frozen networks on another track, and
+            # racing another visitor's saved champion (with its own name tag).
+            moved = NeuroRacersDemo.replay(root, meta, [2], 5, {"track": 1})
+            self.assertEqual((moved["replay"]["track"], moved["replay"]["trained_track"]), (1, 0))
+            self.assertEqual(moved["arena"]["track"], "Kidney")
+            (root / "rival").mkdir()
+            save_champion(root / "rival" / "champion.npz", load_checkpoint(root / "checkpoints/gen_0002.npz")["champion"],
+                          meta["brain"], {"track": 0, "name": "Sam"})
+            race = NeuroRacersDemo.replay(root, meta, [2], 5, {"ghosts": [str(root / "rival")]})
+            self.assertEqual([(c["label"], bool(c.get("ghost"))) for c in race["cars"]], [("gen 2", False), ("Sam", True)])
+            self.assertEqual(race["cars"][0]["x"], race["cars"][1]["x"])          # same network, same start, same drive
+            self.assertEqual(len(race["brains"]), 1)                              # brains line up with own cars only
 
 
 # ---- Bat vs Moth -------------------------------------------------------
@@ -329,11 +350,21 @@ class BatVsMothTests(unittest.TestCase):
             gen = json.loads((root / "interactive/gen_0003.json").read_text())
             self.assertEqual(len(gen["moths"]), 3)
             self.assertEqual(len(gen["others"]), 11)
+            # One per box: the best caves' full hunts, champion's cave first.
+            self.assertEqual(meta["arena_view"]["lanes"], 9)
+            self.assertEqual(len(gen["lanes"]), 8)
+            self.assertEqual(len(gen["lanes"][0]["moths"]), 3)
+            self.assertEqual(len(gen["lanes"][0]["cars"][0]["x"]), len(gen["cars"][0]["x"]))
             self.assertEqual(len(gen["brains"][0]["acts"][0]), len(gen["cars"][0]["x"]))
             saved = load_checkpoint(root / "checkpoints/gen_0003.npz")
             self.assertEqual(saved["moths"].shape[0], 3)
             replay = bm.BatVsMothDemo.replay(root, meta, [2], 9)
-            self.assertEqual(replay["replay"], {"gens": [2], "seed": 9})
+            self.assertEqual(replay["replay"], {"gens": [2], "seed": 9, "cave": 11, "moths": 3,
+                                                "trained_cave": 11, "trained_moths": 3})
+            # A test world: another cave layout and more moths, same networks.
+            moved = bm.BatVsMothDemo.replay(root, meta, [2], 9, {"cave": 12, "moths": 5})
+            self.assertEqual(len(moved["moths"]), 5)
+            self.assertNotEqual(moved["arena"]["rocks"], replay["arena"]["rocks"])
             self.assertEqual([b["title"] for b in replay["brains"]],
                              ["Generation 2 champion bat", "Generation 2 leading moth"])
             self.assertEqual(len(replay["brains"][1]["acts"][0]), len(replay["cars"][0]["x"]))

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import math
 from pathlib import Path
@@ -11,8 +12,8 @@ from ..backend import to_numpy
 from ..base import Demo
 from ..colors import palette
 from ..plasma_control import (
-    AXIS_GAIN, INPUT_NAMES, OUTPUT_NAMES, START_STATE, ConfinedParticles,
-    make_trainer, risk_of, sample_periodic, transition_numpy,
+    AXIS_GAIN, INPUT_NAMES, OUTPUT_NAMES, START_STATE, ConfinedParticles, FrozenController,
+    make_trainer, risk_of, sample_periodic, save_controller, transition_numpy,
 )
 from ..render import add_progress, add_title, font, mosaic
 from ..pipeline import FramePipeline
@@ -1047,16 +1048,25 @@ class FusionPlasmaDemo(Demo):
 
         for name in ("network", "poloidal", "shots"):
             (self.ctx.run_dir / "overlays" / name).mkdir(parents=True, exist_ok=True)
+        # Every shot's controller is saved as it flew, so a finished run can be
+        # tested again in conditions of the visitor's choosing (see replay).
+        checkpoints = self.ctx.run_dir / "checkpoints"
+        checkpoints.mkdir(exist_ok=True)
         self.ctx.write_meta({"overlays": ["network", "poloidal", "shots"],
                              "simulation_mode": "guardian",
                              "shots": shots,
                              "shot_steps": shot_steps,
-                             "training": "between shots, on the states each shot visited"})
+                             "training": "between shots, on the states each shot visited",
+                             "trained_world": {"magnetic_field": b, "heating": heating,
+                                               "instability": drive, "density": density},
+                             "lab": {"checkpoints": "checkpoints", "generations": shots,
+                                     "kind": "controller", "compare": True}})
 
         history = []
         loss = 0.0
         trained = 0
         for shot, (first, last) in enumerate(plan):
+            save_controller(checkpoints / f"gen_{shot + 1:04d}.npz", trainer)
             # Every shot is the same experiment: same field seed, same marker
             # seed, same start state, same disturbance sequence. The only thing
             # that differs between shots is the policy, so the scoreboard is a
@@ -1167,6 +1177,98 @@ class FusionPlasmaDemo(Demo):
         reveal_path = self.ctx.run_dir / "reveal.jpg"
         self.ctx.save_frame(self.guardian_reveal(trainer, b, heating, density, ny), reveal_path)
         self.ctx.finish(reveal_path)
+
+    # ---- testing a saved controller ---------------------------------------
+    TEST_FRAMES = 40
+    TEST_GRID = 40
+
+    @classmethod
+    def replay(cls, run_dir: Path, meta: dict, gens, seed: int, env: dict | None = None):
+        """Fly saved controllers through a fresh plasma, in conditions of choice.
+
+        ``gens`` are shot numbers: the controller that flew each shot, frozen.
+        ``env`` may change the magnetic field, heating and instability drive;
+        nothing about the networks changes.  Every controller and an
+        uncontrolled reference fly the same field from the same start, on the
+        CPU, at a small test resolution (``TEST_GRID`` rows) so a visitor's
+        request comes back in about a second.  Returns one texture per frame
+        (shared) and, per controller, the confined markers frame by frame.
+        Bulk arrays are packed as base64 bytes to keep a test to a few hundred
+        kilobytes: textures as uint8 (frames x rows x cols), marker positions
+        (toroidal turn, poloidal turn, minor radius, each in [0, 1]) as uint16
+        scaled by 65535 (frames x markers x 3), and wall sparks the same way
+        (toroidal, poloidal, age fraction, energy / 1.6), with ``spark_counts``
+        per frame.  The browser rebuilds the short trails from earlier frames.
+        """
+        env = env or {}
+        settings = meta.get("settings") or {}
+        params = meta.get("params") or {}
+        trained = meta.get("trained_world") or {
+            "magnetic_field": float(params.get("magnetic_field", 5.0)), "heating": float(params.get("heating", 25.0)),
+            "instability": float(params.get("instability", 1.0)), "density": float(params.get("density", 1.0))}
+        world = {key: float(env.get(key, trained[key])) for key in ("magnetic_field", "heating", "instability", "density")}
+        b, heating, drive, density = (world[k] for k in ("magnetic_field", "heating", "instability", "density"))
+
+        demo = cls.__new__(cls)
+        demo.ctx = type("TestContext", (), {"xp": np})()
+        rng = np.random.default_rng(int(seed))
+        ny, nx = demo.grid_shape(min(cls.TEST_GRID, int(settings.get("sweep_n", cls.TEST_GRID))))
+        real, imag = demo.initialise(ny, nx, seed=140 + int(seed) % 997)
+        real, imag = demo.step(real, imag, b, heating, density, 120)
+        count = max(48, min(260, int(settings.get("particles", 220))))
+        frames = cls.TEST_FRAMES
+        control_per_frame = max(1, int(round(int(settings.get("display_steps", 48)) * 1.5 / frames)))
+        start = np.array(START_STATE, dtype=np.float32)
+        start[:4] += rng.uniform(-.06, .06, 4).astype(np.float32)
+        particle_seed = 404 + int(seed) % 997
+        disturbance = np.zeros(2, dtype=np.float32)
+
+        pilots = [(f"shot {int(g)}", int(g), FrozenController(Path(run_dir) / "checkpoints" / f"gen_{int(g):04d}.npz"))
+                  for g in gens]
+        flights = [{"label": label, "shot": shot, "pilot": pilot, "state": start.copy(), "step": 0,
+                    "markers": ConfinedParticles(count, 4, seed=particle_seed), "frames": [], "positions": [], "sparks": []}
+                   for label, shot, pilot in pilots]
+        flights.append({"label": "no control", "shot": None, "pilot": None, "state": start.copy(), "step": 0,
+                        "markers": ConfinedParticles(count, 4, seed=particle_seed), "frames": [], "positions": [], "sparks": []})
+        textures = []
+        idle = np.zeros(3, dtype=np.float32)
+        for frame in range(frames):
+            real, imag = demo.step(real, imag, b, heating, density, 3)
+            turbulence = demo.turbulence_map(real, imag)
+            textures.append(np.rint(demo._texture_payload(real, imag) * 255).astype(np.uint8))
+            for f in flights:
+                action = idle
+                for _ in range(control_per_frame):
+                    action = idle if f["pilot"] is None else f["pilot"].act(f["state"])
+                    f["state"] = transition_numpy(f["state"], action, disturbance, f["step"], drive)
+                    f["step"] += 1
+                state = f["state"]
+                axis = np.clip(state[:2], -1.0, 1.0) * AXIS_GAIN
+                stats = f["markers"].advance(turbulence, axis, state[4], state[5], action[2], b, heating, drive,
+                                             substeps=3, spark_life=SPARK_LIFE)
+                markers = f["markers"]
+                f["positions"].append(np.stack([markers.u, markers.theta, markers.r], axis=-1))
+                f["sparks"].append(markers.spark_list(SPARK_LIFE))
+                f["frames"].append({
+                    "axis": [round(float(axis[0]), 4), round(float(axis[1]), 4)],
+                    "commands": [round(float(v), 4) for v in np.asarray(action).ravel()[:3]],
+                    "risk": round(risk_of(state), 4),
+                    "lost_total": int(stats["lost_total"]),
+                })
+        shape = [int(v) for v in textures[0].shape]
+        pack = lambda a: base64.b64encode(np.ascontiguousarray(a).tobytes()).decode("ascii")
+        runs = [{"label": f["label"], "shot": f["shot"], "controlled": f["pilot"] is not None,
+                 "lost": int(f["markers"].lost_total), "frames": f["frames"],
+                 "positions": pack(np.rint(np.clip(np.asarray(f["positions"]), 0, 1) * 65535).astype("<u2")),
+                 "spark_counts": [len(k) for k in f["sparks"]],
+                 "sparks": pack(np.rint(np.clip(np.concatenate(f["sparks"] + [np.zeros((0, 4), np.float32)])
+                                                / np.array([1, 1, 1, 1.6], np.float32), 0, 1) * 65535).astype("<u2"))}
+                for f in flights]
+        return {"kind": "fusion-test", "shape": shape, "textures": pack(np.asarray(textures)),
+                "count": count, "frames": frames,
+                "world": world, "trained_world": trained, "seed": int(seed),
+                "field_lines": 9, "field_pitch": cls.field_pitch(b),
+                "runs": runs[:-1], "reference": runs[-1]}
 
     def guardian_reveal(self, trainer, b, heating, density, ny):
         """Re-test the trained policy against instability drives it never saw.

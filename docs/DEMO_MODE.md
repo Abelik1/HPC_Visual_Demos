@@ -47,13 +47,11 @@ In demo mode specifically:
 * **Black hole, wind tunnel, cosmic web, both galaxy collisions** run exactly one
   simulation (`parallel_count = 1`) and have no reveal control at all.
 * **Neuro-Racers** and **Bat vs Moth** — where hundreds of agents really are
-  being evolved in parallel — put the population on the page as a visitor
-  control, with two ways to look at it:
-  * **All together** — the whole recorded population in one arena, overlaid.
-  * **One per box** — for Neuro-Racers, the same training as *All together*
-    with every car on its own copy of the track (the best 16 cars). For Bat vs
-    Moth, one champion per box, one box per cave; the number of boxes is the
-    **Independent caves** control.
+  being evolved in parallel — show the population in two ways:
+  * **Training** — the whole recorded population in one arena, overlaid.
+  * **One per box** — the same training, with each of the best cars (up to
+    16) on its own copy of the track, or each of the best caves (9) in its
+    own box.
 * **Neural-network wall** puts the same idea as **Networks trained at once**
   (1 · 4 · 16 · 36 · 64). The run itself does the reveal: it shows the champion
   first, then pulls back to the whole wall.
@@ -139,24 +137,55 @@ to the play button; with it off, playback stops on the last frame.
 
 ## Per demo
 
-* **Neuro-Racers and Bat vs Moth** have three views. **Training** replays the
-  evolving population one generation at a time, and each drive plays to its
-  end before the next generation starts. A Neuro-Racers drive ends early
-  (after a two-second hold) once every car on screen has crashed or stalled,
-  so the hopeless early generations go by quickly instead of running the race
-  clock out. **Champion drives / hunts** is inference: the saved champion
-  network, frozen, driving from a random start it has never seen (Neuro-Racers
-  can also race the first, middle and final champions against each other).
-  **One per box** is still training: for Neuro-Racers it replays the same
-  generations as Training, but each car on its own copy of the track; for Bat
-  vs Moth it animates every independent cave side by side. The live network
-  and a training chart sit under the picture, never over it. Bat vs Moth runs
-  made before the animated grid show one per box as a still image.
+* **Neuro-Racers and Bat vs Moth** keep training and inference apart, each
+  with its own controls.
+  * **Training** (the controls above *Run it*) sets how the visitor's brain
+    is trained: track or cave, moths, mutation, ghosts and a **name tag**.
+    Every visitor gets the same number of generations (the quality preset's),
+    so brains compete on design alone; the heading says how many.
+  * The **Training** view replays the evolving population one generation at a
+    time, each drive playing to its end before the next starts. A drive ends
+    early, after a two-second hold, once every car on screen has crashed or
+    stalled, or every moth on screen has been caught, so the hopeless early
+    generations go by quickly. **One per box** is the same training split into
+    boxes. Bat vs Moth shows both in the bat's senses or the lit cave.
+  * **Champion drives / hunts** is inference: the saved champion network,
+    frozen, from a random start it has never seen (Bat vs Moth: in the senses
+    or the lit cave). The **test world** right under the picture changes the
+    world, never the network, and re-runs the champion at once: another track
+    or all four at once; another cave layout, more or fewer moths, or 1 · 4 ·
+    9 · 16 caves at once, one per box. This is where a brain that learned its
+    training world by heart shows it. Neuro-Racers can also race the first,
+    middle and final champions against each other, or **race the ghosts**: the
+    best saved champions of other visitors on that track, from the same start,
+    each car with its owner's name tag.
+  * The live network and a training chart sit under the picture, never over
+    it. Bat vs Moth runs made before this version have no One per box view.
 * **Star in a Bottle**: the Mode 1 / Mode 2 buttons also switch the picture to a
-  saved run of that mode, and a label on the picture says which mode is on
-  screen. Guardian runs show three panels underneath: the frozen network flying
-  the shot (inference), the scoreboard of training between shots, and the
-  cross-section, above a timeline of shots and training steps.
+  saved run of that mode (and opening a saved run switches the buttons), and a
+  label on the picture says which mode is on screen.
+  * **Mode 1**'s 3D torus draws its tracers the way the flat view does (glow,
+    ribbons, white heads). A big run draws a quicker pass while you rotate or
+    play and the full picture once the view is still.
+  * **Mode 2 makes the trained controller the exhibit.** Train one good
+    controller ahead of time (a long run; every shot's controller is saved in
+    `checkpoints/`) and make it the showcase. Visitors do not train: the
+    training controls and *Run it* are replaced by a note, unless ⚙ →
+    *Visitors can train a new Star in a Bottle guardian* is ticked.
+  * **Test the controller** (the default view of a guardian run) flies the
+    final controller, frozen, live: the test panel under the picture sets the
+    magnetic field, heating and instability drive; **Compare with no control**
+    puts the same plasma with the coils left alone beside it; **Plasmas at
+    once** (1 · 4 · 9 · 16) gives each box a harder instability drive. Each
+    box counts its wall hits. Tests run on the server's CPU at a small test
+    resolution and come back in about a second.
+  * **How it learned** flies every training shot's controller side by side in
+    the training conditions, with no control last.
+  * **3D torus** and **Flat view** replay the training run itself. Its three
+    panels underneath show the frozen network flying the shot, the scoreboard
+    of training between shots, and the cross-section, above a timeline of
+    shots and training steps. Guardian runs made before this version saved no
+    controller, so they have no test views: re-render the showcase.
 * **Neural image compression** (formerly the neural-network wall): pick a
   default picture, upload, take a photo or draw, choose how small to squeeze it
   (32 to 128 px), and read size in, network size, compression ratio and quality

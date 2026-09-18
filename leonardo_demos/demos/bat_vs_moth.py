@@ -884,23 +884,35 @@ class BatVsMothDemo(Demo):
                           for j in range(ep["moth"].shape[1])],
                 "others": others, "brains": list(brains), "chirps": chirps, "jam": jam_mask}
 
+    @staticmethod
+    def arena_payload(cave, k):
+        return {"kind": "batmoth", "world": [WORLD_W, WORLD_H],
+                "rocks": [[round(x, 3), round(y, 3), round(r, 3)] for x, y, r in cave["rocks"]],
+                "echo_range": ECHO_RANGE, "ear_offset_deg": math.degrees(EAR_OFFSET), "jam_range": JAM_RANGE, "moths": k}
+
     # ---- generation lab ------------------------------------------------
     @classmethod
-    def replay(cls, run_dir: Path, meta: dict, gens, seed: int):
+    def replay(cls, run_dir: Path, meta: dict, gens, seed: int, env: dict | None = None):
         """One saved generation's champion bat and best moths, in a fresh start.
 
         Runs on the CPU in a single cave with new random start positions, and
         returns arena JSON plus the bat's and the leading moth's activations.
+        ``env`` may change the world the frozen networks are tested in - the
+        cave layout and the number of moths - without touching the networks.
         """
+        env = env or {}
         gen = int(gens[0])
         specs = json.loads((Path(__file__).resolve().parents[2] / "config" / "demo_specs.json").read_text(encoding="utf-8"))
         roles = brain_catalogue(specs, cls.id)["roles"]
         brains = meta["brain"]
-        k = int((meta.get("params") or {}).get("moths", 4))
+        trained_cave = int(meta.get("cave", 11))
+        trained_k = int((meta.get("params") or {}).get("moths", 4))
+        cave_id, k = int(env.get("cave", trained_cave)), int(env.get("moths", trained_k))
         steps = int((meta.get("settings") or {}).get("hunt_steps", 600))
         every = 2
         saved = load_checkpoint(Path(run_dir) / "checkpoints" / f"gen_{gen:04d}.npz")
-        sim = CaveSim(np, cave_geometry(int(meta.get("cave", 11))), brains["bat"], brains["moth"], k)
+        cave = cave_geometry(cave_id)
+        sim = CaveSim(np, cave, brains["bat"], brains["moth"], k)
         bats = Population(np, 1, brains["bat"]["layer_sizes"], seed=0)
         bats.genome = np.repeat(saved["bat"], bats.size, axis=0)
         moths = Population(np, 1, brains["moth"]["layer_sizes"], seed=0)
@@ -915,7 +927,9 @@ class BatVsMothDemo(Demo):
                           f"Generation {gen} leading moth"),
         ]
         data = cls.arena_json(gen, ep, brains=payloads)
-        data["replay"] = {"gens": [gen], "seed": int(seed)}
+        data["replay"] = {"gens": [gen], "seed": int(seed), "cave": cave_id, "moths": k,
+                          "trained_cave": trained_cave, "trained_moths": trained_k}
+        data["arena"] = cls.arena_payload(cave, k)
         return data
 
     # ---- the run -------------------------------------------------------
@@ -940,9 +954,9 @@ class BatVsMothDemo(Demo):
         moths = quiet_start(Population(xp, size, self.brains["moth"]["layer_sizes"], seed=rng.integers(1 << 30), sigma=sigma, **EVOLUTION), self.brains["moth"])
         self.dark_bg, self.lit_bg = self.rock_layer(False), self.rock_layer(True)
         folder = ctx.run_dir / "interactive"; folder.mkdir(exist_ok=True)
-        (folder / "arena.json").write_text(json.dumps({
-            "kind": "batmoth", "world": [WORLD_W, WORLD_H], "rocks": [[round(x, 3), round(y, 3), round(r, 3)] for x, y, r in self.cave["rocks"]],
-            "echo_range": ECHO_RANGE, "ear_offset_deg": math.degrees(EAR_OFFSET), "jam_range": JAM_RANGE, "moths": k}))
+        (folder / "arena.json").write_text(json.dumps(self.arena_payload(self.cave, k)))
+        # One per box: the best caves of each generation, each hunt in full.
+        lanes = max(1, min(size, int(s.get("record_caves", 9))))
         plan = [max(1, int(round(generations * (i + 1) / frames))) for i in range(frames)]
         fractions, blocks = [0.0] * frames, {}
         for i, g in enumerate(plan):
@@ -951,8 +965,10 @@ class BatVsMothDemo(Demo):
             for j, i in enumerate(members):
                 fractions[i] = (j + 1) / len(members)
         ctx.write_meta({"brain": self.brains, "cave": int(ctx.params.get("cave", 11)),
+                        "name": ctx.params.get("_name") or None,
                         "lab": {"checkpoints": "checkpoints", "generations": generations, "compare": False},
                         "arena_view": {"folder": "interactive", "kind": "batmoth", "arena": "interactive/arena.json",
+                                       "lanes": lanes,
                                        "frames": [[g, round(f, 4)] for g, f in zip(plan, fractions)]},
                         "view_modes": [{"id": "frames", "label": "Bat's senses", "folder": "frames"},
                                        {"id": "lit", "label": "Lit cave", "folder": "modes/lit"}],
@@ -997,7 +1013,10 @@ class BatVsMothDemo(Demo):
                 live = brain_payload(self.brains["bat"], self.catalogues_data["roles"]["bat"], bats.genome[cave:cave + 1],
                                      to_numpy(result["record"]["bat_in"][:, cave]).astype(np.float32),
                                      f"Generation {done} champion bat")
-                (folder / f"gen_{done:04d}.json").write_text(json.dumps(self.arena_json(done, current["episode"], others, [live])))
+                data = self.arena_json(done, current["episode"], others, [live])
+                data["lanes"] = [{key: lane[key] for key in ("cars", "moths", "chirps", "jam")}
+                                 for lane in (self.arena_json(done, self.episode(result, int(c))) for c in ranked[1:lanes])]
+                (folder / f"gen_{done:04d}.json").write_text(json.dumps(data))
             ep, stats = current["episode"], current["stats"]
             ctx.save_frame(self.render_frame(ep, fractions[i], False), ctx.frame_path(i))
             ctx.save_frame(self.render_frame(ep, fractions[i], True), ctx.run_dir / "modes" / "lit" / f"frame_{i:04d}.jpg")

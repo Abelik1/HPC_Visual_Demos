@@ -81,7 +81,7 @@ class SmallDemoTests(unittest.TestCase):
             self.assertTrue((Path(t)/'modes/fusion3d/frame_0001.json').exists())
     def test_fusion_plasma_guardian(self):
         with tempfile.TemporaryDirectory() as t:
-            c=RunContext(Path(t),'fusion_plasma','local',2,
+            c=RunContext(Path(t),'fusion_plasma','local',6,
                          {'magnetic_field':5.0,'heating':25,'density':1.0,'instability':1.0},
                          'cpu',method='guardian')
             FusionPlasmaDemo(c,{'n':24,'total_steps':8,'ensemble':2,'sweep_n':20,'sweep_steps':3,
@@ -105,6 +105,34 @@ class SmallDemoTests(unittest.TestCase):
             # Training is a phase between shots, so every shot must be scored.
             self.assertEqual(len(meta['shot_history']),meta['shots'])
             self.assertTrue(all('lost' in row and 'baseline' in row for row in meta['shot_history']))
+            # Every shot's controller is saved, and flies again - frozen, in
+            # NumPy - in conditions of the visitor's choosing.
+            self.assertEqual(meta['lab']['generations'],meta['shots'])
+            self.assertEqual(meta['trained_world']['instability'],1.0)
+            for shot in range(1,meta['shots']+1):
+                self.assertTrue((Path(t)/f'checkpoints/gen_{shot:04d}.npz').exists())
+            import base64
+            test=FusionPlasmaDemo.replay(Path(t),meta,[1,2],5,{'instability':1.4})
+            again=FusionPlasmaDemo.replay(Path(t),meta,[1,2],5,{'instability':1.4})
+            self.assertEqual(test['world']['instability'],1.4)
+            self.assertEqual([r['shot'] for r in test['runs']],[1,2])
+            self.assertFalse(test['reference']['controlled'])
+            self.assertEqual(test['runs'][0]['positions'],again['runs'][0]['positions'])   # a seed replays exactly
+            ny,nx=test['shape'];frames=test['frames']
+            self.assertEqual(len(base64.b64decode(test['textures'])),frames*ny*nx)
+            self.assertEqual(len(base64.b64decode(test['runs'][0]['positions'])),frames*test['count']*3*2)
+            self.assertEqual(len(base64.b64decode(test['runs'][0]['sparks'])),sum(test['runs'][0]['spark_counts'])*4*2)
+            self.assertEqual(len(test['runs'][0]['frames']),frames)
+    def test_fusion_replay_endpoint_validates_conditions(self):
+        from fastapi import HTTPException
+        from app import RUNS, replay
+        with tempfile.TemporaryDirectory(dir=RUNS) as t:
+            run=Path(t);(run/'checkpoints').mkdir()
+            (run/'meta.json').write_text(json.dumps({'demo':'fusion_plasma'}))
+            (run/'checkpoints'/'gen_0001.npz').write_bytes(b'')
+            for bad in ({'instability':9.0},{'magnetic_field':float('nan')},{'track':1}):
+                with self.assertRaises(HTTPException):
+                    replay(run.name,'1',**bad)
     def test_weather_ensemble(self):
         with tempfile.TemporaryDirectory() as t:
             c=RunContext(Path(t),'weather_ensemble','local',2,{'warming':1.5,'jet_stream':1.0,'uncertainty':25},'numpy')

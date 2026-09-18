@@ -504,16 +504,17 @@ class NeuroRacersDemo(Demo):
                                            "h": np.round(np.degrees(g["history"][:, 2])).astype(int).tolist()}
                                           for g in ghosts]}
 
+    @staticmethod
+    def arena_payload(t):
+        to_list = lambda a: np.round(a * 100).astype(int).tolist()
+        return {"kind": "racers", "world": [WORLD_W, WORLD_H], "track": t["name"], "track_id": t["id"],
+                "centre": to_list(t["centre"][::4]), "left": to_list(t["left"][::4]), "right": to_list(t["right"][::4]),
+                "start": [to_list(t["left"][0]), to_list(t["right"][0])]}
+
     def write_arena(self, catalogue):
         folder = self.ctx.run_dir / "interactive"
         folder.mkdir(exist_ok=True)
-        t = self.track
-        to_list = lambda a: np.round(a * 100).astype(int).tolist()
-        (folder / "arena.json").write_text(json.dumps({
-            "kind": "racers", "world": [WORLD_W, WORLD_H], "track": t["name"],
-            "centre": to_list(t["centre"][::4]), "left": to_list(t["left"][::4]), "right": to_list(t["right"][::4]),
-            "start": [to_list(t["left"][0]), to_list(t["right"][0])],
-        }))
+        (folder / "arena.json").write_text(json.dumps(self.arena_payload(self.track)))
 
     def network_overlay(self, population, champion_row, result, index, fraction, generation):
         genome = population.genome[champion_row:champion_row + 1]
@@ -581,6 +582,7 @@ class NeuroRacersDemo(Demo):
             for j, i in enumerate(members):
                 fractions[i] = (j + 1) / len(members)
         ctx.write_meta({"brain": self.brain, "track": {"id": self.track["id"], "name": self.track["name"]},
+                        "name": ctx.params.get("_name") or None,
                         "lab": {"checkpoints": "checkpoints", "generations": generations, "compare": True},
                         "arena_view": {"folder": "interactive", "kind": "racers", "arena": "interactive/arena.json",
                                        "frames": [[g, round(f, 4)] for g, f in zip(plan, fractions)]}})
@@ -658,18 +660,23 @@ class NeuroRacersDemo(Demo):
 
     # ---- generation lab ------------------------------------------------
     @classmethod
-    def replay(cls, run_dir: Path, meta: dict, gens, seed: int):
+    def replay(cls, run_dir: Path, meta: dict, gens, seed: int, env: dict | None = None):
         """Re-drive saved champions from one random start, on the CPU.
 
         Every requested generation's champion starts from the same random pose
         (anywhere on the track, slightly off-line and off-angle), so the
         visitor can compare how the network drove at different points of its
-        training.  Returns arena JSON plus each network's live activations.
+        training.  ``env`` may move the test to another track (the network is
+        unchanged, only the world is new) and add other visitors' saved
+        champions (``ghosts``: run folders) racing from the same pose.
+        Returns arena JSON plus each own network's live activations.
         """
+        env = env or {}
         specs = json.loads((Path(__file__).resolve().parents[2] / "config" / "demo_specs.json").read_text(encoding="utf-8"))
         catalogue = brain_catalogue(specs, cls.id)
         brain = meta["brain"]
-        track = track_geometry(int((meta.get("track") or {}).get("id", meta.get("params", {}).get("track", 0))))
+        trained = int((meta.get("track") or {}).get("id", meta.get("params", {}).get("track", 0)))
+        track = track_geometry(int(env.get("track", trained)))
         steps = int((meta.get("settings") or {}).get("sim_steps", 900))
         every = 2
         sim = RaceSim(np, track, brain, catalogue)
@@ -678,17 +685,33 @@ class NeuroRacersDemo(Demo):
                                   for g in gens])
         pop = Population(np, max(2, len(gens)), brain["layer_sizes"], seed=0)
         result = sim.run(pop, steps, every, genome=genomes, pose=pose)
-        cars, brains = [], []
-        for j, g in enumerate(gens):
+
+        def car(result, j, **extra):
             h = result["history"][:, j]
             lap, crash = int(result["lap_step"][j]), int(result["crash_step"][j])
-            cars.append({"x": np.round(h[:, 0] * 100).astype(int).tolist(), "y": np.round(h[:, 1] * 100).astype(int).tolist(),
-                         "h": np.round(np.degrees(h[:, 2])).astype(int).tolist(), "label": f"gen {int(g)}", "gen": int(g),
-                         "crash": crash // every if crash >= 0 else -1, "lap_s": round(lap * DT, 2) if lap > 0 else None,
-                         "laps": round(float(result["progress"][j]) / track["length"], 3)})
+            return {"x": np.round(h[:, 0] * 100).astype(int).tolist(), "y": np.round(h[:, 1] * 100).astype(int).tolist(),
+                    "h": np.round(np.degrees(h[:, 2])).astype(int).tolist(),
+                    "crash": crash // every if crash >= 0 else -1, "lap_s": round(lap * DT, 2) if lap > 0 else None,
+                    "laps": round(float(result["progress"][j]) / track["length"], 3), **extra}
+
+        cars, brains = [], []
+        for j, g in enumerate(gens):
+            cars.append(car(result, j, label=f"gen {int(g)}", gen=int(g)))
             brains.append(brain_payload(brain, catalogue, genomes[j:j + 1], result["inputs"][:, j], f"Generation {int(g)} champion"))
+        # Other visitors' champions, each with its own brain, from the same pose.
+        # They come after the own cars so ``brains`` still lines up with ``cars``.
+        for path in env.get("ghosts") or []:
+            try:
+                genome, ghost_brain, ghost_meta = load_champion(Path(path) / "champion.npz")
+            except Exception:
+                continue
+            ghost_sim = RaceSim(np, track, ghost_brain, catalogue)
+            ghost_result = ghost_sim.run(Population(np, 2, ghost_brain["layer_sizes"], seed=0), steps, every,
+                                         genome=genome, pose=pose)
+            cars.append(car(ghost_result, 0, label=str(ghost_meta.get("name") or f"run {Path(path).name[-5:]}"), ghost=True))
         return {"kind": "racers", "generation": [int(g) for g in gens], "sample_dt": DT * every,
-                "replay": {"gens": [int(g) for g in gens], "seed": int(seed)}, "cars": cars, "brains": brains, "ghosts": []}
+                "replay": {"gens": [int(g) for g in gens], "seed": int(seed), "track": track["id"], "trained_track": trained},
+                "arena": cls.arena_payload(track), "cars": cars, "brains": brains, "ghosts": []}
 
     # ---- the reveal ----------------------------------------------------
     def reveal(self, catalogue, seed, sigma):

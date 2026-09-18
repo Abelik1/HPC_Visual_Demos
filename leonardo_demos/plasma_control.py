@@ -285,6 +285,49 @@ class TorchPolicy:
         return tuple(layers)
 
 
+def save_controller(path, trainer):
+    """Save the policy as it is now, as plain arrays, so it can fly again later.
+
+    The network is only ever used frozen after this, so NumPy is enough to
+    run it: no PyTorch and no GPU are needed to test a saved controller.
+    """
+    policy = getattr(trainer, "policy", None)
+    if policy is None:
+        np.savez_compressed(path, kind=np.array("analytic"))
+        return
+    arrays = {"kind": np.array("mlp")}
+    for i, layer in enumerate(m for m in policy if hasattr(m, "weight")):
+        arrays[f"w{i}"] = layer.weight.detach().cpu().numpy().astype(np.float32)
+        arrays[f"b{i}"] = layer.bias.detach().cpu().numpy().astype(np.float32)
+    np.savez_compressed(path, **arrays)
+
+
+class FrozenController:
+    """A saved controller, flown with NumPy exactly as the network computed it."""
+
+    training = False
+
+    def __init__(self, path):
+        with np.load(path, allow_pickle=False) as data:
+            self.kind = str(data["kind"])
+            self.layers = []
+            i = 0
+            while f"w{i}" in data:
+                self.layers.append((data[f"w{i}"], data[f"b{i}"]))
+                i += 1
+
+    def act(self, state):
+        if self.kind != "mlp":
+            return AnalyticSafetyPolicy.actions(state).astype(np.float32)
+        x = np.asarray(state, dtype=np.float32)
+        for weight, bias in self.layers:
+            x = np.tanh(weight @ x + bias)
+        return np.clip(x, -1, 1).astype(np.float32)
+
+    def weights(self):
+        return tuple(w.T for w, _ in self.layers) if self.layers else AnalyticSafetyPolicy().weights()
+
+
 def make_trainer(ctx, learning_rate=0.004):
     """Build the policy, honouring the requested backend and never lying about it."""
     requested = getattr(ctx, "backend_requested", "auto")

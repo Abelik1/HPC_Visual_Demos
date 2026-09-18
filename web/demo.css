@@ -149,6 +149,16 @@ body.hasBuilder .stage{--pic:min(46vh,520px)}
 .seg button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .seg button:not(.on):hover{border-color:var(--accent);color:var(--text)}
 .box.wide{grid-column:span 2}
+/* AI games: the training settings are labelled as such, apart from the test world. */
+.trainingHead{grid-column:1/-1;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.trainingHead b{font-size:15px}
+.trainingHead small{flex-basis:100%;color:var(--muted);font-size:12.5px;line-height:1.4}
+.nameInput{min-height:46px;border-radius:11px;border:1px solid var(--line);background:var(--raise);color:var(--text);
+  padding:0 12px;font-size:16px;font-weight:700}
+.nameInput:focus{outline:none;border-color:var(--accent)}
+/* Star in a Bottle guardian: trained ahead of time, so no Run it for visitors. */
+body.trainingLocked #run{display:none}
+.fusionTestCanvas{cursor:grab}
 @media (max-width:900px){.box.wide{grid-column:span 1}}
 
 /* toggle box */
@@ -446,6 +456,9 @@ body.hasBrain .stage{max-width:min(1680px,100%);--pic:min(54vh,600px)}
 .instPanel{flex:1 1 320px;min-width:0;margin:0;display:flex;flex-direction:column;gap:8px;padding:12px 14px;
   border:1px solid var(--line);border-radius:14px;background:var(--panel)}
 .instPanel.wide{flex-basis:100%}
+.testGrid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.testGrid .box{background:var(--raise)}
+.testGrid .seg button{flex:1 1 0;min-width:max-content}
 .instPanel header{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .instPanel header b{font-size:14.5px}
 .instPanel header small{color:var(--muted);font-size:12px}

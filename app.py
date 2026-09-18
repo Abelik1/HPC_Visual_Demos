@@ -180,6 +180,10 @@ def list_runs(demo:str|None=None,limit:int=120):
             'overlays':meta.get('overlays'),
             'frame_data':bool(meta.get('frame_data')),
             'favourite':d.name in favourites,
+            # AI games: the visitor's name tag, for their champion and as a ghost.
+            'name':meta.get('name') or (meta.get('params') or {}).get('_name'),
+            # Star in a Bottle guardian: the conditions its controller trained in.
+            'trained_world':meta.get('trained_world'),
         })
         if len(out)>=max(1,min(500,limit)): break
     return out
@@ -863,13 +867,16 @@ def zoom_view(rid:str,cx:float=0.0,cy:float=0.0,span:float=1.0,
                              'X-DeepZoom-Detail':str(detail_depth)})
 
 @app.get('/api/replay/{rid}')
-def replay(rid:str,gens:str,seed:int=0,track:int|None=None,cave:int|None=None,moths:int|None=None,ghosts:str|None=None):
+def replay(rid:str,gens:str,seed:int=0,track:int|None=None,cave:int|None=None,moths:int|None=None,ghosts:str|None=None,
+           magnetic_field:float|None=None,heating:float|None=None,instability:float|None=None):
     """Replay saved generations' champions from a fresh random start.
 
     Computed on the CPU in this process: one cave or a handful of cars is
     milliseconds of NumPy, and it never creates a CUDA context here.
-    ``track``, ``cave`` and ``moths`` test the frozen networks in a different
-    world; ``ghosts`` (comma-separated run ids) races other saved champions.
+    ``track``, ``cave`` and ``moths`` (the AI games) or ``magnetic_field``,
+    ``heating`` and ``instability`` (Star in a Bottle's saved controllers) test
+    the frozen networks in a different world; ``ghosts`` (comma-separated run
+    ids) races other saved champions.
     """
     rd=_run_dir(rid)
     meta=json.loads((rd/'meta.json').read_text(encoding="utf-8"))
@@ -878,17 +885,18 @@ def replay(rid:str,gens:str,seed:int=0,track:int|None=None,cave:int|None=None,mo
         raise HTTPException(404,'this run has no saved generations to replay')
     try: wanted=[int(g) for g in gens.split(',') if g.strip()]
     except ValueError: raise HTTPException(422,'gens must be generation numbers')
-    if not 1<=len(wanted)<=6: raise HTTPException(422,'choose between 1 and 6 generations')
+    if not 1<=len(wanted)<=12: raise HTTPException(422,'choose between 1 and 12 generations')
     missing=[g for g in wanted if not (rd/'checkpoints'/f'gen_{g:04d}.npz').exists()]
     if missing: raise HTTPException(404,f'generation(s) not saved yet: {missing}')
     params=(load_specs().get(meta.get('demo')) or {}).get('params',{})
     env={}
-    for key,value in (('track',track),('cave',cave),('moths',moths)):
+    for key,value in (('track',track),('cave',cave),('moths',moths),
+                      ('magnetic_field',magnetic_field),('heating',heating),('instability',instability)):
         if value is None: continue
         limits=params.get(key)
-        if not limits or not float(limits['min'])<=value<=float(limits['max']):
+        if not limits or not math.isfinite(value) or not float(limits['min'])<=value<=float(limits['max']):
             raise HTTPException(422,f'{key} is not a setting of this demo, or is out of range')
-        env[key]=int(value)
+        env[key]=int(value) if key in ('track','cave','moths') else float(value)
     if ghosts:
         if meta.get('demo')!='neuro_racers': raise HTTPException(422,'ghost races are only supported by Neuro-Racers')
         ids=[g for g in ghosts.split(',') if g.strip()]

@@ -40,8 +40,15 @@ const KIOSK={
       {key:'magnetic_field',label:'Magnetic field',unit:'T',decimals:1},
       {key:'heating',label:'Heating power',unit:'MW',decimals:0},
       {key:'instability',label:'Instability drive',decimals:2,onlyMethod:'guardian'}],
-    views:[{id:'fusion',label:'3D torus',kind:'fusion',needs:'fusion_view'},
+    // A guardian run opens on its trained controller, tested in conditions the
+    // visitor picks; "How it learned" flies every training shot's controller
+    // side by side. The 3D torus and flat view replay the training run itself.
+    views:[{id:'test',label:'Test the controller',kind:'fusiontest',needs:'lab'},
+           {id:'shots',label:'How it learned',kind:'fusiontest',shots:true,needs:'lab'},
+           {id:'fusion',label:'3D torus',kind:'fusion',needs:'fusion_view'},
            {id:'frames',label:'Flat view',kind:'frames'}],
+    readTest:'The trained neural network holding the plasma live, in the conditions set below the picture. Markers turn orange then red as they near the wall; sparks are wall hits.',
+    readShots:'The controller as it was at every training shot, all flying the same plasma from the same start, with no control at all last. Fewer sparks means it learned.',
     // Guardian keys first, passive-mode keys after: a run only ever has one set.
     numbers:['wall losses this shot','confined markers','best shot so far',
              'regime','turbulence index','passive tracers']},
@@ -70,7 +77,7 @@ const KIOSK={
     tag:'AI',ai:true,
     blurb:'Build a car brain from blocks, then evolve it until it can drive.',
     read:'Gold is the best car of this generation, blue trails are the runners-up and red crosses are crashes. Nobody wrote the driving.',
-    readChampion:'Saved champion networks, frozen, replayed from a start they have never seen. Each colour is a different generation’s champion.',
+    readChampion:'Saved champion networks, frozen, replayed from a start they have never seen. Each colour is a different champion: another generation’s, or another visitor’s.',
     readLanes:'The same generation as Training, but every car drives its own copy of the track. Gold is the champion; a dimmed box has crashed.',
     story:[
       'Every car carries the brain you built, but each one starts with different random weights.',
@@ -277,7 +284,7 @@ let specs=null,library=[],current=null,runId=null,meta={};
 let pollTimer=null,playTimer=null,idleTimer=null;
 let frame=0,total=0,playing=false,lastKnownFrame=-1;
 let arena=null,fusion=null,galaxy=null,view=null,arenaGeneration=-1,failedViews=new Set();
-let gridViews=[],champion={mode:'final',seed:0,data:null,results:[],env:{}};
+let gridViews=[],champion={mode:'final',seed:0,data:null,results:[],env:{}},fusionTest={seed:0,env:{},results:[]};
 // Full meta.json of a saved run: the library listing leaves out bulky fields
 // (generation statistics, shot history) that only the instrument strip needs.
 const fullMetaCache=new Map();
@@ -532,9 +539,14 @@ function methodValue(){return $('#method').value||'default';}
 function renderControls(){
   const host=$('#controls');host.innerHTML='';controlState={};
   if(isGame())addTrainingHeader(host);
+  // Star in a Bottle's guardian is trained ahead of time: visitors test the
+  // saved controller under the picture, and training is the presenter's (⚙).
+  const locked=guardianLocked();
+  document.body.classList.toggle('trainingLocked',locked);
   controlDefs().forEach(def=>{
     if(def.onlyMethod&&def.onlyMethod!==methodValue())return;
     if(def.method)return addMethodBox(host,def);
+    if(locked)return;
     if(def.population)return addPopulationBox(host,def);
     if(def.ghosts)return addGhostBox(host,def);
     if(def.name)return addNameBox(host,def);
@@ -545,7 +557,14 @@ function renderControls(){
     else if(p.kind==='toggle')addToggleBox(host,def,p);
     else addValueBox(host,def,p);
   });
+  if(locked)addGuardianNote(host);
   renderMoreParams();
+}
+function guardianLocked(){return current==='fusion_plasma'&&methodValue()==='guardian'&&!prefs.guardianTraining;}
+function addGuardianNote(host){
+  const el=box(host,'The AI controller',true);
+  el.insertAdjacentHTML('beforeend',`<p class="boxHint">This neural network was trained ahead of time, over many practice shots. Try it in conditions of your choice with <em>Test the controller</em>, right under the picture, or see <em>How it learned</em>.</p>`);
+  setAction('Trained ahead of time','Test the controller under the picture.');
 }
 // Every parameter without a big visitor control still exists: it lives in the
 // presenter drawer instead of disappearing from demo mode.
@@ -827,6 +846,7 @@ async function setView(id,{autoplay=null}={}){
   if(def?.kind==='arena')await enterArena(def);
   else if(def?.kind==='champion')await enterChampion(def);
   else if(def?.kind==='grid')await enterGrid();
+  else if(def?.kind==='fusiontest')await enterFusionTest(def);
   else if(def?.kind==='fusion')await enterFusion();
   else if(def?.kind==='galaxy3d')await enterGalaxy();
   else if(def?.kind==='reveal')showReveal();
@@ -836,11 +856,11 @@ async function setView(id,{autoplay=null}={}){
   updateOnScreen();
   const k=KIOSK[current]||{};
   $('#captionRead').textContent=def?.kind==='champion'?(k.readChampion||k.read||'')
-    :def?.kind==='grid'?(k.readGrid||k.read||''):def?.lanes?(k.readLanes||k.read||''):(k.readByMethod?.[meta.method||methodValue()]||k.read||'');
+    :def?.kind==='grid'?(k.readGrid||k.read||''):def?.kind==='fusiontest'?((def.shots?k.readShots:k.readTest)||k.read||''):def?.lanes?(k.readLanes||k.read||''):(k.readByMethod?.[meta.method||methodValue()]||k.read||'');
   // The frame timeline belongs to the training run, not to a replay or grid.
-  const timeline=!(def?.kind==='champion'||def?.kind==='grid');
+  const timeline=!(def?.kind==='champion'||def?.kind==='grid'||def?.kind==='fusiontest');
   $('#seek').disabled=!timeline||!runId;$('#fsSeek').disabled=$('#seek').disabled;
-  if(!timeline){$('#captionNumbers').innerHTML='';$('#frameLabel').textContent=def.kind==='grid'?'all boxes':'replay';}
+  if(!timeline){$('#captionNumbers').innerHTML='';$('#frameLabel').textContent=def.kind==='grid'?'all boxes':def.kind==='fusiontest'?'live test':'replay';}
   else if(runId)$('#frameLabel').textContent=`${frame+1} / ${total}`;
 }
 
@@ -910,7 +930,7 @@ function renderNumbers(values){
   numbers=values||{};
   const host=$('#captionNumbers'),wanted=KIOSK[current]?.numbers||[];
   const kind=viewDef()?.kind;
-  if(kind==='champion'||kind==='grid'){host.innerHTML='';syncFullscreen();return;}
+  if(kind==='champion'||kind==='grid'||kind==='fusiontest'){host.innerHTML='';syncFullscreen();return;}
   const entries=[];
   wanted.forEach(key=>{const hit=Object.keys(numbers).find(k=>k.toLowerCase()===key.toLowerCase());
     if(hit)entries.push([hit,numbers[hit]]);});
@@ -927,7 +947,7 @@ function stopPlay(){
   if(playTimer)clearInterval(playTimer);playTimer=null;playing=false;$('#playPause').textContent='▶';
   const kind=canvasKind();
   if(kind==='arena'||kind==='champion')arena?.pause();
-  if(kind==='grid'||kind==='champion')gridViews.forEach(v=>v.pause());
+  if(kind==='grid'||kind==='champion'||kind==='fusiontest')gridViews.forEach(v=>v.pause());
   syncFullscreen();
 }
 function setLoop(on,persist=true){
@@ -939,7 +959,7 @@ function setLoop(on,persist=true){
 // frame rate. Driving them from the frame timer restarted each drive every
 // few hundred milliseconds - the "jumping around". Instead each generation's
 // drive plays to its end, and only then does the timeline move on.
-function canvasKind(){const k=viewDef()?.kind;return k==='arena'&&!pollTimer?'arena':k==='champion'||k==='grid'?k:null;}
+function canvasKind(){const k=viewDef()?.kind;return k==='arena'&&!pollTimer?'arena':k==='champion'||k==='grid'||k==='fusiontest'?k:null;}
 function recordedGenerations(){
   const f=meta.arena_view?.frames;if(!Array.isArray(f))return [];
   return [...new Set(f.map(e=>Array.isArray(e)?Number(e[0]):Number(e)))];
@@ -964,7 +984,7 @@ function startPlay(from=frame){
     stopPlay();playing=true;$('#playPause').textContent='❚❚';
     if(kind==='arena'&&arena){showFrame(from,total);arena.onloop=generationDriveDone;arena.rate=speed();arena.resume();}
     if(kind==='champion'&&arena&&!gridViews.length){arena.onloop=()=>{if(present)presentLoopDone();};arena.rate=speed();arena.resume();}
-    if(kind==='grid'||(kind==='champion'&&gridViews.length)){gridViews.forEach((v,i)=>{v.rate=speed();v.onloop=i?null:()=>{if(present)presentLoopDone();};v.resume();});}
+    if(kind==='grid'||kind==='fusiontest'||(kind==='champion'&&gridViews.length)){gridViews.forEach((v,i)=>{v.rate=speed();v.onloop=i?null:()=>{if(present)presentLoopDone();};v.resume();});}
     syncFullscreen();return;
   }
   if(!loopPlayback&&!present&&from>=total-1)from=0;
@@ -1130,6 +1150,113 @@ function setChampionEnv(change,{now=false}={}){
   envTimer=setTimeout(()=>{if(viewDef()?.kind==='champion')setView(view);},now?0:450);
 }
 
+// ------------------------------------------------------ fusion controller ---
+// Star in a Bottle's guardian: the controller trained ahead of time is the
+// exhibit. "Test the controller" flies the final one live in the conditions
+// set under the picture - optionally beside the same plasma with no control,
+// or in several boxes, each at a harder instability drive. "How it learned"
+// flies every training shot's controller side by side in the training
+// conditions. Nothing here trains anything.
+const FUSION_KEYS=['magnetic_field','heating','instability'];
+function fusionTrained(){
+  const t=meta.trained_world||{},p=meta.params||{};
+  return Object.fromEntries(FUSION_KEYS.map(k=>[k,Number(t[k]??p[k]??paramSpec(k)?.value)]));
+}
+function fusionEnv(){return {...fusionTrained(),boxes:1,compare:false,...fusionTest.env};}
+function fusionIsTrained(){const e=fusionEnv(),t=fusionTrained();return e.boxes===1&&!e.compare&&FUSION_KEYS.every(k=>Math.abs(e[k]-t[k])<1e-6);}
+// Boxes beyond the first each push the instability drive a step harder.
+function fusionWorlds(env){
+  if(env.boxes<=1)return [env];
+  const max=Number(paramSpec('instability')?.max??1.5),step=Math.max(.05,(max-env.instability)/(env.boxes-1));
+  return Array.from({length:env.boxes},(_,i)=>({...env,instability:Math.min(max,+(env.instability+i*step).toFixed(2))}));
+}
+async function enterFusionTest(def){
+  if(!runId||!meta.lab)return markViewUnusable(def?.id||'test');
+  const shots=Math.max(1,Number(meta.lab.generations)||1),env=def.shots?{...fusionTrained(),boxes:1}:fusionEnv();
+  if(!fusionTest.seed)fusionTest.seed=Math.floor(Math.random()*1e6);
+  const worlds=def.shots?[env]:fusionWorlds(env);
+  const gens=def.shots?Array.from({length:Math.min(12,shots)},(_,i)=>i+1):[shots];
+  setBusy(true,worlds.length>1?`Testing the controller in ${worlds.length} plasmas…`:'Flying the trained controller…');
+  let results;
+  try{
+    results=await Promise.all(worlds.map(w=>{
+      const q=new URLSearchParams({gens:gens.join(','),seed:fusionTest.seed});
+      FUSION_KEYS.forEach(k=>q.set(k,w[k]));
+      return fetch(`/api/replay/${encodeURIComponent(runId)}?${q}`).then(r=>{if(!r.ok)throw new Error(String(r.status));return r.json();});
+    }));
+  }catch(_){
+    setBusy(false);
+    if(!def.shots&&!fusionIsTrained()){fusionTest.env={};$('#onScreen').textContent='Those conditions could not be run; back to the training conditions.';$('#onScreen').classList.remove('hidden');return setView(view);}
+    return markViewUnusable(def?.id||'test');
+  }
+  if(viewDef()?.kind!=='fusiontest')return;
+  fusionTest.results=results;
+  // What goes in each box: every shot plus no control; or the final controller
+  // (beside no control when comparing); or one harder plasma per box.
+  const trained=fusionTrained(),boxes=[];
+  if(def.shots){results[0].runs.forEach(r=>boxes.push({test:results[0],run:r,label:`shot ${r.shot} of ${shots}`}));
+    boxes.push({test:results[0],run:results[0].reference,label:'no control'});}
+  else if(results.length===1){boxes.push({test:results[0],run:results[0].runs[0],label:'AI controller'});
+    if(env.compare)boxes.push({test:results[0],run:results[0].reference,label:'no control'});}
+  else results.forEach(r=>boxes.push({test:r,run:r.runs[0],label:`instability ${r.world.instability.toFixed(2)}${Math.abs(r.world.instability-trained.instability)<1e-6?' · as trained':''}`}));
+  const host=$('#gridView');host.innerHTML='';
+  host.style.gridTemplateColumns=`repeat(${boxes.length===2?2:Math.ceil(Math.sqrt(boxes.length))},minmax(0,1fr))`;
+  gridViews=boxes.map(b=>{
+    const cell=document.createElement('div');cell.className='gridCell';
+    const canvas=document.createElement('canvas');canvas.className='fusionTestCanvas';cell.appendChild(canvas);
+    const label=document.createElement('span');label.className='gridLabel';cell.appendChild(label);host.appendChild(cell);
+    const v=new FusionTestView(canvas);v.rate=speed();v.show(b.test,b.run);if(!playing)v.pause();
+    // Wall hits so far, updated as the flight plays.
+    const hits=()=>{label.textContent=`${b.label} · ${v.lostSoFar()} wall hits`;};
+    const tick=v.tick.bind(v);v.tick=()=>{tick();hits();};hits();
+    return v;
+  });
+  $('#screen').classList.add('hidden');$('#arenaCanvas').classList.add('hidden');host.classList.remove('hidden');
+  surfaceLive(true);setBusy(false);renderInstruments();
+  requestAnimationFrame(()=>gridViews.forEach(v=>v.resize()));
+}
+let fusionTimer=null;
+function setFusionEnv(change,{now=false}={}){
+  fusionTest.env={...fusionTest.env,...change};renderInstruments();
+  clearTimeout(fusionTimer);
+  fusionTimer=setTimeout(()=>{if(viewDef()?.kind==='fusiontest')setView(view);},now?0:450);
+}
+function fusionTestPanel(){
+  const env=fusionEnv(),t=fusionTrained(),on=c=>c?' class="on" aria-pressed="true"':' aria-pressed="false"';
+  const stepper=(key,label,unit,step,dp)=>{const p=paramSpec(key)||{min:0,max:99},v=env[key];
+    return `<div class="box"><label>${label}</label><div class="boxRow">
+      <button class="stepBtn" type="button" data-fusion-step="${key}" data-by="${-step}"${v<=Number(p.min)+1e-9?' disabled':''} aria-label="Decrease">−</button>
+      <div class="boxValue"><span>${v.toFixed(dp)}</span><small>${Math.abs(v-t[key])<1e-6?`${unit} · as trained`:unit}</small></div>
+      <button class="stepBtn" type="button" data-fusion-step="${key}" data-by="${step}"${v>=Number(p.max)-1e-9?' disabled':''} aria-label="Increase">+</button></div></div>`;};
+  return `<div class="instPanel wide testWorld"><header><span class="phaseTag infer">Test the controller</span><small>change the plasma, not the network: the trained controller simply flies it</small></header>
+    <div class="testGrid">${stepper('magnetic_field','Magnetic field','T',.5,1)}${stepper('heating','Heating power','MW',5,0)}${stepper('instability','Instability drive','',.05,2)}
+      <div class="box"><label>Compare with no control</label><div class="seg"><button type="button" data-fusion-compare="0"${on(!env.compare)}>Off</button><button type="button" data-fusion-compare="1"${on(env.compare)}${env.boxes>1?' disabled':''}>On</button></div>
+        <small class="boxHint">The same plasma with the coils left alone.</small></div>
+      <div class="box wide"><label>Plasmas at once</label><div class="seg">${[1,4,9,16].map(n=>`<button type="button" data-fusion-boxes="${n}"${on(env.boxes===n)}>${n}</button>`).join('')}</div>
+        <small class="boxHint">Each box is a harder instability drive than the one before: push it until it breaks.</small></div></div>
+    <div class="instButtons"><button type="button" data-fusion-reroll>New random start</button>${fusionIsTrained()?'':'<button type="button" data-fusion-reset>Back to the training conditions</button>'}</div></div>`;
+}
+function wireFusionTestPanel(host){
+  host.querySelectorAll('[data-fusion-step]').forEach(b=>b.onclick=()=>{
+    const key=b.dataset.fusionStep,p=paramSpec(key)||{},v=fusionEnv()[key]+Number(b.dataset.by);
+    setFusionEnv({[key]:+Math.max(Number(p.min??0),Math.min(Number(p.max??99),v)).toFixed(2)});});
+  host.querySelectorAll('[data-fusion-compare]').forEach(b=>b.onclick=()=>setFusionEnv({compare:b.dataset.fusionCompare==='1'},{now:true}));
+  host.querySelectorAll('[data-fusion-boxes]').forEach(b=>b.onclick=()=>setFusionEnv({boxes:Number(b.dataset.fusionBoxes),...(Number(b.dataset.fusionBoxes)>1?{compare:false}:{})},{now:true}));
+  host.querySelector('[data-fusion-reroll]')?.addEventListener('click',()=>{fusionTest.seed=Math.floor(Math.random()*1e6);setView(view);});
+  host.querySelector('[data-fusion-reset]')?.addEventListener('click',()=>{fusionTest.env={};setFusionEnv({},{now:true});});
+}
+function fusionTestText(def){
+  const results=fusionTest.results||[];if(!results.length)return '';
+  const r=results[0],w=r.world,t=fusionTrained();
+  const moved=FUSION_KEYS.some(k=>Math.abs(w[k]-t[k])>1e-6);
+  if(def.shots){const first=r.runs[0],last=r.runs[r.runs.length-1];
+    return `Every training shot's controller, frozen, flying the same plasma from the same start (#${r.seed}). Wall hits: shot 1 ${first.lost}, shot ${last.shot} ${last.lost}, no control ${r.reference.lost}.`;}
+  if(results.length>1)return `The trained controller in ${results.length} plasmas of rising instability drive. Wall hits: `+results.map(x=>`${x.world.instability.toFixed(2)} → ${x.runs[0].lost}`).join(' · ')+'.';
+  return `The controller trained at ${t.magnetic_field.toFixed(1)} T, ${t.heating.toFixed(0)} MW and instability ${t.instability.toFixed(2)}, frozen, flying `
+    +(moved?`a plasma at ${w.magnetic_field.toFixed(1)} T, ${w.heating.toFixed(0)} MW and instability ${w.instability.toFixed(2)}`:'its training conditions')
+    +` from a fresh start (#${r.seed}): ${r.runs[0].lost} wall hits, against ${r.reference.lost} with no control.`;
+}
+
 // ------------------------------------------------------------------- grid ---
 // One per box: every independent search's champion, animated side by side.
 async function enterGrid(){
@@ -1178,7 +1305,7 @@ function generationAt(index){
 function resetRun(){
   if(pollTimer)clearInterval(pollTimer);pollTimer=null;
   stopPlay();exitArena();exitFusion();exitGalaxy();exitGrid();
-  champion={mode:champion.mode,seed:0,data:null,results:[],env:{}};
+  champion={mode:champion.mode,seed:0,data:null,results:[],env:{}};fusionTest={seed:0,env:fusionTest.env,results:[]};
   $('#onScreen').classList.add('hidden');$('#instruments').classList.add('hidden');
   runId=null;meta={};frame=0;total=0;lastKnownFrame=-1;numbers={};arenaGeneration=-1;view=null;
   failedViews=new Set();
@@ -1194,6 +1321,11 @@ function openRun(r){
   $('#seek').max=Math.max(0,r.frames-1);
   enableTransport(true);
   setStatus('SAVED RUN','replay');
+  // Star in a Bottle's mode buttons follow the run on screen, so a guardian
+  // run shows the guardian's controls (and hides its training).
+  if(current==='fusion_plasma'&&r.method&&r.method!==methodValue()&&[...$('#method').options].some(o=>o.value===r.method)){
+    $('#method').value=r.method;renderControls();renderAdvanced();
+  }
   const list=availableViews();
   view=list.length?list[0].id:'frames';
   renderViewSwitch();
@@ -1453,6 +1585,12 @@ function renderInstruments(){
         <div class="pixPair"><img id="cmpOut" class="pixelated" alt="Network reconstruction"></div><p id="cmpOutText" class="instText"></p></figure></div>`;
     host.classList.remove('hidden');updateCompressionInstruments(frame);return;
   }
+  if(current==='fusion_plasma'&&runId&&kind==='fusiontest'){
+    const def=viewDef();
+    host.innerHTML=`${def.shots?'':fusionTestPanel()}<div class="instPanel wide"><header><span class="phaseTag infer">Inference</span><small>the network is only being used; nothing is learning</small></header>
+      <p id="instText" class="instText">${escapeHtml(fusionTestText(def))}</p></div>`;
+    host.classList.remove('hidden');wireFusionTestPanel(host);return;
+  }
   if(current==='fusion_plasma'&&runId&&(meta.method==='guardian'||runById(runId)?.method==='guardian')){
     host.innerHTML=`<div class="instRow">
       <figure class="instPanel"><header><span class="phaseTag infer">Inference</span><small>the frozen network steering the coils during this shot</small></header><img id="instNet" alt="Policy network with live activations"></figure>
@@ -1493,7 +1631,7 @@ function testWorldPanel(){
       <button type="button" data-env-boxes="4"${on(env.boxes>1)}>All four at once</button></div>
       <small class="boxHint">★ is the track it trained on.</small></div>`);
     const rivals=ghostRuns(env.track).filter(r=>r.id!==runId);
-    const names=rivals.map(r=>r.name||r.id.slice(-5));
+    const names=rivals.map(r=>r.name||`run ${r.id.slice(-5)}`);
     cells.push(`<div class="box wide"><label>Who drives</label><div class="seg">
       <button type="button" data-champ="final"${on(champion.mode==='final')}>Final champion</button>
       <button type="button" data-champ="learn"${on(champion.mode==='learn')}>First · middle · final</button>
@@ -1502,7 +1640,7 @@ function testWorldPanel(){
   }else{
     const stepper=(key,label,value,spec)=>`<div class="box"><label>${label}</label><div class="boxRow">
       <button class="stepBtn" type="button" data-env-step="${key}" data-dir="-1"${value<=Number(spec.min)?' disabled':''} aria-label="Decrease">−</button>
-      <div class="boxValue"><span>${value}</span><small>${value===t[key]?'trained with this':'&nbsp;'}</small></div>
+      <div class="boxValue"><span>${value}</span><small>${value===t[key]?'as trained':'&nbsp;'}</small></div>
       <button class="stepBtn" type="button" data-env-step="${key}" data-dir="1"${value>=Number(spec.max)?' disabled':''} aria-label="Increase">+</button></div></div>`;
     cells.push(stepper('cave','Cave layout',env.cave,paramSpec('cave')||{min:1,max:999}));
     cells.push(stepper('moths','Moths per cave',env.moths,paramSpec('moths')||{min:2,max:6}));
@@ -1998,6 +2136,8 @@ function bindChrome(){
   $('#backend').onchange=()=>{prefs.backend=$('#backend').value;savePrefs();};
   $('#frames').onchange=()=>{prefs.frames=Number($('#frames').value)||70;savePrefs();};
   $('#idleAction').onchange=()=>{prefs.idleAction=$('#idleAction').value;savePrefs();resetIdle();};
+  $('#guardianTraining').checked=Boolean(prefs.guardianTraining);
+  $('#guardianTraining').onchange=()=>{prefs.guardianTraining=$('#guardianTraining').checked;savePrefs();if(current)renderControls();};
   $('#parallelCount').onchange=()=>{if(controlState._population!==undefined)controlState._population=Number($('#parallelCount').value);};
   document.addEventListener('keydown',event=>{
     if(event.key==='Escape'){

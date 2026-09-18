@@ -162,7 +162,7 @@ class FusionView {
       const front=Math.max(.22,Math.min(1,.3+.7*(s.z+.65)/1.3));
       const c=s.colour;
       ctx.strokeStyle=`rgba(${c[0]},${c[1]},${c[2]},${(.09+.36*s.level)*front})`;
-      ctx.lineWidth=(.8+1.6*s.level)*this.dpr;
+      ctx.lineWidth=(.8+1.6*s.level)*this.dpr*this.markerScale();
       ctx.beginPath();ctx.moveTo(s.a.x,s.a.y);ctx.lineTo(s.b.x,s.b.y);ctx.stroke();
     }
     ctx.globalCompositeOperation='source-over';
@@ -207,7 +207,7 @@ class FusionView {
     for(const s of segments){
       const front=Math.max(.28,Math.min(1,.42+.58*(s.z+.65)/1.3));
       ctx.strokeStyle=`rgba(${s.colour[0]},${s.colour[1]},${s.colour[2]},${(.06+.74*s.age*s.age)*front})`;
-      ctx.lineWidth=(.9+1.5*front)*this.dpr;
+      ctx.lineWidth=(.9+1.5*front)*this.dpr*this.markerScale();
       ctx.beginPath();ctx.moveTo(s.a.x,s.a.y);ctx.lineTo(s.b.x,s.b.y);ctx.stroke();
     }
     heads.sort((a,b)=>a.p.z-b.p.z);
@@ -215,7 +215,7 @@ class FusionView {
       const front=Math.max(.34,Math.min(1,.44+.56*(head.p.z+.65)/1.3));
       const c=head.colour;
       ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${front})`;
-      ctx.beginPath();ctx.arc(head.p.x,head.p.y,(1.7+2.1*front)*this.dpr,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.arc(head.p.x,head.p.y,(1.7+2.1*front)*this.dpr*this.markerScale(),0,Math.PI*2);ctx.fill();
     }
     ctx.globalCompositeOperation='source-over';
   }
@@ -234,7 +234,7 @@ class FusionView {
     for(const item of items){
       if(item.fade<=.03)continue;
       const front=Math.max(.3,Math.min(1,.4+.6*(item.p.z+.65)/1.3));
-      const r=(1.8+6.5*item.energy*item.fade)*this.dpr;
+      const r=(1.8+6.5*item.energy*item.fade)*this.dpr*this.markerScale();
       const halo=ctx.createRadialGradient(item.p.x,item.p.y,0,item.p.x,item.p.y,r*3.2);
       halo.addColorStop(0,`rgba(255,${Math.round(210*item.fade+40)},140,${.85*item.fade*front})`);
       halo.addColorStop(1,'rgba(255,110,40,0)');
@@ -270,34 +270,142 @@ class FusionView {
     ctx.globalCompositeOperation='source-over';
   }
 
-  drawTrails() {
-    const trails=this.data.trails||[], segments=[];
-    for (let particle=0; particle<trails.length; particle++) {
-      if (this.particleFilter !== 'all' && particle % 4 !== Number(this.particleFilter)) continue;
-      const points=trails[particle].map(uv=>this.project(uv[0],uv[1]));
-      for (let k=1;k<points.length;k++) {
-        const a=points[k-1],b=points[k];
-        if (Math.abs(a.x-b.x)>this.canvas.width*.22||Math.abs(a.y-b.y)>this.canvas.height*.22) continue;
-        segments.push({a,b,z:(a.z+b.z)/2,age:k/(points.length-1),particle});
+  // ---- passive mode, drawn like the flat view ------------------------------
+  // The flat view is FusionPlasmaDemo.torus_image() in fusion_plasma.py: the
+  // shell as sharp dots over a blurred glow, then every tracer as a ribbon
+  // (blurred wide line + sharp line) with a white head. This reproduces it at
+  // the canvas's own rotation and zoom. Strokes are batched by colour and
+  // opacity rather than drawn segment by segment, so a showcase run's
+  // thousands of tracers stay interactive.
+
+  // Guardian markers, sparks and coils were sized for a full-size picture;
+  // in a small box (several plasmas at once) they shrink with the torus.
+  markerScale() { return Math.max(.35, Math.min(1, this.flatScale() / .7)); }
+
+  // Canvas pixels per pixel of the 1280x720 flat frame, whose torus scale is 320.
+  flatScale() { return Math.min(this.canvas.width / 3.15, this.canvas.height / 2.25) * this.zoom / 320; }
+
+  layer(name, opaque=false) {
+    const w=this.canvas.width,h=this.canvas.height;
+    if(!this[name])this[name]=document.createElement('canvas');
+    const c=this[name];if(c.width!==w||c.height!==h){c.width=w;c.height=h;}
+    const g=c.getContext('2d');g.globalCompositeOperation='source-over';
+    if(opaque){g.fillStyle='#000';g.fillRect(0,0,w,h);}else g.clearRect(0,0,w,h);
+    return g;
+  }
+
+
+  // _shell_points + _paint_shell: about 80 rows of lattice points, lit by depth.
+  drawFlatShell(alpha=1, fast=false) {
+    const [ny,nx]=this.data.shape,texture=this.data.texture,k=this.flatScale();
+    const rows=Math.min(ny,80),cols=Math.max(1,Math.round(nx*rows/ny)),points=[];
+    for(let i=0;i<rows;i++){const row=Math.floor(i*ny/rows);
+      for(let j=0;j<cols;j++){const col=Math.floor(j*nx/cols);
+        const p=this.project(col/nx,row/ny),light=Math.max(.35,Math.min(1,.45+.55*(p.z+1.1)/2.2));
+        const [r,g,b]=this.palette(texture[row*nx+col],light);
+        p.rgb=[Math.min(255,r+12),Math.min(255,g+5),Math.min(255,b+25)];points.push(p);}}
+    points.sort((a,b)=>a.z-b.z);
+    // Same replace-not-add layers as the tracers (see drawFlatTracers).
+    const radius=2*k,w=this.canvas.width,h=this.canvas.height;
+    if(fast){
+      // Quick pass while rotating or playing: the sharp dots only.
+      const ctx=this.ctx,a=Math.max(6,145*alpha)/255;
+      for(const p of points){ctx.fillStyle=`rgba(${p.rgb[0]},${p.rgb[1]},${p.rgb[2]},${a})`;ctx.fillRect(p.x-radius,p.y-radius,radius*2,radius*2);}
+      return;
+    }
+    const glowC=this.layer('glowC',true),glowA=this.layer('glowA'),sharpC=this.layer('sharpC',true),sharpA=this.layer('sharpA');
+    glowA.fillStyle='#fff';glowA.fillRect(0,0,w,h);sharpA.fillStyle='#fff';sharpA.fillRect(0,0,w,h);
+    const ga=Math.max(4,38*alpha)/255,sa=Math.max(6,145*alpha)/255;
+    const grey=f=>{const v=255-Math.round(255*f);return `rgb(${v},${v},${v})`;},glowGrey=grey(ga),sharpGrey=grey(sa);
+    const pre=(rgb,f)=>`rgb(${Math.round(rgb[0]*f)},${Math.round(rgb[1]*f)},${Math.round(rgb[2]*f)})`;
+    glowA.fillStyle=glowGrey;sharpA.fillStyle=sharpGrey;
+    for(const p of points){const rr=radius+(p.z>.25?k:0);
+      glowC.fillStyle=pre(p.rgb,ga);sharpC.fillStyle=pre(p.rgb,sa);
+      for(const [g,r] of [[glowC,rr*2],[glowA,rr*2],[sharpC,rr],[sharpA,rr]]){g.beginPath();g.arc(p.x,p.y,r,0,Math.PI*2);g.fill();}}
+    this.composite(this.glowC,this.glowA,Math.max(2,radius*3));
+    this.composite(this.sharpC,this.sharpA,0);
+  }
+
+  // _draw_tracers: ribbons fading in along the trail, brighter in front.
+  //
+  // PIL draws them onto transparent layers where each new line *replaces* the
+  // pixel, alpha included, instead of adding to it: bunched tracers show the
+  // last one drawn at its own opacity, never a pile-up into white. Canvas
+  // strokes blend, so each layer is kept twice - its colour premultiplied by
+  // opacity on black, and (255 - opacity) on white, both drawn opaque so a new
+  // stroke replaces what is under it - and composited as
+  //   picture x (1 - a)  ("multiply" by the white copy)  +  colour x a  ("lighter").
+  // Strokes are batched by style within chunks of particles taken in PIL's
+  // order, so later particles still land on top.
+  drawFlatTracers(fast=false) {
+    const trails=this.data.trails||[];if(!trails.length)return;
+
+    const colours=[[100,239,255],[255,171,83],[225,126,255],[188,255,228]];
+    const w=this.canvas.width,h=this.canvas.height,k=this.flatScale();
+    const scale=Math.min(w/3.15,h/2.25)*this.zoom,cp=Math.cos(this.pitch),sp=Math.sin(this.pitch),yaw=this.yaw,TAU=Math.PI*2;
+    const steps=trails[0].length,X=new Float32Array(steps),Y=new Float32Array(steps),Z=new Float32Array(steps);
+    const glowC=this.layer('glowC',true),glowA=this.layer('glowA'),sharpC=this.layer('sharpC',true),sharpA=this.layer('sharpA');
+    glowA.fillStyle='#fff';glowA.fillRect(0,0,w,h);sharpA.fillStyle='#fff';sharpA.fillRect(0,0,w,h);
+    // PIL lines have no caps; round caps on every short segment are costly.
+    for(const g of [glowC,glowA,sharpC,sharpA])g.lineCap='butt';
+    const colour=(rgb,a)=>{const f=Math.min(255,a)/255;return `rgb(${Math.round(rgb[0]*f)},${Math.round(rgb[1]*f)},${Math.round(rgb[2]*f)})`;};
+    const inverse=a=>{const v=255-Math.round(Math.min(255,a));return `rgb(${v},${v},${v})`;};
+    // The quick pass (while rotating or playing) skips the glow; the settled
+    // picture adds it.
+    const chunk=Math.max(1,Math.ceil(trails.length/6));
+    for(let start=0;start<trails.length;start+=chunk){
+      const sharp=new Map(),soft=new Map(),halos=new Map(),heads=new Map();
+      const path=(map,key,style)=>{let b=map.get(key);if(!b){b={p:new Path2D(),...style};map.set(key,b);}return b.p;};
+      for(let particle=start;particle<Math.min(trails.length,start+chunk);particle++){
+        if(this.particleFilter!=='all'&&particle%4!==Number(this.particleFilter))continue;
+        const c=particle%4,trail=trails[particle],n=trail.length;
+        for(let s=0;s<n;s++){
+          const u=trail[s][0]*TAU+yaw,v=trail[s][1]*TAU,r=1+.4*Math.cos(v),y=r*Math.sin(u),z=.4*Math.sin(v);
+          X[s]=w*.5+r*Math.cos(u)*scale;Y[s]=h*.52-(y*cp-z*sp)*scale;Z[s]=y*sp+z*cp;
+        }
+        for(let s=1;s<n;s++){
+          if(Math.abs(X[s]-X[s-1])>w*.22||Math.abs(Y[s]-Y[s-1])>h*.22)continue;
+          const front=Math.max(.28,Math.min(1,.40+.60*(Z[s]+.65)/1.3)),alpha=Math.round((25+180*s/Math.max(1,n-1))*front/28)*28;
+          const width=front<.7?2:3,soft_=Math.max(14,alpha>>1);
+          let p=path(sharp,`${c}|${alpha}|${width}`,{c,alpha,width});p.moveTo(X[s-1],Y[s-1]);p.lineTo(X[s],Y[s]);
+          p=path(soft,`${c}|${soft_}`,{c,alpha:soft_});p.moveTo(X[s-1],Y[s-1]);p.lineTo(X[s],Y[s]);
+        }
+        const front=Math.max(.32,Math.min(1,.45+.55*(Z[n-1]+.65)/1.3)),radius=(2.4+2.2*front)*k,x=X[n-1],y=Y[n-1];
+        let p=path(halos,c,{c});p.moveTo(x+radius*2.4,y);p.arc(x,y,radius*2.4,0,TAU);
+        const a=Math.round(225*front/32)*32;p=path(heads,`${c}|${a}`,{c,alpha:a});p.moveTo(x+radius,y);p.arc(x,y,radius,0,TAU);
+      }
+      glowC.lineWidth=glowA.lineWidth=7*k;
+      if(!fast)for(const b of soft.values()){glowC.strokeStyle=colour(colours[b.c],b.alpha);glowC.stroke(b.p);glowA.strokeStyle=inverse(b.alpha);glowA.stroke(b.p);}
+      for(const b of sharp.values()){sharpC.lineWidth=sharpA.lineWidth=b.width*k;
+        sharpC.strokeStyle=colour(colours[b.c],b.alpha);sharpC.stroke(b.p);sharpA.strokeStyle=inverse(b.alpha);sharpA.stroke(b.p);}
+      // Heads: a soft coloured halo on the glow layer, a white dot with a
+      // coloured rim on the sharp one.
+      sharpC.lineWidth=sharpA.lineWidth=Math.max(1,k);
+      glowA.fillStyle=inverse(105);
+      if(!fast)for(const b of halos.values()){glowC.fillStyle=colour(colours[b.c],105);glowC.fill(b.p);glowA.fill(b.p);}
+      sharpA.strokeStyle=inverse(245);
+      for(const b of heads.values()){
+        sharpC.fillStyle=colour([245,253,255],b.alpha);sharpC.strokeStyle=colour(colours[b.c],245);sharpA.fillStyle=inverse(b.alpha);
+        for(const g of [sharpC,sharpA]){g.fill(b.p);g.stroke(b.p);}
       }
     }
-    segments.sort((a,b)=>a.z-b.z);
-    const colours=[[104,239,255],[255,173,83],[224,126,255],[190,255,228]],ctx=this.ctx;
-    ctx.lineCap='round';ctx.globalCompositeOperation='lighter';
-    for(const s of segments){
-      const c=colours[s.particle%colours.length];
-      const front=Math.max(.3,Math.min(1,.46+.54*(s.z+.65)/1.3));
-      ctx.strokeStyle=`rgba(${c[0]},${c[1]},${c[2]},${(.14+.72*s.age)*front})`;
-      ctx.lineWidth=(1.2+1.8*front)*this.dpr;ctx.beginPath();ctx.moveTo(s.a.x,s.a.y);ctx.lineTo(s.b.x,s.b.y);ctx.stroke();
-    }
-    ctx.globalCompositeOperation='source-over';
-    for(let particle=0;particle<trails.length;particle++){
-      if (this.particleFilter !== 'all' && particle % 4 !== Number(this.particleFilter)) continue;
-      const uv=trails[particle][trails[particle].length-1],p=this.project(uv[0],uv[1]);
-      const c=colours[particle%colours.length],front=Math.max(.35,Math.min(1,.48+.52*(p.z+.65)/1.3));
-      ctx.fillStyle=`rgba(248,255,255,${front})`;ctx.strokeStyle=`rgb(${c[0]},${c[1]},${c[2]})`;ctx.lineWidth=1.2*this.dpr;
-      ctx.beginPath();ctx.arc(p.x,p.y,(2.1+2.5*front)*this.dpr,0,Math.PI*2);ctx.fill();ctx.stroke();
-    }
+    if(!fast)this.composite(this.glowC,this.glowA,4*k);
+    this.composite(this.sharpC,this.sharpA,0);
+  }
+  // A big run draws the quick pass at once and the full picture once the view
+  // has been still for a moment (no dragging, no new frame).
+  heavy() { const t=this.data?.trails;return Boolean(t&&t.length*(t[0]?.length||0)>20000); }
+  settleLater() {
+    clearTimeout(this.settleTimer);
+    this.settleTimer=setTimeout(()=>{this.settled=true;try{this.draw();}finally{this.settled=false;}},220);
+  }
+  // picture x (1 - a) + colour x a, optionally through the same blur.
+  composite(colour,inverse,blur) {
+    const ctx=this.ctx;ctx.save();
+    if(blur&&'filter' in ctx)ctx.filter=`blur(${Math.max(.5,blur)}px)`;
+    ctx.globalCompositeOperation='multiply';ctx.drawImage(inverse,0,0);
+    ctx.globalCompositeOperation='lighter';ctx.drawImage(colour,0,0);
+    ctx.restore();
   }
 
   drawMagneticField() {
@@ -359,8 +467,10 @@ class FusionView {
       if(this.showPlasma)this.drawSurface(.13,'front');
       this.drawCoils(coils,'front');
     } else {
-      if(this.showPlasma){this.drawSurface(this.showMagnetic?.28:.42);this.drawTrails();}
-      else if(this.showMagnetic){this.drawSurface(.10);}
+      // Drawn as the flat view draws it; the field lines, when shown, go on top.
+      const fast=this.heavy()&&!this.settled;if(fast)this.settleLater();
+      if(this.showPlasma){this.drawFlatShell(this.showMagnetic?.55:1,fast);this.drawFlatTracers(fast);}
+      else if(this.showMagnetic){this.drawFlatShell(.25,fast);}
       if(this.showMagnetic)this.drawMagneticField();
     }
     // Titles, parameter readouts and method notes belong to the HTML view
@@ -369,3 +479,51 @@ class FusionView {
 }
 
 window.FusionView=FusionView;
+
+// ---- testing a saved controller ---------------------------------------------
+// Plays one controller's flight from /api/replay (FusionPlasmaDemo.replay) in a
+// FusionView: frame by frame, looping, with the play/pause/rate/onloop surface
+// the demo viewer's other animated boxes have. The bulk arrays arrive packed
+// (see the replay's docstring) and are decoded once per test.
+class FusionTestView {
+  constructor(canvas){
+    this.view=new FusionView(canvas);this.view.showMagnetic=false;
+    this.rate=1;this.seconds=10;this.hold=1.2;this.onloop=null;this.running=false;this.cycle=0;this.t0=performance.now();
+  }
+  static bytes(b64){const s=atob(b64),out=new Uint8Array(s.length);for(let i=0;i<s.length;i++)out[i]=s.charCodeAt(i);return out;}
+  static decode(test,run){
+    if(!test._tex)test._tex=FusionTestView.bytes(test.textures);
+    if(!run._pos){
+      const b=FusionTestView.bytes(run.positions);run._pos=new Uint16Array(b.buffer,b.byteOffset,b.byteLength/2);
+      const s=FusionTestView.bytes(run.sparks||'');run._sparks=new Uint16Array(s.buffer,s.byteOffset,s.byteLength/2);
+      run._sparkStart=[];let at=0;for(const n of run.spark_counts||[]){run._sparkStart.push(at);at+=n;}
+    }
+  }
+  show(test,run){FusionTestView.decode(test,run);this.test=test;this.run=run;this.t0=performance.now();this.cycle=0;this.last=-1;this.start();}
+  // The guardian view's per-frame state, rebuilt from the packed arrays: each
+  // marker's trail is its position over the last four frames.
+  state(i){
+    const t=this.test,r=this.run,[ny,nx]=t.shape,n=t.count,f=r.frames[i],trail=4,trails=new Array(n),S=1/65535;
+    for(let j=0;j<n;j++){const pts=[];for(let k=Math.max(0,i-trail+1);k<=i;k++){const o=(k*n+j)*3;pts.push([r._pos[o]*S,r._pos[o+1]*S,r._pos[o+2]*S]);}trails[j]=pts;}
+    const sparks=[],from=r._sparkStart[i]||0,count=(r.spark_counts||[])[i]||0;
+    for(let k=0;k<count;k++){const o=(from+k)*4;sparks.push([r._sparks[o]*S,r._sparks[o+1]*S,r._sparks[o+2]*S,r._sparks[o+3]*S*1.6]);}
+    return {kind:'fusion-torus',mode:'guardian',shape:t.shape,texture:t._tex.subarray(i*ny*nx,(i+1)*ny*nx),
+            particle_trails:trails,sparks,axis:f.axis,commands:f.commands,risk:f.risk,lost_total:f.lost_total,
+            field_lines:t.field_lines,field_pitch:t.field_pitch};
+  }
+  frameAt(){
+    const n=this.test?.frames||0;if(n<2)return 0;
+    const play=this.seconds/Math.max(.25,this.rate),total=(performance.now()-this.t0)/1000,cycle=Math.floor(total/(play+this.hold));
+    if(cycle>this.cycle){this.cycle=cycle;if(this.onloop)setTimeout(()=>this.onloop(),0);}
+    return Math.min(n-1,Math.floor((total%(play+this.hold))/play*n));
+  }
+  tick(){if(!this.test)return;const i=this.frameAt();if(i!==this.last){this.last=i;this.view.data=this.state(i);this.view.draw();}}
+  start(){if(this.running)return;this.running=true;this.timer=setInterval(()=>this.tick(),50);this.tick();}
+  stop(){this.running=false;clearInterval(this.timer);}
+  pause(){if(!this.running)return;this.pausedAt=performance.now();this.stop();}
+  resume(){if(this.pausedAt){this.t0+=performance.now()-this.pausedAt;this.pausedAt=0;}this.start();}
+  resize(){this.last=-1;this.view.resize();this.tick();}
+  attachBrainCanvas(){}
+  lostSoFar(){return this.test&&this.last>=0?this.run.frames[this.last].lost_total:0;}
+}
+window.FusionTestView=FusionTestView;
