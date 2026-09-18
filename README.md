@@ -1,88 +1,88 @@
 # Leonardo Visual Demos
 
-A portable gallery of 13 visual high-performance computing demonstrations for public engagement. Each demo separates headless scientific computation from presentation: the solver writes numbered frames and metadata, while a lightweight web viewer handles playback, controls, readouts, and saved runs.
+A portable gallery of visual high-performance computing demonstrations for public engagement. Each demo separates headless scientific computation from presentation: the solver writes numbered frames and metadata, while a lightweight web viewer handles playback, controls, readouts, and saved runs.
 
-The previews below were generated with the `desktop` profile using **150 simulation frames per demo**. Array solvers used CuPy/CUDA where supported, neural demos used PyTorch/CUDA, and CPU-native demos used NumPy.
+## On the stand
 
-## Demo gallery
+These are the nine demos presented on demo day, in the order the walk-up viewer at `/demo` shows them. Every animation below is cut from one of that demo's curated **showcase runs**: the large renders made ahead of time on the Brain++ Discoverer GB200 nodes and on a CUDA desktop, which the stand replays when nobody is at the controls.
 
-### Black-hole lensing
+### 1 · Star in a Bottle — fusion
 
-Image-space gravitational lensing with a numerical 3D photon-path view.
+A fusion plasma held by magnetic fields inside a torus-shaped vessel: a nonlinear plasma-wave lattice projected onto a rotatable tokamak.
+*Passive confinement* (left) advects tracers through the drift the field produces.
+*AI plasma guardian* (right) hands the coils to a neural policy trained shot by shot, fills the torus with confined markers, and sparks the ones it fails to hold off the wall.
 
-<img src="docs/assets/demos/black_hole.gif" alt="Black-hole lensing demo" width="480">
+<img src="docs/assets/demos/fusion_plasma.gif" alt="Star in a Bottle, passive confinement" width="400"> <img src="docs/assets/demos/plasma_guardian.gif" alt="Star in a Bottle, AI plasma guardian" width="400">
 
-### Primordial black-hole threshold
+<sub>Discoverer GB200 · 24,000 lattice steps, 6,000 tracers (passive) · 12 training shots with 16 parallel plasmas (guardian)</sub>
 
-A reduced radial model exploring the boundary between collapse and dispersion.
+### 2 · Neuro-Racers — AI
 
-<img src="docs/assets/demos/pbh.gif" alt="Primordial black-hole threshold demo" width="480">
+Visitors build a car brain from blocks; thousands of cars share it, each with different random weights, and the best drivers of every generation become the parents of the next. Nobody programs the driving.
 
-### Virtual wind tunnel
+<img src="docs/assets/demos/neuro_racers.gif" alt="Neuro-Racers" width="560">
 
-D2Q9 lattice-Boltzmann flow with advected streaklines and configurable obstacles.
+<sub>Desktop RTX 3060 Ti · 4,096 cars × 150 generations on the Grand Prix track, then 16 independent searches</sub>
 
-<img src="docs/assets/demos/fluid.gif" alt="Virtual wind tunnel demo" width="480">
+### 3 · Bat vs Moth — AI
 
-### Cosmic-web formation
+One visitor builds a bat that hunts by sonar, another a moth that learns to jam it, and the two co-evolve in a dark cave.
 
-Particle-mesh gravity with expanding-space and gas-composition comparisons.
+<img src="docs/assets/demos/bat_vs_moth.gif" alt="Bat vs Moth" width="560">
 
-<img src="docs/assets/demos/cosmic_web.gif" alt="Cosmic-web formation demo" width="480">
+<sub>Desktop RTX 3060 Ti · population of 8,192 × 300 generations; jamming evolved at generation 131</sub>
 
-### Milky Way–Andromeda collision
+### 4 · Milky Way meets Andromeda — full 3D gravity
 
-Restricted N-body evolution using physical mass and encounter parameters.
+Direct softened all-pairs gravity: every massive disc, bulge and halo particle pulls on every other one, in three dimensions. Seeded from Gaia DR3 and PHAT data; illustrative, not a fitted prediction.
 
-<img src="docs/assets/demos/galaxy_collision.gif" alt="Galaxy collision demo" width="480">
+<img src="docs/assets/demos/galaxy_collision_3d.gif" alt="Full 3D galaxy collision" width="560">
 
-### Galaxy collision: full 3D gravity
+<sub>Discoverer GB200 · 2,000,000 particles over 8 billion years</sub>
 
-Direct softened all-pairs gravity over massive disc, bulge, and halo particles.
+### 5 · Neural image compression — AI
 
-<img src="docs/assets/demos/galaxy_collision_3d.gif" alt="Full 3D galaxy collision demo" width="480">
+A neural network learns to redraw a picture from nothing but pixel coordinates. Its weights become the compressed file: smaller than the picture, at the cost of some detail. Visitors can draw, upload or photograph their own picture.
 
-### Living mathematics
+<img src="docs/assets/demos/neural_wall.gif" alt="Neural image compression" width="560">
 
-Gray–Scott reaction-diffusion evolving from a seed into an emergent pattern.
+<sub>Desktop RTX 3060 Ti · 64 networks trained at once on the Hubble Deep Field (the clip shows the first stretch of training)</sub>
 
-<img src="docs/assets/demos/reaction_diffusion.gif" alt="Reaction-diffusion demo" width="480">
+### 6 · Black hole — Gaia sky
 
-### Crystal growth
+A camera beside a real black hole found by the Gaia satellite, looking at the real sky of 1.8 million Gaia stars through the hole's gravity, with exact photon orbits.
 
-Recursive anisotropic growth with multiple habits and effectively unbounded deep zoom.
+<img src="docs/assets/demos/black_hole.gif" alt="Black-hole lensing" width="560">
 
-<img src="docs/assets/demos/crystal.gif" alt="Crystal growth demo" width="480">
+<sub>Desktop CPU · 2560×1440, 2× supersampled: 14.7 million exact photon orbits per frame</sub>
 
-### Neural-network wall
+### 7 · Virtual wind tunnel
 
-A real batched coordinate-network training workload that reveals many networks at once.
+Air flowing past an obstacle in a D2Q9 lattice-Boltzmann tunnel, with advected streaklines. Visitors can draw their own obstacle and watch its wake go turbulent.
 
-<img src="docs/assets/demos/neural_wall.gif" alt="Neural-network wall demo" width="480">
+<img src="docs/assets/demos/fluid.gif" alt="Virtual wind tunnel" width="560">
 
-### Star in a Bottle
+<sub>Discoverer GB200 · 5120×2880 lattice, 170,000 steps</sub>
 
-A reduced nonlinear plasma-wave lattice projected onto a rotatable tokamak torus,
-in two selectable modes. *Passive confinement* advects tracers through the drift
-the field produces. *AI plasma guardian* hands the coils to a neural policy
-trained through virtual plasma shots, fills the torus with confined markers, and
-sparks the ones the policy fails to hold against the wall.
+### 8 · Cosmic web
 
-<img src="docs/assets/demos/fusion_plasma.gif" alt="Fusion plasma demo" width="480">
+An almost-smooth young universe in which gravity grows tiny differences into clusters, filaments and voids. Change the "recipe of the universe" and see whether a web can form at all.
 
-<img src="docs/assets/demos/plasma_guardian.gif" alt="AI Plasma Guardian mode" width="480">
+<img src="docs/assets/demos/cosmic_web.gif" alt="Cosmic-web formation" width="560">
 
-### Storm Factory
+<sub>Desktop RTX 3060 Ti · 10.5 million particles on a 2048² particle-mesh grid (warm-dark-matter recipe)</sub>
 
-A barotropic-vorticity atmosphere turns small initial uncertainty into diverging forecasts.
+### 9 · Milky Way–Andromeda — restricted N-body
 
-<img src="docs/assets/demos/weather_ensemble.gif" alt="Weather ensemble demo" width="480">
+Our actual future: the two galaxies meet, and gravity pulls out long tidal tails of stars.
 
-### Molecular Machine
+<img src="docs/assets/demos/galaxy_collision.gif" alt="Galaxy collision" width="560">
 
-Coarse-grained 3D molecular dynamics with all-pairs interactions and ensemble comparisons.
+<sub>Desktop RTX 3060 Ti · 1,000,000 stars over 8 billion years</sub>
 
-<img src="docs/assets/demos/molecular_dynamics.gif" alt="Molecular dynamics demo" width="480">
+The full dashboard at `/` also carries the other demos (primordial black holes, reaction-diffusion, crystal growth, the storm ensemble and molecular dynamics); see [`docs/demos/`](docs/demos/README.md).
+
+**MUrB N-body** runs the external [NBody-EuroHPC](https://github.com/albtad01/NBody-EuroHPC) C++/CUDA code from the dashboard and draws it the way its own viewer does; setup in [docs/NBODY_MURB.md](docs/NBODY_MURB.md). Pre-recorded videos placed in `videos/` play on the **Videos** page (`/videos`).
 
 The same demo contract runs locally, on a CUDA desktop, or headlessly under SLURM on Leonardo. Completed runs can be replayed without recomputation.
 
@@ -128,15 +128,16 @@ machine, and start the viewer: the runs are unpacked in the background and the
 stars and showcase picks come with them. Runs that already exist are never
 overwritten, and a zip is only imported once, so it can be deleted afterwards.
 
-## Recreate this showcase
+## Recreate the README animations
 
-The showcase command is resumable: complete runs are reused and missing or incomplete demos are rendered again. GIF creation requires `ffmpeg` on `PATH`.
+The GIFs above are cut from saved showcase runs, so nothing is re-simulated; this needs those runs in `runs/` (see above) and `ffmpeg` on `PATH`.
 
 ```bash
-python scripts/generate_showcase.py
+python scripts/make_readme_gifs.py            # every GIF
+python scripts/make_readme_gifs.py fluid      # one of them
 ```
 
-Raw runs are stored under `runs/showcase_desktop_150/`; the README-ready animations are written to `docs/assets/demos/`. Use `--demo DEMO_ID` to process one demo or `--force` to rerender completed runs.
+Which run, and which stretch of it, each GIF uses is the `CLIPS` table at the top of the script. To render fresh, smaller runs of every demo from scratch instead, `python scripts/generate_showcase.py` still works (resumable; `--demo DEMO_ID`, `--force`).
 
 ## Leonardo workflow
 
