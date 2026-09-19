@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from ..backend import to_numpy
 from ..base import Demo
+from ..pipeline import FramePipeline
 from ..render import mosaic
 
 
@@ -679,42 +680,51 @@ class BlackHoleDemo(Demo):
             },
         })
         tables, bundles = {}, {}
-        for frame in range(self.ctx.frames):
-            progress = frame / max(1, self.ctx.frames - 1)
-            r_rs = max(1.6, start_rs * (1 - dive * progress))
-            r_camera = 2.0 * r_rs
-            key = round(r_camera, 4)
-            if key not in tables:
-                if len(tables) > 4:
-                    tables.clear()
-                tables[key] = EscapeTable(r_camera, samples=4000)
-            axis, forward, right, up = self.camera_frame(sky["viewpoint_pc"], orbit * progress)
-            with self.ctx.stage("simulation"):
-                stars, diffuse, captured = self.render_camera(fine, glow, tables[key], axis, forward, right, up, r_camera)
-            with self.ctx.stage("render"):
-                self.ctx.save_frame(self.expose(stars, diffuse, reference), self.ctx.frame_path(frame))
-                bundle_key = round(r_camera, 2)
-                if bundle_key not in bundles:
-                    if len(bundles) > 4:
-                        bundles.clear()
-                    bundles[bundle_key] = self.ray_bundle(r_camera, tables[key])
-                view_angle = .6 + 1.2 * progress
-                backdrop = self.ray_view_backdrop(fine, glow, reference, axis, right, up, view_angle)
-                sources = self.source_stars(bundles[bundle_key], source_catalogue,
-                                            self.ray_view_to_world(axis, right, up))
-                self.ctx.save_frame(self.render_rays(r_camera, bundles[bundle_key], view_angle, backdrop, sources),
-                                    mode_dir / f"frame_{frame:04d}.jpg")
-            half = math.degrees(shadow_half_angle(r_camera))
-            self.ctx.write_status(frame, f"tracing {rays_per_frame:,} exact photon orbits", {
-                "black hole": f"{target['label']} · {mass:g} M☉",
-                "camera distance": f"{r_rs:.1f} r_s · {r_rs * km_per_rs:,.0f} km",
-                "shadow": f"{2 * half:.1f}° across",
-                "starlight blueshift": f"×{1 / math.sqrt(1 - 2 / r_camera):.3f}",
-                "stars in the sky": f"{sky['stars']:,} (Gaia DR3)",
-                "rays this frame": f"{rays_per_frame:,}",
-                "frame in shadow": f"{100 * captured:.1f}%",
-                "distance from Earth": "here" if target_key == "sun" else f"{target['distance_pc']:,.0f} pc",
-            })
+        # Ray tracing and exposure on the device; the ray-path diagram (tens of
+        # thousands of PIL polyline segments per frame) is drawn by worker
+        # processes on the allocated cores while the next frame is traced.
+        workers = max(1, min(self.ctx.cpu_workers - 1, 16, max(1, self.ctx.frames // 6)))
+        with FramePipeline(self.ctx, workers=workers) as diagrams:
+            for frame in range(self.ctx.frames):
+                progress = frame / max(1, self.ctx.frames - 1)
+                r_rs = max(1.6, start_rs * (1 - dive * progress))
+                r_camera = 2.0 * r_rs
+                key = round(r_camera, 4)
+                if key not in tables:
+                    if len(tables) > 4:
+                        tables.clear()
+                    tables[key] = EscapeTable(r_camera, samples=4000)
+                axis, forward, right, up = self.camera_frame(sky["viewpoint_pc"], orbit * progress)
+                with self.ctx.stage("simulation"):
+                    stars, diffuse, captured = self.render_camera(fine, glow, tables[key], axis, forward, right, up, r_camera)
+                with self.ctx.stage("visualization"):
+                    self.ctx.save_frame(self.expose(stars, diffuse, reference), self.ctx.frame_path(frame))
+                    bundle_key = round(r_camera, 2)
+                    if bundle_key not in bundles:
+                        if len(bundles) > 4:
+                            bundles.clear()
+                        bundles[bundle_key] = self.ray_bundle(r_camera, tables[key])
+                    view_angle = .6 + 1.2 * progress
+                    backdrop = self.ray_view_backdrop(fine, glow, reference, axis, right, up, view_angle)
+                    sources = self.source_stars(bundles[bundle_key], source_catalogue,
+                                                self.ray_view_to_world(axis, right, up))
+                half = math.degrees(shadow_half_angle(r_camera))
+                diagrams.submit(frame, draw_ray_diagram,
+                                (r_camera, bundles[bundle_key], view_angle, backdrop, sources),
+                                mode_dir / f"frame_{frame:04d}.jpg",
+                                f"tracing {rays_per_frame:,} exact photon orbits", {
+                    "black hole": f"{target['label']} · {mass:g} M☉",
+                    "camera distance": f"{r_rs:.1f} r_s · {r_rs * km_per_rs:,.0f} km",
+                    "shadow": f"{2 * half:.1f}° across",
+                    "starlight blueshift": f"×{1 / math.sqrt(1 - 2 / r_camera):.3f}",
+                    "stars in the sky": f"{sky['stars']:,} (Gaia DR3)",
+                    "rays this frame": f"{rays_per_frame:,}",
+                    "frame in shadow": f"{100 * captured:.1f}%",
+                    "distance from Earth": "here" if target_key == "sun" else f"{target['distance_pc']:,.0f} pc",
+                })
+        # Camera frames go through the context's own encoder threads; make sure
+        # they are all on disk before the run is marked complete.
+        self.ctx.flush_frames()
         self.ctx.finish(None)
 
     def run_weak_field(self):
@@ -769,3 +779,10 @@ class BlackHoleDemo(Demo):
         reveal_path = self.ctx.run_dir / "reveal.jpg"
         self.ctx.save_frame(reveal, reveal_path)
         self.ctx.finish(reveal_path)
+
+
+def draw_ray_diagram(args):
+    """The exact-ray-paths view for one frame (runs in a worker process)."""
+    demo = BlackHoleDemo.__new__(BlackHoleDemo)   # class constants and drawing helpers only
+    return demo.render_rays(*args)
+
