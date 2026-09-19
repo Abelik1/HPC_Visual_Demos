@@ -18,10 +18,10 @@
     },
     "pilot_elapsed_s": 14.2,
     "fixed_s": 8.8,
-    "main_s": 324.7,
-    "side_s": 0.0,
+    "main_s": 314.5,
+    "side_s": 0.6,
     "frame_ratio": 60.0,
-    "estimate_minutes": 5.6
+    "estimate_minutes": 5.4
   },
   "fusion_plasma/passive": {
     "run": "fusion_plasma_passive_leonardo_pilot_20260919_172507",
@@ -122,5 +122,30 @@
     "side_s": 0.0,
     "frame_ratio": 37.5,
     "estimate_minutes": 6.2
+  },
+  "nbody_murb/gpu+tile+full": {
+    "run": "nbody_murb_gputilefull_leonardo_pilot_20260919_193211",
+    "status": "complete",
+    "error": null,
+    "device_usage": {
+      "job_id": "58231875",
+      "node": "lrdn1506",
+      "cpus_allocated": 8,
+      "gpus_allocated": 1,
+      "gpu_util_mean": 17.9,
+      "gpu_busy_fraction": 0.179,
+      "gpu_mem_peak_mib": 552.0,
+      "gpu_samples": 67,
+      "wall_seconds": 70.6,
+      "cpu_seconds": 71.0,
+      "cpu_cores_busy_avg": 1.01,
+      "cpu_allocation_used": 0.126
+    },
+    "pilot_elapsed_s": 70.6,
+    "fixed_s": 4.4,
+    "main_s": 535.4,
+    "side_s": 245.5,
+    "frame_ratio": 30.0,
+    "estimate_minutes": 13.1
   }
 }

@@ -158,7 +158,10 @@ def wait(run_ids: list[str], poll: int = 20) -> dict:
 # Stages that run alongside the solver loop instead of after it, and on how
 # many workers: the 3-D galaxy draws on one thread; the FramePipeline demos
 # draw in worker processes (allocated cores - 1, at most 16).
-OVERLAPPED = {"galaxy_collision_3d": 1, "fluid": "pipeline", "fusion_plasma/passive": "pipeline"}
+OVERLAPPED = {"galaxy_collision_3d": 1, "fluid": "pipeline", "fusion_plasma/passive": "pipeline",
+              "black_hole": "pipeline", "nbody_murb": "pipeline"}
+# Demos whose parallel drawing comes after the physics rather than beside it.
+DRAW_AFTER = {"nbody_murb"}
 SIDE_STAGES = ("render", "jpeg_encode", "frame_write")
 
 
@@ -208,7 +211,7 @@ def estimate(entry: dict, meta: dict) -> dict:
         fixed += unaccounted
     else:
         fixed += max(0.0, elapsed - sum(float(r["seconds"]) for r in t.values()))
-    seconds = fixed + max(main, side)
+    seconds = fixed + (main + side if entry["demo"] in DRAW_AFTER else max(main, side))
     return {"pilot_elapsed_s": round(elapsed, 1), "fixed_s": round(fixed, 1), "main_s": round(main, 1),
             "side_s": round(side, 1), "frame_ratio": round(frame_ratio, 1),
             "estimate_minutes": round(seconds / 60, 1)}
