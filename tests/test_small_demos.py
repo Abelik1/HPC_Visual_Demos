@@ -157,6 +157,20 @@ class SmallDemoTests(unittest.TestCase):
             meta=json.loads((Path(t)/'meta.json').read_text())
             self.assertEqual(meta['chain'],'HHPP+-HHPP')
             self.assertEqual(len(json.loads((Path(t)/'interactive/frame_0000.json').read_text())['positions']),10)
+    def test_molecular_walker(self):
+        # Fuel drives it forward; without fuel it cannot move.
+        results = {}
+        for fuel in (0.0, 1.0):
+            with tempfile.TemporaryDirectory() as t:
+                c=RunContext(Path(t),'molecular_dynamics','local',4,{'temperature':310,'fuel':fuel,'load':0.0},'numpy',method='walker')
+                MolecularDynamicsDemo(c,{'walker_steps':150000}).run()
+                meta=json.loads((Path(t)/'meta.json').read_text())
+                self.assertEqual(meta['status'],'complete')
+                results[fuel]=meta['summary']
+                self.assertTrue((Path(t)/'interactive/frame_0003.json').exists())
+        self.assertEqual(results[0.0]['net_steps'],0)
+        self.assertEqual(results[0.0]['flashes'],0)
+        self.assertGreater(results[1.0]['net_steps'],2)
     def test_molecular_shuttle(self):
         with tempfile.TemporaryDirectory() as t:
             c=RunContext(Path(t),'molecular_dynamics','local',3,{'temperature':310,'drive':3,'switch_every':1},'numpy',method='shuttle')

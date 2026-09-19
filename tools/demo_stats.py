@@ -78,6 +78,9 @@ def setup_text(m: dict) -> str:
     if d == "molecular_dynamics":
         if method == "shuttle":
             return f"rotaxane ring on an axle, {_n(g('shuttle_steps'))} Langevin steps, {frames} frames"
+        if method == "walker":
+            return (f"two-footed walker on a flashing ratchet, fuel {_n(p.get('fuel'), 2)}, load {_n(p.get('load'), 2)}, "
+                    f"{_n(g('walker_steps'))} Langevin steps, {frames} frames")
         return f"{_n(m.get('chain_length') or g('particles'))}-bead chain, {_n(g('total_steps'))} Langevin steps, {frames} frames"
     if d == "nbody_murb":
         rep = (m.get("murb") or {}).get("report") or {}
@@ -98,6 +101,9 @@ def result_text(m: dict) -> str:
     summary = m.get("summary") or {}
     d = m.get("demo")
     if d == "molecular_dynamics" and summary:
+        if summary.get("mode") == "walker":
+            return (f"walked {summary.get('net_steps'):+d} steps ({summary.get('forward')} forward, "
+                    f"{summary.get('backward')} back) on {summary.get('flashes')} fuel flashes")
         if summary.get("mode") == "shuttle":
             return f"ring made {summary.get('trips')} trips for {summary.get('flips')} switch flips"
         return (f"folded to Rg {summary.get('radius_of_gyration')}, {round(100 * summary.get('buried_oil', 0))}% of "

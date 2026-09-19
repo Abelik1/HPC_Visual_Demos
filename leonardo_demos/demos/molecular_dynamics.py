@@ -69,6 +69,15 @@ SHUTTLE_SIZES = [1.0, 2.2, 1.0, 1.0, 1.0]
 DT = 0.005
 # The shuttle's stiffest term (ring bonds, k=120) is stable at twice the step.
 SHUTTLE_DT = 0.01
+
+# Walking motor: a two-footed walker on a flashing ratchet track.
+# track, sticky well, walker foot, walker leg (drawn thin), track when "off".
+WALKER_PALETTE = [(120, 140, 168), (255, 120, 90), (120, 255, 200), (70, 90, 110)]
+WALKER_LABELS = ["track", "binding well", "walker foot", "track (fuel spent: landscape off)"]
+WALKER_SIZES = [0.7, 1.0, 1.5, 0.7]
+WALK_PERIOD = 4.0        # distance between binding wells
+WALK_ASYM = 0.2          # the steep wall sits 0.2 periods ahead of each well
+WALK_DEPTH_KT = 8.0      # well depth in units of kT
 MAX_KERNEL_BEADS = 1024
 
 # The whole fold, fused: one thread block holds the chain, one thread per bead,
@@ -162,15 +171,17 @@ class MolecularDynamicsDemo(Demo):
 
     id = "molecular_dynamics"
     title = "Molecular Machine"
-    methods = ("fold", "shuttle")
+    methods = ("fold", "shuttle", "walker")
     default_method = "fold"
     method_labels = {
         "fold": "Fold your own protein",
         "shuttle": "Molecular shuttle (a machine)",
+        "walker": "Walking motor (a Brownian ratchet)",
     }
     method_descriptions = {
         "fold": "A chain of water-avoiding, water-loving and charged beads folds under thermal kicks; every bead feels every other one.",
         "shuttle": "A ring threaded on an axle hops between two binding stations when a switch changes which one is sticky.",
+        "walker": "A two-footed walker on a lopsided track: burning fuel flashes the track off and on, and random jiggling turns into steps forward.",
     }
     timing_methods = {}   # stages are timed inline with ctx.stage
 
@@ -631,9 +642,124 @@ class MolecularDynamicsDemo(Demo):
         add_progress(image, progress, left, right)
         return image
 
+    # ------------------------------------------------------------ walker --
+    @staticmethod
+    def ratchet(x, depth):
+        """Sawtooth landscape: energy and force at position(s) x.
+
+        Wells sit at multiples of WALK_PERIOD; the barrier is WALK_ASYM of a
+        period ahead of each well (steep side) and falls slowly behind it."""
+        L, a = WALK_PERIOD, WALK_ASYM
+        u = np.mod(x, L) / L                       # 0 at a well
+        rising = u < a
+        energy = np.where(rising, depth * u / a, depth * (1 - u) / (1 - a))
+        force = np.where(rising, -depth / (a * L), depth / ((1 - a) * L))
+        return energy, force
+
+    def run_walker(self):
+        """Flashing Brownian ratchet (Ajdari & Prost; the physics of kinesin-like motors).
+
+        Two feet joined by a springy leg diffuse along the track. While the
+        track is "on", each foot feels the lopsided sawtooth; fuel switches it
+        "off" for short spells, during which the feet diffuse freely. Being
+        caught again is lopsided too, so the jiggling gains a direction. A load
+        pulls the walker backwards. Integrated in 1-D with overdamped Langevin
+        dynamics; the other two axes only jiggle for the picture.
+        """
+        kT = self.kT()
+        fuel = float(self.ctx.params.get("fuel", 0.6))
+        load = float(self.ctx.params.get("load", 0.0))
+        total = max(1, int(self.settings.get("walker_steps", 60000)))
+        depth = WALK_DEPTH_KT * kT
+        dt, gamma = 0.002, 1.0
+        rng = np.random.default_rng(int(self.ctx.params.get("seed", 11)))
+        stride, k_leg = WALK_PERIOD, 6.0
+        # Off spells let the feet jiggle past the steep barrier just ahead
+        # (0.8 units) but almost never back over the long slope (3.2 units);
+        # on spells are long enough to slide all the way back into a well.
+        t_off, t_on = 2.0, 2.8
+        feet = np.array([0.0, stride])
+        on, clock = True, 0.0
+        flashes = forward = backward = 0
+        well = int(round(feet.mean() / WALK_PERIOD))
+        noise = math.sqrt(2 * kT * dt / gamma)
+        self.ctx.write_meta({"physics": {"model": "flashing Brownian ratchet, two coupled feet, overdamped Langevin",
+                                         "period": WALK_PERIOD, "asymmetry": WALK_ASYM,
+                                         "well_depth_kT": WALK_DEPTH_KT, "time_step": dt,
+                                         "off_time": t_off, "on_time": t_on,
+                                         "units": "reduced: bead diameter 1, kT(310 K) = 0.5"}})
+        self.ctx.xp = np            # 2 particles: nothing for a GPU to do
+        self.ctx.backend_name = "numpy"
+        self.ctx.write_meta({"backend": "numpy",
+                             "compute_note": "Two walker feet: integrated with NumPy on the CPU."})
+        self._begin_3d("walker", WALKER_PALETTE, WALKER_LABELS, WALKER_SIZES)
+        done = 0
+        jitter = np.zeros((2, 2))
+        for i in range(self.ctx.frames):
+            target = int(round(total * (i + 1) / self.ctx.frames))
+            with self.ctx.stage("simulation"):
+                for _ in range(max(1, target - done)):
+                    clock += dt
+                    # Fuel sets how soon after settling the next flash comes.
+                    if on and clock >= t_on and rng.random() < 0.6 * fuel * dt:
+                        on, clock = False, 0.0          # fuel burned: landscape off
+                        flashes += 1
+                    elif not on and clock >= t_off:
+                        on, clock = True, 0.0
+                    f = np.zeros(2)
+                    if on:
+                        f += self.ratchet(feet, depth)[1]
+                    ext = feet[1] - feet[0] - stride
+                    f += k_leg * np.array([ext, -ext])
+                    f -= load
+                    feet = feet + f * dt / gamma + noise * rng.standard_normal(2)
+                    jitter = 0.97 * jitter + 0.05 * rng.standard_normal((2, 2))
+            done = target
+            now = int(round(feet.mean() / WALK_PERIOD - 0.5))
+            if now > well:
+                forward += now - well
+            elif now < well:
+                backward += well - now
+            well = now
+            centre = float(feet.mean())
+            window = 14.0
+            wells = np.arange(math.floor((centre - window) / WALK_PERIOD), math.ceil((centre + window) / WALK_PERIOD) + 1)
+            track_x = np.arange(centre - window, centre + window, 0.9)
+            track_types = np.full(len(track_x), 0 if on else 3)
+            near_well = np.min(np.abs(track_x[:, None] - wells[None, :] * WALK_PERIOD), axis=1) < 0.5
+            track_types[near_well & on] = 1
+            track = np.stack([track_x - centre, np.zeros_like(track_x), np.zeros_like(track_x)], 1)
+            feet3 = np.stack([feet - centre, 1.6 + jitter[:, 0] * 0.3, jitter[:, 1] * 0.3], 1)
+            hip = np.array([[0.0, 3.2, 0.0]])
+            pos = np.concatenate([track, feet3, hip])
+            types = np.concatenate([track_types, [2, 2, 2]])
+            n = len(track_x)
+            bonds = [[j, j + 1] for j in range(n - 1)] + [[n, n + 2], [n + 1, n + 2]]
+            with self.ctx.stage("render"):
+                image = self.render(pos, types, WALKER_PALETTE, bonds=bonds, angle=0.25,
+                                    subtitle=f"a two-footed walker on a flashing ratchet · fuel {fuel:.2f} · load {load:.2f}",
+                                    progress=done / total, left="RANDOM JIGGLING", right="DIRECTED STEPS",
+                                    scale_to=window + 1.0)
+                self.ctx.save_frame(image, self.ctx.frame_path(i))
+                self._save_3d(i, pos, types, bonds=bonds, step=done)
+            self.ctx.write_status(i, f"step {done:,} · {forward - backward:+d} steps", {
+                "steps forward": f"{forward}",
+                "steps back": f"{backward}",
+                "distance walked": f"{centre / WALK_PERIOD:+.1f} steps",
+                "fuel burned": f"{flashes} flashes",
+                "track": "on (feet held)" if on else "off (feet free)",
+                "load": f"{load:.2f}",
+                "time steps": f"{done:,}"})
+        self.ctx.write_meta({"summary": {"mode": "walker", "forward": forward, "backward": backward,
+                                         "net_steps": forward - backward, "flashes": flashes,
+                                         "fuel": fuel, "load": load}})
+        self.ctx.finish()
+
     def run(self):
         self.rng = self._rng(int(self.ctx.params.get("seed", 11)))
-        if self.mode == "shuttle":
+        if self.mode == "walker":
+            self.run_walker()
+        elif self.mode == "shuttle":
             self.run_shuttle()
         else:
             self.run_fold()

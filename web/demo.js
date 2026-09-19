@@ -244,12 +244,14 @@ KIOSK.molecular_dynamics={
   read:'Each ball is a group of atoms; sticks are bonds.',
   readByMethod:{
     fold:'Amber beads avoid water, cyan beads like it, blue is plus and pink is minus. The oily beads hide together in the middle; opposite charges zip up.',
-    shuttle:'The gold ring is threaded on the grey axle; the big end beads stop it falling off. The bright green station is the sticky one. Nothing pushes the ring: it jiggles along on heat alone until the sticky station catches it.'},
+    shuttle:'The gold ring is threaded on the grey axle; the big end beads stop it falling off. The bright green station is the sticky one. Nothing pushes the ring: it jiggles along on heat alone until the sticky station catches it.',
+    walker:'Two green feet on a track of red binding wells. Each burst of fuel switches the track off (grey) for a moment: the feet jiggle freely, and the lopsided wells catch them a little further ahead more often than behind.'},
   story:[
     'At this scale nothing sits still. Water molecules kick every bead, billions of times a second.',
     'Fold: oily beads hide from water together. That single rule is why proteins have a core.',
     'Every bead feels every other bead, every step: that is where the computing goes, and real proteins have hundreds of thousands of atoms.',
-    'Machine: the 2016 Nobel Prize in Chemistry was for molecules like this ring on an axle. The switch does not push; it only changes where the ring is caught.'],
+    'Machine: the 2016 Nobel Prize in Chemistry was for molecules like this ring on an axle. The switch does not push; it only changes where the ring is caught.',
+    'Motor: the proteins that carry cargo in your cells walk like this. Fuel does not push the feet; it only switches the track off and on, and the lopsided track turns jiggling into steps.'],
   creator:'chain',
   controls:[
     {method:true,label:'What to build'},
@@ -257,11 +259,14 @@ KIOSK.molecular_dynamics={
     {key:'temperature',label:'Temperature',unit:'K',decimals:0},
     {key:'solvent',label:'Water strength',decimals:2,onlyMethod:'fold'},
     {key:'drive',label:'Switch strength',decimals:2,onlyMethod:'shuttle'},
-    {key:'switch_every',label:'Flip the switch every',unit:'frames',decimals:0,onlyMethod:'shuttle'}],
+    {key:'switch_every',label:'Flip the switch every',unit:'frames',decimals:0,onlyMethod:'shuttle'},
+    {key:'fuel',label:'Fuel',decimals:2,onlyMethod:'walker',help:'How often the motor burns fuel (in a cell: ATP).'},
+    {key:'load',label:'Load pulling back',decimals:2,onlyMethod:'walker',help:'Pull hard enough and the motor stalls, then walks backwards.'}],
   views:[{id:'frames',label:'Picture',kind:'frames'},
          {id:'galaxy3d',label:'Rotate in 3D',kind:'galaxy3d',needs:'galaxy3d_view'}],
   // Fold readouts first, shuttle readouts after: a run only ever has one set.
-  numbers:['radius of gyration','buried oil','salt bridges','sticky station','ring position','trips along the axle']};
+  numbers:['radius of gyration','buried oil','salt bridges','sticky station','ring position','trips along the axle',
+           'steps forward','distance walked','fuel burned']};
 // Any demo without its own entry above still works on the stand: its first
 // three parameters become the controls and its tagline the caption.
 function kioskFor(id){
@@ -760,7 +765,7 @@ function refreshGhosts(){
 function chainLength(){return Number($('#s_particles')?.value)||Number(specs?.profiles?.[$('#profile').value]?.molecular_dynamics?.particles)||40;}
 function syncChain(){
   if(!chain)return;
-  const fold=methodValue()!=='shuttle';
+  const fold=methodValue()==='fold'||methodValue()==='default';
   chain.setVisible(fold);document.body.classList.toggle('hasBuilder',fold);
   chain.setPreset(controlState.sequence??0,chainLength());
 }
@@ -1352,7 +1357,7 @@ async function startRun(){
     if(obstacles.hasCells()||Number(params.obstacle)===3)request.obstacle_grid=obstacles.cells;
   }
   if(current==='neural_wall'&&target?.custom)request.target_image=target.dataUrl();
-  if(current==='molecular_dynamics'&&chain&&methodValue()!=='shuttle'){const own=chain.getChain();if(own)request.chain=own;}
+  if(current==='molecular_dynamics'&&chain&&(methodValue()==='fold'||methodValue()==='default')){const own=chain.getChain();if(own)request.chain=own;}
   if(isGame()&&controlState._name)request.name=controlState._name;
   if(current==='neuro_racers'&&controlState._ghosts){const ghosts=ghostRuns(params.track).map(r=>r.id);if(ghosts.length)request.ghosts=ghosts;}
   if(builder)request.brain=builder.getSpec();

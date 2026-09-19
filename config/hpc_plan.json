@@ -67,6 +67,13 @@
           "mem_gb": 8,
           "backend": "cpu",
           "why": "Twelve mobile beads: a GPU cannot be kept busy, so the shuttle never asks for one."
+        },
+        "walker": {
+          "device": "cpu",
+          "cpus": 2,
+          "mem_gb": 8,
+          "backend": "cpu",
+          "why": "Two walker feet: nothing for a GPU to do."
         }
       }
     },

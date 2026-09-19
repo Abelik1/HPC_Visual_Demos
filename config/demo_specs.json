@@ -467,7 +467,7 @@
   },
   "molecular_dynamics": {
     "name": "Molecular Machine",
-    "tagline": "Write a protein and watch it fold, or run a machine made of one molecule.",
+    "tagline": "Write a protein and watch it fold, or run a machine made of one molecule: a shuttle or a walking motor.",
     "params": {
       "temperature": {
         "min": 250,
@@ -541,6 +541,26 @@
         "label": "Flip the switch every … frames (0 = never)",
         "methods": [
           "shuttle"
+        ]
+      },
+      "fuel": {
+        "min": 0,
+        "max": 1,
+        "step": 0.05,
+        "value": 0.6,
+        "label": "Fuel (how often the track flashes)",
+        "methods": [
+          "walker"
+        ]
+      },
+      "load": {
+        "min": 0,
+        "max": 1,
+        "step": 0.05,
+        "value": 0,
+        "label": "Load pulling the walker backwards",
+        "methods": [
+          "walker"
         ]
       }
     }
