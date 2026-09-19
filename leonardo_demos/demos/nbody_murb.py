@@ -114,6 +114,12 @@ class Trajectory:
         if self.path.stat().st_size != expected:
             raise ValueError(f"{self.path.name} is incomplete or not finalised")
 
+    def iteration(self, index):
+        """The solver iteration a recorded frame was taken at (8 bytes read)."""
+        with open(self.path, "rb") as f:
+            f.seek(self.header_bytes + index * self.frame_bytes)
+            return struct.unpack("<Q", f.read(8))[0]
+
     def frame(self, index):
         """(iteration, positions[N,3], velocities[N,3]) of one recorded frame."""
         offset = self.header_bytes + index * self.frame_bytes
@@ -208,15 +214,21 @@ def render_trajectory(ctx, traj, frames, width, height, zoom=1.0, extra=None):
                        for v, label, _, _ in VIEWS],
         "default_view_mode": "frames",
     })
-    for out, index in enumerate(picks):
-        iteration, pos, vel = traj.frame(int(index))
-        for view_id, _, yaw, pitch in VIEWS:
-            image = render_view(pos - centre, vel, traj.radii, width, height, yaw, pitch, distance)
-            path = (ctx.frame_path(out) if view_id == "frames"
-                    else ctx.run_dir / "modes" / view_id / f"frame_{out:04d}.jpg")
-            ctx.save_frame(image, path)
+    # MUrB has finished by now, so every allocated core can draw: each worker
+    # reads its own frame from the trajectory file (no 100k-body arrays are
+    # copied between processes) and draws all three views of it.
+    from ..pipeline import FramePipeline
+    workers = max(1, min(ctx.cpu_workers - 1, 16, max(1, len(picks) // 4)))
+    with FramePipeline(ctx, workers=workers) as pipeline:
+      for out, index in enumerate(picks):
+        iteration = traj.iteration(int(index))
+        payload = {"trajectory": str(traj.path), "index": int(index), "centre": centre, "distance": distance,
+                   "width": width, "height": height,
+                   "extra_paths": {view_id: str(ctx.run_dir / "modes" / view_id / f"frame_{out:04d}.jpg")
+                                   for view_id, _, _, _ in VIEWS[1:]}}
         days = iteration * traj.dt / 86400.0
-        ctx.write_status(out, f"iteration {iteration:,} · t = {days:.1f} days", {
+        pipeline.submit(out, draw_murb_frame, payload, ctx.frame_path(out),
+                        f"iteration {iteration:,} · t = {days:.1f} days", {
             "code": "MUrB (NBody-EuroHPC)",
             "backend": traj.backend,
             "bodies": f"{traj.n:,}",
@@ -226,6 +238,26 @@ def render_trajectory(ctx, traj, frames, width, height, zoom=1.0, extra=None):
             "interactions / step": f"{traj.n * (traj.n - 1):,}",
             **extra,
         })
+
+
+def draw_murb_frame(p):
+    """All three views of one trajectory frame (runs in a worker process).
+
+    The main view is returned for the pipeline to save; the side and top
+    views are written here."""
+    traj = Trajectory(p["trajectory"])
+    _, pos, vel = traj.frame(p["index"])
+    main = None
+    for view_id, _, yaw, pitch in VIEWS:
+        image = render_view(pos - p["centre"], vel, traj.radii, p["width"], p["height"], yaw, pitch, p["distance"])
+        if view_id == "frames":
+            main = image
+        else:
+            target = Path(p["extra_paths"][view_id])
+            tmp = target.with_name(f".{target.stem}.tmp.jpg")
+            image.save(tmp, format="JPEG", quality=92)
+            tmp.replace(target)
+    return main
 
 
 class NBodyMurbDemo(Demo):
