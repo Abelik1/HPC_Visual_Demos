@@ -261,6 +261,23 @@
         }
       },
       {
+        "demo": "nbody_murb",
+        "method": "gpu+tile+full",
+        "profile": "hpc",
+        "frames": 120,
+        "settings": {
+          "bodies": 1000000,
+          "iterations": 480
+        },
+        "params": {},
+        "pilot": {
+          "frames": 4,
+          "settings": {
+            "iterations": 8
+          }
+        }
+      },
+      {
         "demo": "fusion_plasma",
         "method": "passive",
         "profile": "hpc",
