@@ -10,6 +10,42 @@
 | Compute | MUrB cpu+omp |
 | Result | code MUrB (NBody-EuroHPC); backend cpu+omp; bodies 100,000; iteration 1,440 |
 
+**MUrB N-body (NBody-EuroHPC)** (GPU · CUDA tiled, device-resident), Leonardo, job 58232031, 19 Sep 2026, lrdn0954
+
+| | |
+|---|---|
+| Setup | 1,000,000 bodies, 480 iterations, MUrB gpu+tile+full, 17.93 TFLOP/s, 120 frames |
+| Total time | **12 min 46 s** |
+| Physics | 8 min 55 s (4.46 s/frame) |
+| Drawing frames | 25 min 08 s (12.57 s/frame) |
+| Devices | 1 GPU, busy 70% on average; 8 cores, 2.69 busy on average |
+| Compute | MUrB gpu+tile+full |
+| Result | code MUrB (NBody-EuroHPC); backend gpu+tile+full; bodies 1,000,000; iteration 480 |
+
+**Star in a Bottle** (Mode 1 · Passive confinement), Leonardo, job 58231322, 19 Sep 2026, lrdn1981
+
+| | |
+|---|---|
+| Setup | 2,048² grid, 40,000 steps, 6,000 tracers, 5.5 T field, 32 MW heating, 600 frames |
+| Total time | **3 min 09 s** |
+| Physics | 2 min 31 s (251 ms/frame) |
+| Drawing frames | 20 min 47 s (2.08 s/frame) |
+| Devices | 1 GPU, busy 83% on average; 8 cores, 7.38 busy on average |
+| Compute | cupy + CPU frame workers |
+| Result | mode passive confinement; magnetic field 5.5 T; heating power 32 MW; density 1.00 n₀ |
+
+**Star in a Bottle** (Mode 2 · AI plasma guardian (3D)), Leonardo, job 58231329, 19 Sep 2026, lrdn2045
+
+| | |
+|---|---|
+| Setup | 16 simulations run together, 512² grid, 10 shots, 1,500 neural-network updates, 600 frames |
+| Total time | **9 min 41 s** |
+| Physics | 4 min 10 s (416 ms/frame) |
+| Drawing frames | 2 min 45 s (276 ms/frame) |
+| Devices | 1 GPU, busy 16% on average; 8 cores, 0.86 busy on average |
+| Compute | cupy + torch·cuda |
+| Result | mode AI plasma guardian; phase shot 10 of 10 running, policy frozen; control model neural policy; training so far 1,500 updates after shot 9 |
+
 **Cosmic-web formation** (Default solver), Leonardo, job 58225927, 19 Sep 2026, lrdn0264
 
 | | |

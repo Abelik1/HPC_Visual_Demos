@@ -20,6 +20,12 @@
       "error": null
     },
     {
+      "label": "molecular_dynamics/fold",
+      "run": "molecular_dynamics_fold_discoverer_run_20260919_191610",
+      "status": "complete",
+      "error": null
+    },
+    {
       "label": "molecular_dynamics/shuttle",
       "run": "molecular_dynamics_shuttle_discoverer_run_20260919_174733",
       "status": "complete",

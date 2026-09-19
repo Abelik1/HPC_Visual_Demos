@@ -1,14 +1,14 @@
 # Demo-day run statistics
 
 One table per demo, built from each run's own recorded timings (`tools/demo_stats.py`).
-Physics = the solver; drawing = turning the results into frames. Where drawing runs in parallel with the physics, the two can add up to more than the total time.
-“Devices” is what the job was allocated and how busy it actually kept it (runs from 19 Sep onwards).
+Physics = the solver. Drawing = turning results into frames; where drawing runs in parallel worker processes it is CPU time summed over the workers, so it can exceed the total time.
+Devices = what the job was allocated, and how busy it actually kept it (cluster runs from 19 Sep).
 
 ## Discoverer demo day
 
 **Galaxy collision - full 3D gravity** (Leapfrog (recommended)), gpu-11, 13 Sep 2026
 
-_Run on Discoverer on 13 Sep (showcase job 7653, before right-sizing: it held a whole node)._
+_Run on Discoverer on 13 Sep (showcase job 7653), before jobs were right-sized: it held a whole node. Not re-run on purpose._
 
 | | |
 |---|---|
@@ -55,18 +55,17 @@ _Run on Discoverer on 13 Sep (showcase job 7653, before right-sizing: it held a 
 | Compute | cupy + CPU frame workers |
 | Result | black hole Gaia BH3 · 32.7 M☉; camera distance 12.0 r_s · 1,159 km; shadow 23.9° across; starlight blueshift ×1.044 |
 
-**Molecular Machine** (Fold your own protein), AlexMainDesktop, 18 Sep 2026
-
-_Run on the exhibition PC (RTX 3060 Ti), not yet on Discoverer._
+**Molecular Machine** (Fold your own protein), Discoverer, job 8686, 19 Sep 2026, gpu-11
 
 | | |
 |---|---|
-| Setup | 240-bead chain, 1,500,000 Langevin steps, 120 frames |
-| Total time | **1 min 20 s** |
-| Physics | 1 min 11 s (595 ms/frame) |
-| Drawing frames | 7 s (62 ms/frame) |
+| Setup | 1,000-bead chain, 6,000,000 Langevin steps, 300 frames |
+| Total time | **22 min 22 s** |
+| Physics | 21 min 47 s (4.36 s/frame) |
+| Drawing frames | 29 s (97 ms/frame) |
+| Devices | 1 GPU, busy 98% on average; 4 cores, 1.0 busy on average |
 | Compute | cupy |
-| Result | folded to Rg 3.162, 99% of oily beads buried, 0 salt bridges |
+| Result | folded to Rg 5.079, 99% of oily beads buried, 0 salt bridges |
 
 **Molecular Machine** (Molecular shuttle (a machine)), Discoverer, job 8685, 19 Sep 2026, gpu-11
 
@@ -80,9 +79,38 @@ _Run on the exhibition PC (RTX 3060 Ti), not yet on Discoverer._
 | Compute | numpy |
 | Result | ring made 4 trips for 4 switch flips |
 
+**Molecular Machine** (Walking motor (a Brownian ratchet)), AlexMainDesktop, 19 Sep 2026
+
+_The walking motor is two particles: it runs in seconds on any CPU, so it was rendered on the exhibition PC._
+
+| | |
+|---|---|
+| Setup | two-footed walker on a flashing ratchet, fuel 0.80, load 0.00, 800,000 Langevin steps, 300 frames |
+| Total time | **27 s** |
+| Physics | 13 s (45 ms/frame) |
+| Drawing frames | 12 s (41 ms/frame) |
+| Compute | numpy |
+| Result | walked +24 steps (27 forward, 3 back) on 238 fuel flashes |
+
 ## Leonardo demo day
 
+**MUrB N-body (NBody-EuroHPC)** (GPU · CUDA tiled, device-resident), Leonardo, job 58232031, 19 Sep 2026, lrdn0954
+
+_MUrB's CUDA path on one A100: about 92% of the A100's single-precision peak._
+
+| | |
+|---|---|
+| Setup | 1,000,000 bodies, 480 iterations, MUrB gpu+tile+full, 17.93 TFLOP/s, 120 frames |
+| Total time | **12 min 46 s** |
+| Physics | 8 min 55 s (4.46 s/frame) |
+| Drawing frames | 25 min 08 s (12.57 s/frame) |
+| Devices | 1 GPU, busy 70% on average; 8 cores, 2.69 busy on average |
+| Compute | MUrB gpu+tile+full |
+| Result | code MUrB (NBody-EuroHPC); backend gpu+tile+full; bodies 1,000,000; iteration 480 |
+
 **MUrB N-body (NBody-EuroHPC)** (CPU · OpenMP (all cores)), Leonardo, job 58225921, 19 Sep 2026, lrdn4323
+
+_The same code on 32 CPU cores of a DCGP node, for comparison (100,000 bodies)._
 
 | | |
 |---|---|
@@ -94,31 +122,29 @@ _Run on the exhibition PC (RTX 3060 Ti), not yet on Discoverer._
 | Compute | MUrB cpu+omp |
 | Result | code MUrB (NBody-EuroHPC); backend cpu+omp; bodies 100,000; iteration 1,440 |
 
-**Star in a Bottle** (Mode 1 · Passive confinement), gpu-12, 13 Sep 2026
-
-_Run on **Discoverer** on 13 Sep (showcase job 7654), not yet on Leonardo; before the drawing fix, so drawing dominates._
+**Star in a Bottle** (Mode 1 · Passive confinement), Leonardo, job 58231322, 19 Sep 2026, lrdn1981
 
 | | |
 |---|---|
-| Setup | 1,536² grid, 24,000 steps, 6,000 tracers, 5.5 T field, 32 MW heating, 600 frames |
-| Total time | **16 min 11 s** |
-| Physics | 31 s (52 ms/frame) |
-| Drawing frames | 10 min 13 s (1.02 s/frame) |
-| Compute | cupy |
+| Setup | 2,048² grid, 40,000 steps, 6,000 tracers, 5.5 T field, 32 MW heating, 600 frames |
+| Total time | **3 min 09 s** |
+| Physics | 2 min 31 s (251 ms/frame) |
+| Drawing frames | 20 min 47 s (2.08 s/frame) |
+| Devices | 1 GPU, busy 83% on average; 8 cores, 7.38 busy on average |
+| Compute | cupy + CPU frame workers |
 | Result | mode passive confinement; magnetic field 5.5 T; heating power 32 MW; density 1.00 n₀ |
 
-**Star in a Bottle** (Mode 2 · AI plasma guardian (3D)), gpu-12, 13 Sep 2026
-
-_Run on **Discoverer** on 13 Sep (showcase job 7654), not yet on Leonardo._
+**Star in a Bottle** (Mode 2 · AI plasma guardian (3D)), Leonardo, job 58231329, 19 Sep 2026, lrdn2045
 
 | | |
 |---|---|
-| Setup | 16 simulations run together, 512² grid, 12 shots, 3,000 neural-network updates, 600 frames |
-| Total time | **14 min 21 s** |
-| Physics | 11 min 32 s (1.15 s/frame) |
-| Drawing frames | 1 min 49 s (182 ms/frame) |
+| Setup | 16 simulations run together, 512² grid, 10 shots, 1,500 neural-network updates, 600 frames |
+| Total time | **9 min 41 s** |
+| Physics | 4 min 10 s (416 ms/frame) |
+| Drawing frames | 2 min 45 s (276 ms/frame) |
+| Devices | 1 GPU, busy 16% on average; 8 cores, 0.86 busy on average |
 | Compute | cupy + torch·cuda |
-| Result | mode AI plasma guardian; phase shot 12 of 12 running, policy frozen; control model neural policy; training so far 3,000 updates after shot 11 |
+| Result | mode AI plasma guardian; phase shot 10 of 10 running, policy frozen; control model neural policy; training so far 1,500 updates after shot 9 |
 
 **Cosmic-web formation** (Default solver), Leonardo, job 58225927, 19 Sep 2026, lrdn0264
 

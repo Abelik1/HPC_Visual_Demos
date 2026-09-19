@@ -34,6 +34,18 @@
 | Compute | cupy + CPU frame workers |
 | Result | black hole Gaia BH3 · 32.7 M☉; camera distance 12.0 r_s · 1,159 km; shadow 23.9° across; starlight blueshift ×1.044 |
 
+**Molecular Machine** (Fold your own protein), Discoverer, job 8686, 19 Sep 2026, gpu-11
+
+| | |
+|---|---|
+| Setup | 1,000-bead chain, 6,000,000 Langevin steps, 300 frames |
+| Total time | **22 min 22 s** |
+| Physics | 21 min 47 s (4.36 s/frame) |
+| Drawing frames | 29 s (97 ms/frame) |
+| Devices | 1 GPU, busy 98% on average; 4 cores, 1.0 busy on average |
+| Compute | cupy |
+| Result | folded to Rg 5.079, 99% of oily beads buried, 0 salt bridges |
+
 **Molecular Machine** (Molecular shuttle (a machine)), Discoverer, job 8685, 19 Sep 2026, gpu-11
 
 | | |

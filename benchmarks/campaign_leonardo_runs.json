@@ -8,6 +8,24 @@
       "error": null
     },
     {
+      "label": "nbody_murb/gpu+tile+full",
+      "run": "nbody_murb_gputilefull_leonardo_run_20260919_193623",
+      "status": "complete",
+      "error": null
+    },
+    {
+      "label": "fusion_plasma/passive",
+      "run": "fusion_plasma_passive_leonardo_run_20260919_191612",
+      "status": "complete",
+      "error": null
+    },
+    {
+      "label": "fusion_plasma/guardian",
+      "run": "fusion_plasma_guardian_leonardo_run_20260919_191612",
+      "status": "complete",
+      "error": null
+    },
+    {
       "label": "cosmic_web",
       "run": "cosmic_web_default_leonardo_run_20260919_174735",
       "status": "complete",

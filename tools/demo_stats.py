@@ -140,6 +140,10 @@ def stats(run_dir: Path) -> dict:
     try:
         from leonardo_demos.registry import DEMOS
         method_label = DEMOS[m["demo"]].method_labels.get(m.get("method"), "")
+        if not method_label and m.get("demo") == "nbody_murb":
+            # This PC's murb may lack CUDA; the label table covers every method.
+            from leonardo_demos.demos.nbody_murb import METHOD_LABELS
+            method_label = METHOD_LABELS.get(m.get("method"), "")
     except Exception:
         pass
     created = m.get("created")

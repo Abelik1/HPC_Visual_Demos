@@ -159,6 +159,59 @@
     "devices": "1 GPU, busy 17% on average; 16 cores, 4.2 busy on average"
   },
   {
+    "run": "molecular_dynamics_fold_discoverer_run_20260919_191610",
+    "demo": "molecular_dynamics",
+    "name": "Molecular Machine",
+    "method": "fold",
+    "method_label": "Fold your own protein",
+    "machine": "Discoverer",
+    "node": "gpu-11",
+    "job_id": 8686,
+    "date": "19 Sep 2026",
+    "backend": "cupy",
+    "gpu": {
+      "api": "cupy",
+      "cuda_runtime_version": 13020,
+      "cuda_driver_version": 13000,
+      "visible_devices": [
+        {
+          "visible_index": 0,
+          "name": "NVIDIA GB200",
+          "memory_total_bytes": 197568495616,
+          "compute_capability_major": 10,
+          "compute_capability_minor": 0
+        }
+      ],
+      "cuda_visible_devices": "0"
+    },
+    "setup": "1,000-bead chain, 6,000,000 Langevin steps, 300 frames",
+    "total_seconds": 1342.3,
+    "total": "22 min 22 s",
+    "physics_seconds": 1307.4,
+    "physics": "21 min 47 s (4.36 s/frame)",
+    "drawing_seconds": 29.1,
+    "drawing": "29 s (97 ms/frame)",
+    "physics_share": 0.974,
+    "result": "folded to Rg 5.079, 99% of oily beads buried, 0 salt bridges",
+    "status": "complete",
+    "frames": 300,
+    "device_usage": {
+      "job_id": "8686",
+      "node": "gpu-11",
+      "cpus_allocated": 4,
+      "gpus_allocated": 1,
+      "gpu_util_mean": 97.5,
+      "gpu_busy_fraction": 0.988,
+      "gpu_mem_peak_mib": 726.0,
+      "gpu_samples": 1325,
+      "wall_seconds": 1342.3,
+      "cpu_seconds": 1346.1,
+      "cpu_cores_busy_avg": 1.0,
+      "cpu_allocation_used": 0.25
+    },
+    "devices": "1 GPU, busy 98% on average; 4 cores, 1.0 busy on average"
+  },
+  {
     "run": "molecular_dynamics_shuttle_discoverer_run_20260919_174733",
     "demo": "molecular_dynamics",
     "name": "Molecular Machine",

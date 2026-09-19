@@ -15,15 +15,23 @@ Two things molecules do, as two solver methods of one demo:
   diffuses on thermal kicks alone and is caught by the sticky station. This is
   the kind of machine the 2016 Chemistry Nobel was awarded for.
 
+* **Walking motor** (`walker`): a flashing Brownian ratchet, the textbook
+  mechanism behind motor proteins such as kinesin. Two feet joined by a
+  springy leg sit on a lopsided sawtooth track (wells every 4 units, the
+  steep barrier 0.8 units ahead of each well, 8 kT deep). Fuel flashes the
+  track off and on; while it is off the feet diffuse freely, and being caught
+  again is lopsided, so noise turns into steps forward. A load pulls back:
+  0.3 already stalls it and 1.0 drags it backwards. No fuel, no motion.
+
 ## Implementation map
 
 - Solver and renderer: `leonardo_demos/demos/molecular_dynamics.py`
 - Parameters (`config/demo_specs.json`): temperature (both); sequence,
   attraction, water strength and salt (fold); switch strength and switch
-  interval (shuttle). A visitor-written sequence arrives as `RunReq.chain` and
+  interval (shuttle); fuel and load (walker). A visitor-written sequence arrives as `RunReq.chain` and
   becomes `_chain`.
 - Presets (`config/profiles.json`): chain length `particles`, `total_steps`
-  (fold), `shuttle_steps`, bending stiffness `bend`.
+  (fold), `shuttle_steps`, `walker_steps`, bending stiffness `bend`.
 - Frames: depth-sorted, shaded ball and stick. Each frame's 3-D state is saved
   in `interactive/` as `molecule-3d` JSON, drawn by `web/galaxy3d_view.js`
   ("Rotate in 3D" in both front ends).
@@ -50,8 +58,9 @@ block holds the chain, and each bead sums the force from every other bead and
 advances up to 2000 Langevin steps per launch. On an RTX 3060 Ti that is about
 15 µs per step at 40 beads and 40 µs per step at 240 beads (the HPC preset,
 1.5 M steps in about a minute). Chains of more than 1024 beads, and the CPU
-backend, use the vectorised NumPy path. The shuttle (12 mobile beads) always
-integrates with NumPy and records that in `compute_note`.
+backend, use the vectorised NumPy path. The shuttle (12 mobile beads) and the
+walker (2 feet) always integrate with NumPy and record that in `compute_note`;
+the device plan gives them CPU cores only.
 
 ## Scientific boundary
 

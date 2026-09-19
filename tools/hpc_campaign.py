@@ -313,9 +313,18 @@ def main() -> int:
     ids = {label(e): submit(a.machine, e, "run", walltime) for e in chosen}
     print("submitted:", json.dumps(ids, indent=1))
     metas = wait(list(ids.values()), poll=30)
-    out = {"machine": a.machine, "runs": [{"label": k, "run": v, "status": metas[v].get("status"),
-                                           "error": metas[v].get("error")} for k, v in ids.items()]}
-    (BENCH / f"campaign_{a.machine}_runs.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
+    # Merge by label: a partial campaign (--only) must not drop the latest
+    # production run of every other demo from the record.
+    runs_file = BENCH / f"campaign_{a.machine}_runs.json"
+    try:
+        previous = json.loads(runs_file.read_text(encoding="utf-8")).get("runs", [])
+    except (OSError, ValueError):
+        previous = []
+    merged = {r["label"]: r for r in previous}
+    merged.update({k: {"label": k, "run": v, "status": metas[v].get("status"), "error": metas[v].get("error")}
+                   for k, v in ids.items()})
+    out = {"machine": a.machine, "runs": list(merged.values())}
+    runs_file.write_text(json.dumps(out, indent=2), encoding="utf-8")
     import subprocess
     subprocess.run([sys.executable, str(ROOT / "tools" / "demo_stats.py"), "--campaign",
                     str(BENCH / f"campaign_{a.machine}_runs.json"),

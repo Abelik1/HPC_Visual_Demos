@@ -123,6 +123,8 @@ As it folds: "The oily beads hide from water together. That one rule is why real
 
 **Machine mode:** "This ring is threaded on an axle; the big beads stop it falling off. Watch the green station. When I flip the switch, nothing pushes the ring: it jiggles along on heat alone until the sticky station catches it. The 2016 Chemistry Nobel was for machines like this."
 
+**Motor mode:** "Your cells are full of tiny walking motors carrying cargo. Here's the trick: the fuel doesn't push the feet. It just switches the track off for a moment. The feet jiggle randomly, and because every well has its steep wall right in front, they get caught a step ahead far more often than a step behind. Now add a load and watch it stall."
+
 ## 13. Neuro-Racers
 
 **Invite:** "Come and build a brain. You have 40 LEGO points: which senses does your car get? How many neurons? Can it brake?"
