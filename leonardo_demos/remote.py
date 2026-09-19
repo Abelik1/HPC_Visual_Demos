@@ -434,6 +434,15 @@ def _read_meta(rd: Path) -> dict:
 def _write_meta(rd: Path, meta: dict) -> None:
     tmp = rd / "meta.json.tmp"
     tmp.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    # On Windows the replace fails while any other process (a viewer or the
+    # campaign's progress loop) has meta.json open for reading. Losing this
+    # write left fetched runs without their "remote" block twice; retry.
+    for attempt in range(50):
+        try:
+            tmp.replace(rd / "meta.json")
+            return
+        except PermissionError:
+            time.sleep(0.1)
     tmp.replace(rd / "meta.json")
 
 
