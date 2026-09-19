@@ -118,8 +118,21 @@ def _identity(c: dict) -> str | None:
     return str(Path(os.path.expanduser(identity))) if identity else None
 
 
+def ssh_program(c: dict | None = None) -> str:
+    """Windows' own OpenSSH for clusters marked ``"ssh_agent": true``: it talks
+    to the Windows ssh-agent, which holds the passphrase-protected CINECA key
+    and certificate after scripts/leonardo_login.ps1 (Git Bash's ssh cannot
+    reach that agent). Other clusters keep the default ssh: offering every
+    agent certificate first gets Discoverer to disconnect."""
+    if os.name == "nt" and (c or {}).get("ssh_agent"):
+        native = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "OpenSSH" / "ssh.exe"
+        if native.exists():
+            return str(native)
+    return "ssh"
+
+
 def ssh_base(c: dict) -> list[str]:
-    cmd = ["ssh", "-p", str(c.get("port") or 22), "-o", "BatchMode=yes", "-o", "ConnectTimeout=20",
+    cmd = [ssh_program(c), "-p", str(c.get("port") or 22), "-o", "BatchMode=yes", "-o", "ConnectTimeout=20",
            "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4"]
     identity = _identity(c)
     if identity:

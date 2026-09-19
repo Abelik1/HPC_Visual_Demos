@@ -52,7 +52,7 @@
     "host": "login01-ext.leonardo.cineca.it",
     "port": 22,
     "user": "abelik00",
-    "identity": "~/.ssh/cineca_leonardo",
+    "identity": "",
     "login_setup": "",
     "root": "$WORK/Leonardo_Visual_Demos",
     "runs_root": "$FAST/leonardo_visual_demos/dashboard",
@@ -91,6 +91,7 @@
     "sbatch_extra": [],
     "srun_extra": [
       "--cpu-bind=cores"
-    ]
+    ],
+    "ssh_agent": true
   }
 }
