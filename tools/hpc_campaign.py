@@ -96,7 +96,7 @@ def validate(entry: dict) -> list[str]:
         return [f"unknown demo {demo}"]
     cls = DEMOS[demo]
     method = entry.get("method") or cls.default_method
-    if method not in cls.methods:
+    if method not in getattr(cls, "remote_methods", cls.methods):
         problems.append(f"{demo}: unknown method {method}")
     spec_params = load_specs()[demo]["params"]
     for k, v in (entry.get("params") or {}).items():

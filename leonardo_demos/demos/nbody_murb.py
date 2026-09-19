@@ -266,6 +266,10 @@ class NBodyMurbDemo(Demo):
     backend_kind = "cpu"          # the executable owns the device, not CuPy
     supported_backends = ("cpu", "gpu")
     methods = available_methods()
+    # A cluster's own murb decides what it can run (Leonardo's build has CUDA,
+    # this PC's may not): cluster requests are validated against every method
+    # and run_demo.py re-checks against the node's build.
+    remote_methods = CPU_METHODS + GPU_METHODS
     default_method = "cpu+omp"
     method_labels = {m: METHOD_LABELS[m] for m in methods}
     method_descriptions = {m: METHOD_DESCRIPTIONS[m] for m in methods}

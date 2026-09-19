@@ -283,7 +283,8 @@ def prepare_run(demo:str,req:RunReq,rd:Path,*,remote:bool=False,dry:bool=False):
     if req.profile not in load_profiles():
         raise HTTPException(422, 'unknown profile')
     method=DEMOS[demo].default_method if req.method=='default' else req.method
-    if method not in DEMOS[demo].methods:
+    valid_methods=getattr(DEMOS[demo],'remote_methods',DEMOS[demo].methods) if remote else DEMOS[demo].methods
+    if method not in valid_methods:
         allowed=', '.join(DEMOS[demo].methods)
         raise HTTPException(422,f'{demo} supports these solvers: {allowed}')
     if req.precision not in DEMOS[demo].precisions:

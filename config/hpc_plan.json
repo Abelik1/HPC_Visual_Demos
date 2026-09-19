@@ -75,7 +75,25 @@
       "cpus": 32,
       "mem_gb": 64,
       "backend": "cpu",
-      "why": "MUrB's CPU implementations are OpenMP; a GPU is only worth requesting once murb is built with CUDA on the cluster (murb --version reports cuda=1)."
+      "why": "MUrB's CPU implementations are OpenMP, so the CPU methods run on a CPU node (DCGP on Leonardo).",
+      "methods": {
+        "gpu+tile+full": {
+          "device": "gpu",
+          "gpus": 1,
+          "cpus": 8,
+          "mem_gb": 64,
+          "backend": "gpu",
+          "why": "MUrB's CUDA tiled kernel on one GPU (Leonardo's build reports cuda=1)."
+        },
+        "gpu+tile": {
+          "device": "gpu",
+          "gpus": 1,
+          "cpus": 8,
+          "mem_gb": 64,
+          "backend": "gpu",
+          "why": "MUrB's CUDA tiled kernel on one GPU (Leonardo's build reports cuda=1)."
+        }
+      }
     },
     "fusion_plasma": {
       "device": "gpu",
