@@ -197,7 +197,17 @@ def estimate(entry: dict, meta: dict) -> dict:
         else:
             main += cost
     elapsed = float(meta.get("elapsed") or 0)
-    fixed += max(0.0, elapsed - sum(float(r["seconds"]) for r in t.values()))
+    report = ((meta.get("murb") or {}).get("report") or {})
+    if report.get("average_ms_per_iteration"):
+        # MUrB is a separate program: its own per-iteration timing is the
+        # physics, and the pilot's remaining time is start-up and drawing.
+        murb = float(report["average_ms_per_iteration"]) / 1000
+        pilot_iters = float(meta["murb"].get("iterations") or work_amount(entry, pilot))
+        main += murb * work_amount(entry, prod)
+        unaccounted = max(0.0, elapsed - sum(float(r["seconds"]) for r in t.values()) - murb * pilot_iters)
+        fixed += unaccounted
+    else:
+        fixed += max(0.0, elapsed - sum(float(r["seconds"]) for r in t.values()))
     seconds = fixed + max(main, side)
     return {"pilot_elapsed_s": round(elapsed, 1), "fixed_s": round(fixed, 1), "main_s": round(main, 1),
             "side_s": round(side, 1), "frame_ratio": round(frame_ratio, 1),

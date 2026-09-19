@@ -13,71 +13,325 @@
   "target_minutes": 25,
   "hard_limit_minutes": 30,
   "demos": {
-    "galaxy_collision_3d": {"device": "gpu", "gpus": 1, "cpus": 8, "mem_gb": 64, "backend": "hybrid",
-      "why": "Direct all-pairs gravity is 24x faster on the GPU and dominates at 1M bodies; 8 cores draw frames alongside."},
-    "fluid": {"device": "gpu", "gpus": 1, "cpus": 24, "mem_gb": 96, "backend": "hybrid",
-      "why": "Lattice-Boltzmann is ~100x faster on the GPU, but drawing was 90% of the run; the frame pipeline draws on the cores."},
-    "neuro_racers": {"device": "gpu", "gpus": 1, "cpus": 8, "mem_gb": 64, "backend": "gpu",
-      "why": "At 160 cars the GPU loses to the CPU; the HPC population (8,192 cars x searches) is what the pilot checks."},
-    "bat_vs_moth": {"device": "gpu", "gpus": 1, "cpus": 8, "mem_gb": 64, "backend": "gpu",
-      "why": "Population evolution is 5x faster on the GPU already at the local preset."},
-    "black_hole": {"device": "gpu", "gpus": 1, "cpus": 16, "mem_gb": 96, "backend": "hybrid",
-      "why": "Geodesic ray tracing is 11x faster on the GPU; drawing is still single-core (not yet pipelined)."},
-    "molecular_dynamics": {"device": "gpu", "gpus": 1, "cpus": 4, "mem_gb": 32, "backend": "gpu",
+    "galaxy_collision_3d": {
+      "device": "gpu",
+      "gpus": 1,
+      "cpus": 8,
+      "mem_gb": 64,
+      "backend": "hybrid",
+      "why": "Direct all-pairs gravity is 24x faster on the GPU and dominates at 1M bodies; 8 cores draw frames alongside."
+    },
+    "fluid": {
+      "device": "gpu",
+      "gpus": 1,
+      "cpus": 24,
+      "mem_gb": 96,
+      "backend": "hybrid",
+      "why": "Lattice-Boltzmann is ~100x faster on the GPU, but drawing was 90% of the run; the frame pipeline draws on the cores."
+    },
+    "neuro_racers": {
+      "device": "gpu",
+      "gpus": 1,
+      "cpus": 8,
+      "mem_gb": 64,
+      "backend": "gpu",
+      "why": "At 160 cars the GPU loses to the CPU; the HPC population (8,192 cars x searches) is what the pilot checks."
+    },
+    "bat_vs_moth": {
+      "device": "gpu",
+      "gpus": 1,
+      "cpus": 8,
+      "mem_gb": 64,
+      "backend": "gpu",
+      "why": "Population evolution is 5x faster on the GPU already at the local preset."
+    },
+    "black_hole": {
+      "device": "gpu",
+      "gpus": 1,
+      "cpus": 16,
+      "mem_gb": 96,
+      "backend": "hybrid",
+      "why": "Geodesic ray tracing is 11x faster on the GPU; drawing is still single-core (not yet pipelined)."
+    },
+    "molecular_dynamics": {
+      "device": "gpu",
+      "gpus": 1,
+      "cpus": 4,
+      "mem_gb": 32,
+      "backend": "gpu",
       "why": "The fold runs as one fused CUDA kernel; the host only draws.",
       "methods": {
-        "shuttle": {"device": "cpu", "cpus": 2, "mem_gb": 8, "backend": "cpu",
-          "why": "Twelve mobile beads: a GPU cannot be kept busy, so the shuttle never asks for one."}}},
-    "nbody_murb": {"device": "cpu", "cpus": 32, "mem_gb": 64, "backend": "cpu",
-      "why": "MUrB's CPU implementations are OpenMP; a GPU is only worth requesting once murb is built with CUDA on the cluster (murb --version reports cuda=1)."},
-    "fusion_plasma": {"device": "gpu", "gpus": 1, "cpus": 8, "mem_gb": 64, "backend": "hybrid",
+        "shuttle": {
+          "device": "cpu",
+          "cpus": 2,
+          "mem_gb": 8,
+          "backend": "cpu",
+          "why": "Twelve mobile beads: a GPU cannot be kept busy, so the shuttle never asks for one."
+        }
+      }
+    },
+    "nbody_murb": {
+      "device": "cpu",
+      "cpus": 32,
+      "mem_gb": 64,
+      "backend": "cpu",
+      "why": "MUrB's CPU implementations are OpenMP; a GPU is only worth requesting once murb is built with CUDA on the cluster (murb --version reports cuda=1)."
+    },
+    "fusion_plasma": {
+      "device": "gpu",
+      "gpus": 1,
+      "cpus": 8,
+      "mem_gb": 64,
+      "backend": "hybrid",
       "why": "The 1536^2+ plasma lattice is GPU work; the frame pipeline draws the torus on the cores.",
       "methods": {
-        "guardian": {"device": "gpu", "gpus": 1, "cpus": 8, "mem_gb": 96, "backend": "gpu",
-          "why": "PyTorch policy training over 16 simulations; small batches favour the CPU, so the pilot decides at HPC batch sizes."}}},
-    "cosmic_web": {"device": "gpu", "gpus": 1, "cpus": 8, "mem_gb": 64, "backend": "gpu",
-      "why": "Particle-mesh gravity; the GPU wins modestly at small grids and more at HPC grids."}
+        "guardian": {
+          "device": "gpu",
+          "gpus": 1,
+          "cpus": 8,
+          "mem_gb": 96,
+          "backend": "gpu",
+          "why": "PyTorch policy training over 16 simulations; small batches favour the CPU, so the pilot decides at HPC batch sizes."
+        }
+      }
+    },
+    "cosmic_web": {
+      "device": "gpu",
+      "gpus": 1,
+      "cpus": 8,
+      "mem_gb": 64,
+      "backend": "gpu",
+      "why": "Particle-mesh gravity; the GPU wins modestly at small grids and more at HPC grids."
+    }
   },
   "campaign": {
     "discoverer": [
-      {"demo": "galaxy_collision_3d", "method": "leapfrog", "profile": "hpc", "frames": 360, "precision": "fp32",
-       "settings": {"particles": 1000000, "substeps": 8, "max_step": 0.02, "force_tile": 256, "span_gyr": 8.0},
-       "params": {"impact": 0.35, "speed": 1.0, "disc_tilt": 35, "softening": 3.0},
-       "pilot": {"frames": 4, "settings": {"span_gyr": 0.09}}},
-      {"demo": "fluid", "profile": "hpc", "frames": 600,
-       "settings": {"nx": 7680, "ny": 4320, "total_steps": 250000, "tracers": 3000, "trail": 16, "tracer_boost": 9},
-       "params": {"speed": 0.04, "obstacle": 1},
-       "pilot": {"frames": 6, "settings": {"total_steps": 2500}}},
-      {"demo": "neuro_racers", "profile": "hpc", "frames": 450, "settings": {}, "params": {"_parallel_count": 16},
-       "pilot": {"frames": 12, "settings": {"generations": 3}}},
-      {"demo": "black_hole", "method": "schwarzschild", "profile": "hpc", "frames": 600, "settings": {},
-       "params": {"target": 0, "camera_distance": 12, "orbit": 360, "dive": 0},
-       "pilot": {"frames": 6}},
-      {"demo": "molecular_dynamics", "method": "fold", "profile": "hpc", "frames": 300,
-       "settings": {"particles": 1000, "total_steps": 6000000}, "params": {"sequence": 0},
-       "pilot": {"frames": 6, "settings": {"total_steps": 60000}}},
-      {"demo": "molecular_dynamics", "method": "shuttle", "profile": "hpc", "frames": 300,
-       "settings": {"shuttle_steps": 400000}, "params": {"switch_every": 60},
-       "pilot": {"frames": 6, "settings": {"shuttle_steps": 8000}}}
+      {
+        "demo": "galaxy_collision_3d",
+        "method": "leapfrog",
+        "profile": "hpc",
+        "frames": 360,
+        "precision": "fp32",
+        "settings": {
+          "particles": 1000000,
+          "substeps": 8,
+          "max_step": 0.02,
+          "force_tile": 256,
+          "span_gyr": 8.0
+        },
+        "params": {
+          "impact": 0.35,
+          "speed": 1.0,
+          "disc_tilt": 35,
+          "softening": 3.0
+        },
+        "pilot": {
+          "frames": 4,
+          "settings": {
+            "span_gyr": 0.09
+          }
+        }
+      },
+      {
+        "demo": "fluid",
+        "profile": "hpc",
+        "frames": 600,
+        "settings": {
+          "nx": 7680,
+          "ny": 4320,
+          "total_steps": 250000,
+          "tracers": 3000,
+          "trail": 16,
+          "tracer_boost": 9
+        },
+        "params": {
+          "speed": 0.04,
+          "obstacle": 1
+        },
+        "pilot": {
+          "frames": 6,
+          "settings": {
+            "total_steps": 2500
+          }
+        }
+      },
+      {
+        "demo": "neuro_racers",
+        "profile": "hpc",
+        "frames": 450,
+        "settings": {},
+        "params": {
+          "_parallel_count": 16
+        },
+        "pilot": {
+          "frames": 12,
+          "settings": {
+            "generations": 3
+          }
+        }
+      },
+      {
+        "demo": "black_hole",
+        "method": "schwarzschild",
+        "profile": "hpc",
+        "frames": 600,
+        "settings": {},
+        "params": {
+          "target": 0,
+          "camera_distance": 12,
+          "orbit": 360,
+          "dive": 0
+        },
+        "pilot": {
+          "frames": 6
+        }
+      },
+      {
+        "demo": "molecular_dynamics",
+        "method": "fold",
+        "profile": "hpc",
+        "frames": 300,
+        "settings": {
+          "particles": 1000,
+          "total_steps": 6000000
+        },
+        "params": {
+          "sequence": 0
+        },
+        "pilot": {
+          "frames": 6,
+          "settings": {
+            "total_steps": 60000
+          }
+        }
+      },
+      {
+        "demo": "molecular_dynamics",
+        "method": "shuttle",
+        "profile": "hpc",
+        "frames": 300,
+        "settings": {
+          "shuttle_steps": 400000
+        },
+        "params": {
+          "switch_every": 60
+        },
+        "pilot": {
+          "frames": 6,
+          "settings": {
+            "shuttle_steps": 8000
+          }
+        }
+      }
     ],
     "leonardo": [
-      {"demo": "nbody_murb", "method": "cpu+omp", "profile": "hpc", "frames": 360,
-       "settings": {"bodies": 100000, "iterations": 1440}, "params": {},
-       "pilot": {"frames": 6, "settings": {"iterations": 24}}},
-      {"demo": "fusion_plasma", "method": "passive", "profile": "hpc", "frames": 600,
-       "settings": {"n": 2048, "total_steps": 40000, "tracers": 6000, "trail": 20},
-       "params": {"magnetic_field": 5.5, "heating": 32, "density": 1.0, "_parallel_count": 1},
-       "pilot": {"frames": 6, "settings": {"total_steps": 400}}},
-      {"demo": "fusion_plasma", "method": "guardian", "profile": "hpc", "frames": 600,
-       "settings": {"n": 512, "particles": 3000, "shots": 12, "train_updates": 3000, "batch": 8192, "horizon": 48,
-                    "display_steps": 96, "learning_rate": 0.003, "ensemble": 16, "tracers": 3000, "trail": 16},
-       "params": {"magnetic_field": 5.0, "heating": 28, "instability": 1.25, "_parallel_count": 16},
-       "pilot": {"frames": 6, "settings": {"shots": 2, "train_updates": 40}}},
-      {"demo": "cosmic_web", "profile": "hpc", "frames": 600, "settings": {"grid": 1024, "particles": 2400000, "total_steps": 4000},
-       "params": {"_parallel_count": 1},
-       "pilot": {"frames": 6, "settings": {"total_steps": 40}}},
-      {"demo": "bat_vs_moth", "profile": "hpc", "frames": 450, "settings": {}, "params": {"_parallel_count": 16},
-       "pilot": {"frames": 12, "settings": {"generations": 3}}}
+      {
+        "demo": "nbody_murb",
+        "method": "cpu+omp",
+        "profile": "hpc",
+        "frames": 360,
+        "settings": {
+          "bodies": 100000,
+          "iterations": 1440
+        },
+        "params": {},
+        "pilot": {
+          "frames": 6,
+          "settings": {
+            "iterations": 24
+          }
+        }
+      },
+      {
+        "demo": "fusion_plasma",
+        "method": "passive",
+        "profile": "hpc",
+        "frames": 600,
+        "settings": {
+          "n": 2048,
+          "total_steps": 40000,
+          "tracers": 6000,
+          "trail": 20
+        },
+        "params": {
+          "magnetic_field": 5.5,
+          "heating": 32,
+          "density": 1.0,
+          "_parallel_count": 1
+        },
+        "pilot": {
+          "frames": 6,
+          "settings": {
+            "total_steps": 400
+          }
+        }
+      },
+      {
+        "demo": "fusion_plasma",
+        "method": "guardian",
+        "profile": "hpc",
+        "frames": 600,
+        "settings": {
+          "n": 512,
+          "particles": 3000,
+          "shots": 10,
+          "train_updates": 1500,
+          "batch": 8192,
+          "horizon": 48,
+          "display_steps": 96,
+          "learning_rate": 0.003,
+          "ensemble": 16,
+          "tracers": 3000,
+          "trail": 16
+        },
+        "params": {
+          "magnetic_field": 5.0,
+          "heating": 28,
+          "instability": 1.25,
+          "_parallel_count": 16
+        },
+        "pilot": {
+          "frames": 6,
+          "settings": {
+            "shots": 2,
+            "train_updates": 40
+          }
+        }
+      },
+      {
+        "demo": "cosmic_web",
+        "profile": "hpc",
+        "frames": 600,
+        "settings": {
+          "grid": 1024,
+          "particles": 2400000,
+          "total_steps": 4000
+        },
+        "params": {
+          "_parallel_count": 1
+        },
+        "pilot": {
+          "frames": 6,
+          "settings": {
+            "total_steps": 40
+          }
+        }
+      },
+      {
+        "demo": "bat_vs_moth",
+        "profile": "hpc",
+        "frames": 450,
+        "settings": {},
+        "params": {
+          "_parallel_count": 16
+        },
+        "pilot": {
+          "frames": 12,
+          "settings": {
+            "generations": 3
+          }
+        }
+      }
     ]
   }
 }
