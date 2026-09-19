@@ -1,0 +1,23 @@
+{
+  "machine": "leonardo",
+  "runs": [
+    {
+      "label": "nbody_murb/cpu+omp",
+      "run": "nbody_murb_cpuomp_leonardo_run_20260919_174735",
+      "status": "complete",
+      "error": null
+    },
+    {
+      "label": "cosmic_web",
+      "run": "cosmic_web_default_leonardo_run_20260919_174735",
+      "status": "complete",
+      "error": null
+    },
+    {
+      "label": "bat_vs_moth",
+      "run": "bat_vs_moth_default_leonardo_run_20260919_174735",
+      "status": "complete",
+      "error": null
+    }
+  ]
+}

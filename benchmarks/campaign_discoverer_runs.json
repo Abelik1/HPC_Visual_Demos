@@ -1,0 +1,29 @@
+{
+  "machine": "discoverer",
+  "runs": [
+    {
+      "label": "fluid",
+      "run": "fluid_default_discoverer_run_20260919_174733",
+      "status": "complete",
+      "error": null
+    },
+    {
+      "label": "neuro_racers",
+      "run": "neuro_racers_default_discoverer_run_20260919_174733",
+      "status": "complete",
+      "error": null
+    },
+    {
+      "label": "black_hole/schwarzschild",
+      "run": "black_hole_schwarzschild_discoverer_run_20260919_174733",
+      "status": "complete",
+      "error": null
+    },
+    {
+      "label": "molecular_dynamics/shuttle",
+      "run": "molecular_dynamics_shuttle_discoverer_run_20260919_174733",
+      "status": "complete",
+      "error": null
+    }
+  ]
+}

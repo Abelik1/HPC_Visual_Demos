@@ -665,7 +665,9 @@ def _finish(c: dict, rd: Path, rid: str, acct_state: str, remote_meta: dict) -> 
     parent, name = remote["remote_dir"].rsplit("/", 1)
     proc = subprocess.Popen(ssh_base(c) + [remote_command(c, f"tar -czf - -C {q(parent)} {shlex.quote(name)}")],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    kept = _read_meta(rd).get("remote") or {}
+    # The remote block read at the start of _finish: re-reading here can catch
+    # meta.json mid-write and silently lose the job's identity (seen once).
+    kept = dict(_read_meta(rd).get("remote") or remote)
     try:
         with tarfile.open(fileobj=proc.stdout, mode="r|gz") as archive:
             archive.extractall(rd.parent, filter="data")

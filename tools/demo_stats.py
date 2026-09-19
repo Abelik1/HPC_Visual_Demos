@@ -55,6 +55,10 @@ def _per_frame(seconds, frames):
 def setup_text(m: dict) -> str:
     d, s, p = m.get("demo"), m.get("settings") or {}, m.get("params") or {}
     method, frames = m.get("method"), m.get("frames")
+    s = dict(s)
+    if p.get("_parallel_count") is not None and "ensemble" in s:
+        # The run's own width overrides the preset's (Base applies it the same way).
+        s["ensemble"] = int(float(p["_parallel_count"]))
     g = s.get
     if d == "galaxy_collision_3d":
         return (f"{_n(g('particles'))} bodies, direct all-pairs gravity, {_n(g('span_gyr'), 1)} Gyr, "
@@ -76,7 +80,9 @@ def setup_text(m: dict) -> str:
             return f"rotaxane ring on an axle, {_n(g('shuttle_steps'))} Langevin steps, {frames} frames"
         return f"{_n(m.get('chain_length') or g('particles'))}-bead chain, {_n(g('total_steps'))} Langevin steps, {frames} frames"
     if d == "nbody_murb":
-        return f"{_n(g('bodies'))} bodies, {_n(g('iterations'))} iterations, MUrB {method}, {frames} frames"
+        rep = (m.get("murb") or {}).get("report") or {}
+        speed = (f", {float(rep['estimated_GFLOP_per_second']) / 1000:.2f} TFLOP/s" if rep.get("estimated_GFLOP_per_second") else "")
+        return f"{_n(g('bodies'))} bodies, {_n(g('iterations'))} iterations, MUrB {method}{speed}, {frames} frames"
     if d == "fusion_plasma":
         if method == "guardian":
             return (f"{_n(g('ensemble'))} simulations run together, {_n(g('n'))}² grid, {_n(g('shots'))} shots, "
@@ -112,6 +118,12 @@ def stats(run_dir: Path) -> dict:
     physics = sec("simulation") + sec("initialization")
     drawing = sum(sec(k) for k in DRAW_STAGES)
     total = float(m.get("elapsed") or m.get("duration_seconds") or 0)
+    report = (m.get("murb") or {}).get("report") or {}
+    if report.get("compute_ms"):
+        # MUrB is a separate program: its own timer is the physics; reading
+        # the trajectory back and drawing the frames is the rest of the run.
+        physics = float(report["compute_ms"]) / 1000
+        drawing = max(drawing, total - physics)
     frames = int(m.get("frames") or 0)
     res = m.get("resources") or {}
     usage = m.get("device_usage") or {}
