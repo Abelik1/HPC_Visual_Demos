@@ -147,15 +147,17 @@ _The same code on 32 CPU cores of a DCGP node, for comparison (100,000 bodies)._
 | Compute | cupy + CPU frame workers |
 | Result | mode passive confinement; magnetic field 5.5 T; heating power 32 MW; density 1.00 n₀ |
 
-**Star in a Bottle** (Mode 2 · AI plasma guardian (3D)), Leonardo, job 58231329, 19 Sep 2026, lrdn2045
+**Star in a Bottle** (Mode 2 · AI plasma guardian (3D)), Leonardo, job 58296859, 20 Sep 2026, lrdn0214
+
+_The training budget is spread geometrically over the shots (2, 5, 11, 26, 58, 131, 295, 666, 1,500 updates), so the scoreboard shows a learning curve: 82,150 markers lost untrained, then 78,780, 68,097, 12,044, 44,681, 5,853, 1,369, 1,282, 1,253, 1,256 against a no-control reference of 83,457. The step back at shot 5 is real and was kept._
 
 | | |
 |---|---|
 | Setup | 16 simulations run together, 512² grid, 10 shots, 1,500 neural-network updates, 600 frames |
-| Total time | **9 min 41 s** |
-| Physics | 4 min 10 s (416 ms/frame) |
-| Drawing frames | 2 min 45 s (276 ms/frame) |
-| Devices | 1 GPU, busy 16% on average; 8 cores, 0.86 busy on average |
+| Total time | **10 min 12 s** |
+| Physics | 4 min 21 s (434 ms/frame) |
+| Drawing frames | 2 min 50 s (284 ms/frame) |
+| Devices | 1 GPU, busy 16% on average; 8 cores, 0.85 busy on average |
 | Compute | cupy + torch·cuda |
 | Result | mode AI plasma guardian; phase shot 10 of 10 running, policy frozen; control model neural policy; training so far 1,500 updates after shot 9 |
 
