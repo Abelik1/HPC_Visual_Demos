@@ -171,6 +171,22 @@ class SmallDemoTests(unittest.TestCase):
         self.assertEqual(results[0.0]['net_steps'],0)
         self.assertEqual(results[0.0]['flashes'],0)
         self.assertGreater(results[1.0]['net_steps'],2)
+    def test_molecular_rotor(self):
+        # Fuel turns it; cargo stalls it, and enough cargo turns it backwards.
+        results = {}
+        for flow, cargo in ((0.0, 0.0), (0.6, 0.2), (0.6, 1.0)):
+            with tempfile.TemporaryDirectory() as t:
+                c=RunContext(Path(t),'molecular_dynamics','local',4,{'temperature':310,'flow':flow,'cargo':cargo},'numpy',method='rotor')
+                MolecularDynamicsDemo(c,{'rotor_steps':45000}).run()
+                meta=json.loads((Path(t)/'meta.json').read_text())
+                self.assertEqual(meta['status'],'complete')
+                self.assertEqual(meta['backend'],'numpy')
+                results[cargo]=meta['summary']
+                self.assertTrue((Path(t)/'interactive/frame_0003.json').exists())
+        self.assertEqual(results[0.0]['fuel_events'],0)
+        self.assertEqual(results[0.0]['net_steps'],0)
+        self.assertGreater(results[0.2]['net_steps'],2)
+        self.assertLess(results[1.0]['net_steps'],0)
     def test_molecular_shuttle(self):
         with tempfile.TemporaryDirectory() as t:
             c=RunContext(Path(t),'molecular_dynamics','local',3,{'temperature':310,'drive':3,'switch_every':1},'numpy',method='shuttle')

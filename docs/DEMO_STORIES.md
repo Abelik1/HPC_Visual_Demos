@@ -125,6 +125,8 @@ As it folds: "The oily beads hide from water together. That one rule is why real
 
 **Motor mode:** "Your cells are full of tiny walking motors carrying cargo. Here's the trick: the fuel doesn't push the feet. It just switches the track off for a moment. The feet jiggle randomly, and because every well has its steep wall right in front, they get caught a step ahead far more often than a step behind. Now add a load and watch it stall."
 
+**Rotary-motor mode:** "Every cell in you runs this one. It spins on nothing but protons falling across a membrane, and what it makes is the fuel everything else spends. Watch the orange patch: each burst of fuel moves it a third of a turn round, and the rotor follows it. The rotor looks the same every third of a turn, so watch the gold bead instead — that is the trick people used to film the real thing. Now hang some cargo on it: it slows, then stalls. Hang on more and the cargo turns the motor backwards, which is exactly how this machine runs in reverse to make fuel."
+
 ## 13. Neuro-Racers
 
 **Invite:** "Come and build a brain. You have 40 LEGO points: which senses does your car get? How many neurons? Can it brake?"

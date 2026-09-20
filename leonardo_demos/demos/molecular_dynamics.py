@@ -78,6 +78,17 @@ WALKER_SIZES = [0.7, 1.0, 1.5, 0.7]
 WALK_PERIOD = 4.0        # distance between binding wells
 WALK_ASYM = 0.2          # the steep wall sits 0.2 periods ahead of each well
 WALK_DEPTH_KT = 8.0      # well depth in units of kT
+
+# Rotary motor: a rotor turning inside a ring of stator sites (the F1 part of
+# ATP synthase). stator, the site now holding the rotor, rotor, marker bead.
+ROTOR_PALETTE = [(120, 140, 168), (255, 150, 60), (120, 255, 200), (255, 196, 70)]
+ROTOR_LABELS = ["stator ring", "the site holding the rotor", "rotor", "marker bead (what experiments watch)"]
+ROTOR_SIZES = [0.7, 1.1, 1.0, 1.8]
+ROTOR_STEP = 2 * math.pi / 3     # F1-ATPase turns in 120-degree steps
+ROTOR_DEPTH_KT = 40.0            # how hard a site holds the rotor
+ROTOR_RATE = 0.25                # fuel events per unit time at full flow
+ROTOR_WINDOW = 0.5               # the rotor must be this close (rad) to be fuelled
+ROTOR_RADIUS = 5.2               # stator ring radius, in bead diameters
 MAX_KERNEL_BEADS = 1024
 
 # The whole fold, fused: one thread block holds the chain, one thread per bead,
@@ -171,17 +182,19 @@ class MolecularDynamicsDemo(Demo):
 
     id = "molecular_dynamics"
     title = "Molecular Machine"
-    methods = ("fold", "shuttle", "walker")
+    methods = ("fold", "shuttle", "walker", "rotor")
     default_method = "fold"
     method_labels = {
         "fold": "Fold your own protein",
         "shuttle": "Molecular shuttle (a machine)",
         "walker": "Walking motor (a Brownian ratchet)",
+        "rotor": "Rotary motor (ATP synthase)",
     }
     method_descriptions = {
         "fold": "A chain of water-avoiding, water-loving and charged beads folds under thermal kicks; every bead feels every other one.",
         "shuttle": "A ring threaded on an axle hops between two binding stations when a switch changes which one is sticky.",
         "walker": "A two-footed walker on a lopsided track: burning fuel flashes the track off and on, and random jiggling turns into steps forward.",
+        "rotor": "A rotor inside a ring of stator sites: every burst of fuel moves the site that holds it 120 degrees on, and the rotor follows. Add cargo and it slows, then stalls.",
     }
     timing_methods = {}   # stages are timed inline with ctx.stage
 
@@ -588,14 +601,15 @@ class MolecularDynamicsDemo(Demo):
         return np.asarray(pos, dtype=np.float64) @ ry.T @ rx.T
 
     def render(self, pos, types, palette, bonds, angle, subtitle, progress, left, right, scale_to=None,
-               size=(1280, 720)):
+               size=(1280, 720), fit="width"):
         sizes = getattr(self, "_sizes", None) or [1.0] * len(palette)
         w, h = size
         p = self.rotate(np.asarray(pos) - np.asarray(pos).mean(axis=0), angle)
         if scale_to:
-            # The shuttle is long and thin: fit the axle to the frame width.
+            # The shuttle is long and thin, so its axle is fitted to the frame
+            # width; the rotor is round and is fitted to the shorter side.
             extent = scale_to
-            scale = w * 0.45 / extent
+            scale = (min(w, h) if fit == "box" else w) * 0.45 / extent
         else:
             extent = max(3.0, float(np.max(np.abs(p[:, :2]))) + 1.0)
             # Ease the zoom so the camera does not jump as the chain collapses.
@@ -755,9 +769,128 @@ class MolecularDynamicsDemo(Demo):
                                          "fuel": fuel, "load": load}})
         self.ctx.finish()
 
+    # ------------------------------------------------------------- rotor --
+    def rotor_scene(self, theta, target):
+        """Beads for one frame: stator ring, three-bladed rotor, marker bead."""
+        ring_n = 30
+        phi = np.arange(ring_n) * 2 * math.pi / ring_n
+        stator = np.stack([ROTOR_RADIUS * np.cos(phi), ROTOR_RADIUS * np.sin(phi), np.zeros(ring_n)], 1)
+        # Highlight the site the rotor is being pulled towards.
+        holding = int(round((target % (2 * math.pi)) / (2 * math.pi) * ring_n)) % ring_n
+        types = np.zeros(ring_n, int)
+        types[[(holding - 1) % ring_n, holding, (holding + 1) % ring_n]] = 1
+        radii = np.array([0.9, 1.9, 2.9, 3.9])
+        blades, bonds = [], [[j, (j + 1) % ring_n] for j in range(ring_n)]
+        hub = ring_n + 3 * len(radii)
+        for b in range(3):
+            a = theta + b * ROTOR_STEP
+            blades.append(np.stack([radii * math.cos(a), radii * math.sin(a), np.zeros(len(radii))], 1))
+            first = ring_n + b * len(radii)
+            bonds += [[hub, first]] + [[first + k, first + k + 1] for k in range(len(radii) - 1)]
+        # A marker bead on its own arm, between two blades: the rotor itself
+        # is three-fold symmetric, so only the marker shows that it has turned.
+        arm = theta + ROTOR_STEP / 2
+        marker = np.array([[4.4 * math.cos(arm), 4.4 * math.sin(arm), 0.0]])
+        bonds.append([hub, hub + 1])
+        pos = np.concatenate([stator] + blades + [np.zeros((1, 3)), marker])
+        kinds = np.concatenate([types, np.full(3 * len(radii) + 1, 2), [3]])
+        return pos, kinds, bonds
+
+    def run_rotor(self):
+        """A rotary motor stepping in 120-degree jumps (F1-ATPase, or a Feringa rotor).
+
+        One angle, overdamped: gamma * dtheta/dt = -dU/dtheta - load + noise,
+        with U(theta) = depth * (1 - cos(theta - target)) the pull of the site
+        that currently holds the rotor. Each burst of fuel moves that site
+        120 degrees on and the rotor follows by diffusing into it; nothing ever
+        pushes it round. Fuel is only spent once the rotor has arrived (tight
+        mechanochemical coupling), so a heavy cargo stalls the motor instead of
+        burning fuel for nothing, and a heavier one drags it backwards.
+        """
+        kT = self.kT()
+        flow = float(self.ctx.params.get("flow", 0.6))
+        cargo = float(self.ctx.params.get("cargo", 0.2))
+        total = max(1, int(self.settings.get("rotor_steps", 45000)))
+        depth = ROTOR_DEPTH_KT * kT
+        dt, gamma = 0.002, 1.0
+        # Cargo tilts the whole landscape, so the rotor sits behind its site
+        # by asin(load/depth) and every step starts further back. Above about
+        # 0.6 most steps are lost before they finish, by 0.8 the motor is
+        # stalled, and at 1.0 the cargo unwinds it backwards.
+        load = 0.95 * depth * cargo
+        rng = np.random.default_rng(int(self.ctx.params.get("seed", 11)))
+        noise = math.sqrt(2 * kT * dt / gamma)
+        theta = target = 0.0
+        fuel_events = slips = forward = backward = 0
+        sector = 0
+        self.ctx.write_meta({"physics": {"model": "rotary motor: one overdamped angle in a stepping potential well",
+                                         "step_degrees": 120, "well_depth_kT": ROTOR_DEPTH_KT,
+                                         "time_step": dt, "stalls_near_cargo": 0.8,
+                                         "units": "reduced: bead diameter 1, kT(310 K) = 0.5"}})
+        self.ctx.xp = np            # one degree of freedom: nothing for a GPU
+        self.ctx.backend_name = "numpy"
+        self.ctx.write_meta({"backend": "numpy",
+                             "compute_note": "One rotor angle: integrated with NumPy on the CPU."})
+        self._begin_3d("rotor", ROTOR_PALETTE, ROTOR_LABELS, ROTOR_SIZES)
+        done = 0
+        for i in range(self.ctx.frames):
+            upto = int(round(total * (i + 1) / self.ctx.frames))
+            with self.ctx.stage("simulation"):
+                for _ in range(max(1, upto - done)):
+                    lag = theta - target
+                    if lag < -math.pi:
+                        # Too much cargo: the rotor fell off the back of its
+                        # site before it could follow, and that fuel was spent
+                        # for nothing (a futile cycle). The site behind takes
+                        # it again, and the motor tries the same step once more.
+                        target -= ROTOR_STEP
+                        slips += 1
+                        lag = theta - target
+                    # Fuel only binds once the rotor has settled into the site.
+                    if abs(lag) < ROTOR_WINDOW and rng.random() < ROTOR_RATE * flow * dt:
+                        target += ROTOR_STEP
+                        fuel_events += 1
+                        lag = theta - target
+                    torque = -depth * math.sin(lag) - load
+                    theta += torque * dt / gamma + noise * rng.standard_normal()
+            done = upto
+            # Count a step only once the rotor is 0.7 of a step past the last
+            # one, so that jiggling on a boundary is not counted as stepping.
+            while theta - sector * ROTOR_STEP > 0.7 * ROTOR_STEP:
+                sector += 1
+                forward += 1
+            while theta - sector * ROTOR_STEP < -0.7 * ROTOR_STEP:
+                sector -= 1
+                backward += 1
+            pos, kinds, bonds = self.rotor_scene(theta, target)
+            with self.ctx.stage("render"):
+                image = self.render(pos, kinds, ROTOR_PALETTE, bonds=bonds, angle=0.0,
+                                    subtitle=f"a rotary motor stepping 120° at a time · proton flow {flow:.2f} · cargo {cargo:.2f}",
+                                    progress=done / total, left="FUEL IN", right="ROTATION OUT",
+                                    scale_to=ROTOR_RADIUS + 1.4, fit="box")
+                self.ctx.save_frame(image, self.ctx.frame_path(i))
+                self._save_3d(i, pos, kinds, bonds=bonds, step=done)
+            turns = theta / (2 * math.pi)
+            self.ctx.write_status(i, f"step {done:,} · {turns:+.2f} turns", {
+                "turns": f"{turns:+.2f}",
+                "steps forward": f"{forward}",
+                "back-steps": f"{backward}",
+                "fuel used": f"{fuel_events} events",
+                "steps lost": f"{slips}",
+                "cargo load": f"{cargo:.2f}",
+                "time steps": f"{done:,}"})
+        self.ctx.write_meta({"summary": {"mode": "rotor", "turns": round(theta / (2 * math.pi), 2),
+                                         "forward": forward, "backward": backward,
+                                         "net_steps": forward - backward, "fuel_events": fuel_events,
+                                         "slips": slips,
+                                         "flow": flow, "cargo": cargo}})
+        self.ctx.finish()
+
     def run(self):
         self.rng = self._rng(int(self.ctx.params.get("seed", 11)))
-        if self.mode == "walker":
+        if self.mode == "rotor":
+            self.run_rotor()
+        elif self.mode == "walker":
             self.run_walker()
         elif self.mode == "shuttle":
             self.run_shuttle()

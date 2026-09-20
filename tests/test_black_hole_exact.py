@@ -204,8 +204,9 @@ class BlackHoleDemoTests(unittest.TestCase):
         self.assertGreater(max(grazing), 180.0)
         self.assertEqual(BlackHoleDemo.bend_colour(0), BlackHoleDemo.BEND_STOPS[0][1])
         self.assertTrue(np.allclose(BlackHoleDemo.bend_colour(1e4), BlackHoleDemo.BEND_STOPS[-1][1]))
-        image = BlackHoleDemo(RunContext(Path("."), "black_hole", "local", 1, {}, "numpy",
-                                         method="schwarzschild"), {}).render_rays(r, bundle, 0.6)
+        with tempfile.TemporaryDirectory() as run_dir:
+            image = BlackHoleDemo(RunContext(Path(run_dir), "black_hole", "local", 1, {}, "numpy",
+                                             method="schwarzschild"), {}).render_rays(r, bundle, 0.6)
         pixels = np.asarray(image, dtype=float)
         self.assertGreater((pixels.max(axis=-1) - pixels.min(axis=-1)).max(), 120)   # not greyscale
 

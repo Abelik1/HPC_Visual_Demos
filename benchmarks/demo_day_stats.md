@@ -92,6 +92,19 @@ _The walking motor is two particles: it runs in seconds on any CPU, so it was re
 | Compute | numpy |
 | Result | walked +24 steps (27 forward, 3 back) on 238 fuel flashes |
 
+**Molecular Machine** (Rotary motor (ATP synthase)), AlexMainDesktop, 20 Sep 2026
+
+_The rotary motor is a single angle: the physics costs 0.14 s and the rest is drawing, so it too was rendered on the exhibition PC._
+
+| | |
+|---|---|
+| Setup | rotary motor stepping 120° at a time, proton flow 0.70, cargo 0.20, 120,000 Langevin steps, 300 frames |
+| Total time | **15 s** |
+| Physics | 0.14 s (466 µs/frame) |
+| Drawing frames | 13 s (42 ms/frame) |
+| Compute | numpy |
+| Result | turned +14.33 times (+43 steps of 120°) on 43 fuel events |
+
 ## Leonardo demo day
 
 **MUrB N-body (NBody-EuroHPC)** (GPU · CUDA tiled, device-resident), Leonardo, job 58232031, 19 Sep 2026, lrdn0954

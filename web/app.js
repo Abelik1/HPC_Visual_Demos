@@ -22,7 +22,7 @@ const stories={
  neural_wall:["A network learns to redraw a picture from pixel coordinates alone.","Its weights are the compressed file; the picture going in is raw colour values.","Squeeze harder and fine detail is the first thing to go.","A JPEG of the same size is the honest benchmark."],
  fusion_plasma:["A coherent wave circles the magnetic bottle.","Luminous tracers follow drift derived from the evolving field.","Their trails expose changing toroidal and poloidal flow.","Heating feeds the plasma until coherent motion turns into turbulence."],
  weather_ensemble:["Begin from today’s global observations.","The atmosphere carries vorticity and moisture around the planet.","Tiny uncertainties grow as the forecast races five days ahead.","A tiny change to the starting state sends the storm somewhere else."],
- molecular_dynamics:["At this scale nothing sits still: water kicks every bead, all the time.","Fold: oily beads hide from water together, which is why proteins have a core.","Every bead feels every other bead, every step.","Machine: the switch does not push the ring; it only changes where the ring is caught."]
+ molecular_dynamics:["At this scale nothing sits still: water kicks every bead, all the time.","Fold: oily beads hide from water together, which is why proteins have a core.","Every bead feels every other bead, every step.","Machine: the switch does not push the ring; it only changes where the ring is caught.","Motors: a walker on a lopsided track, or a rotor that every cell in you runs, turn thermal noise into directed motion."]
 };
 
 // Mode 2 replaces the story, the legend and the readout panel: it is the same

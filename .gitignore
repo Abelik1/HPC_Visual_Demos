@@ -26,3 +26,6 @@ config/clusters.local.json
 
 # Local profiling and campaign logs
 benchmarks/*.log
+
+# A stray run's meta.json, if a demo is ever run from the repository root
+/meta.json

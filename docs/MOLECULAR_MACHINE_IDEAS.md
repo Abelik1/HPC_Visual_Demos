@@ -7,9 +7,11 @@ Back in the Discoverer lineup as of 18 September 2026.
 * the reveal dropped, a rotatable 3-D view, and a fused CUDA kernel (D);
 * the molecular shuttle as a second method (A).
 
-The walking motor (a flashing Brownian ratchet) followed on 19 September.
-See docs/demos/molecular_dynamics/README.md. Still open: a rotary motor, and C
-(GROMACS). The rest of this note is the original analysis.
+The walking motor (a flashing Brownian ratchet) followed on 19 September and
+the rotary motor (ATP synthase) on 20 September, which finishes A: all three
+machines in the list below are built. See
+docs/demos/molecular_dynamics/README.md. Still open: C (GROMACS). The rest of
+this note is the original analysis.
 
 ## What it is today
 

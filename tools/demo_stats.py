@@ -36,6 +36,10 @@ def _n(v, d=0):
 
 def _dur(seconds):
     s = float(seconds or 0)
+    if s < 10:
+        # A stage can be a fraction of a second (the two tiny motor modes):
+        # "0 s" would read as missing rather than as free.
+        return f"{s:.2f} s" if s < 1 else f"{s:.1f} s"
     if s < 60:
         return f"{s:.0f} s"
     m, s = divmod(int(round(s)), 60)
@@ -49,6 +53,8 @@ def _per_frame(seconds, frames):
     if not frames:
         return ""
     per = float(seconds) / frames
+    if per < 0.001:
+        return f"{per * 1e6:.0f} µs/frame"
     return f"{per * 1000:.0f} ms/frame" if per < 1 else f"{per:.2f} s/frame"
 
 
@@ -81,6 +87,9 @@ def setup_text(m: dict) -> str:
         if method == "walker":
             return (f"two-footed walker on a flashing ratchet, fuel {_n(p.get('fuel'), 2)}, load {_n(p.get('load'), 2)}, "
                     f"{_n(g('walker_steps'))} Langevin steps, {frames} frames")
+        if method == "rotor":
+            return (f"rotary motor stepping 120° at a time, proton flow {_n(p.get('flow'), 2)}, "
+                    f"cargo {_n(p.get('cargo'), 2)}, {_n(g('rotor_steps'))} Langevin steps, {frames} frames")
         return f"{_n(m.get('chain_length') or g('particles'))}-bead chain, {_n(g('total_steps'))} Langevin steps, {frames} frames"
     if d == "nbody_murb":
         rep = (m.get("murb") or {}).get("report") or {}
@@ -104,6 +113,10 @@ def result_text(m: dict) -> str:
         if summary.get("mode") == "walker":
             return (f"walked {summary.get('net_steps'):+d} steps ({summary.get('forward')} forward, "
                     f"{summary.get('backward')} back) on {summary.get('flashes')} fuel flashes")
+        if summary.get("mode") == "rotor":
+            lost = f", {summary.get('slips')} steps lost" if summary.get("slips") else ""
+            return (f"turned {summary.get('turns'):+.2f} times ({summary.get('net_steps'):+d} steps of 120°) "
+                    f"on {summary.get('fuel_events')} fuel events{lost}")
         if summary.get("mode") == "shuttle":
             return f"ring made {summary.get('trips')} trips for {summary.get('flips')} switch flips"
         return (f"folded to Rg {summary.get('radius_of_gyration')}, {round(100 * summary.get('buried_oil', 0))}% of "

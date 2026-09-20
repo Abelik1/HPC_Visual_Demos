@@ -467,7 +467,7 @@
   },
   "molecular_dynamics": {
     "name": "Molecular Machine",
-    "tagline": "Write a protein and watch it fold, or run a machine made of one molecule: a shuttle or a walking motor.",
+    "tagline": "Write a protein and watch it fold, or run a machine made of one molecule: a shuttle, a walker or a rotary motor.",
     "params": {
       "temperature": {
         "min": 250,
@@ -561,6 +561,26 @@
         "label": "Load pulling the walker backwards",
         "methods": [
           "walker"
+        ]
+      },
+      "flow": {
+        "min": 0,
+        "max": 1,
+        "step": 0.05,
+        "value": 0.6,
+        "label": "Proton flow (how fast the motor is fuelled)",
+        "methods": [
+          "rotor"
+        ]
+      },
+      "cargo": {
+        "min": 0,
+        "max": 1,
+        "step": 0.05,
+        "value": 0.2,
+        "label": "Cargo the motor has to turn",
+        "methods": [
+          "rotor"
         ]
       }
     }

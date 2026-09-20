@@ -74,6 +74,13 @@
           "mem_gb": 8,
           "backend": "cpu",
           "why": "Two walker feet: nothing for a GPU to do."
+        },
+        "rotor": {
+          "device": "cpu",
+          "cpus": 2,
+          "mem_gb": 8,
+          "backend": "cpu",
+          "why": "One rotor angle: nothing for a GPU to do."
         }
       }
     },

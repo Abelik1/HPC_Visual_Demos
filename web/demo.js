@@ -245,13 +245,15 @@ KIOSK.molecular_dynamics={
   readByMethod:{
     fold:'Amber beads avoid water, cyan beads like it, blue is plus and pink is minus. The oily beads hide together in the middle; opposite charges zip up.',
     shuttle:'The gold ring is threaded on the grey axle; the big end beads stop it falling off. The bright green station is the sticky one. Nothing pushes the ring: it jiggles along on heat alone until the sticky station catches it.',
+    rotor:'A green three-bladed rotor inside a grey ring of sites. The orange patch is the site holding it. Each burst of fuel moves that patch 120° round, and the rotor follows. The rotor looks the same every 120°, so watch the gold marker bead: that is exactly the trick used to film real ones.',
     walker:'Two green feet on a track of red binding wells. Each burst of fuel switches the track off (grey) for a moment: the feet jiggle freely, and the lopsided wells catch them a little further ahead more often than behind.'},
   story:[
     'At this scale nothing sits still. Water molecules kick every bead, billions of times a second.',
     'Fold: oily beads hide from water together. That single rule is why proteins have a core.',
     'Every bead feels every other bead, every step: that is where the computing goes, and real proteins have hundreds of thousands of atoms.',
     'Machine: the 2016 Nobel Prize in Chemistry was for molecules like this ring on an axle. The switch does not push; it only changes where the ring is caught.',
-    'Motor: the proteins that carry cargo in your cells walk like this. Fuel does not push the feet; it only switches the track off and on, and the lopsided track turns jiggling into steps.'],
+    'Motor: the proteins that carry cargo in your cells walk like this. Fuel does not push the feet; it only switches the track off and on, and the lopsided track turns jiggling into steps.',
+    'Rotary motor: every cell in you runs one. ATP synthase spins at a few hundred turns a second on nothing but protons falling across a membrane, and makes the fuel the rest of the cell spends.'],
   creator:'chain',
   controls:[
     {method:true,label:'What to build'},
@@ -261,12 +263,14 @@ KIOSK.molecular_dynamics={
     {key:'drive',label:'Switch strength',decimals:2,onlyMethod:'shuttle'},
     {key:'switch_every',label:'Flip the switch every',unit:'frames',decimals:0,onlyMethod:'shuttle'},
     {key:'fuel',label:'Fuel',decimals:2,onlyMethod:'walker',help:'How often the motor burns fuel (in a cell: ATP).'},
-    {key:'load',label:'Load pulling back',decimals:2,onlyMethod:'walker',help:'Pull hard enough and the motor stalls, then walks backwards.'}],
+    {key:'load',label:'Load pulling back',decimals:2,onlyMethod:'walker',help:'Pull hard enough and the motor stalls, then walks backwards.'},
+    {key:'flow',label:'Proton flow',decimals:2,onlyMethod:'rotor',help:'How fast the motor is fuelled. In a cell: protons falling across the membrane.'},
+    {key:'cargo',label:'Cargo',decimals:2,onlyMethod:'rotor',help:'What the motor has to turn. Load it up and it stalls; load it more and the cargo turns it backwards.'}],
   views:[{id:'frames',label:'Picture',kind:'frames'},
          {id:'galaxy3d',label:'Rotate in 3D',kind:'galaxy3d',needs:'galaxy3d_view'}],
   // Fold readouts first, shuttle readouts after: a run only ever has one set.
   numbers:['radius of gyration','buried oil','salt bridges','sticky station','ring position','trips along the axle',
-           'steps forward','distance walked','fuel burned']};
+           'steps forward','distance walked','fuel burned','turns','fuel used','steps lost']};
 // Any demo without its own entry above still works on the stand: its first
 // three parameters become the controls and its tagline the caption.
 function kioskFor(id){
