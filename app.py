@@ -267,6 +267,29 @@ def import_run_bundles():
     try: run_bundles.import_pending(RUNS,[IMPORT_DIR,ROOT],update_library)
     except Exception as exc: print(f'Importing run bundles failed: {exc}')
 
+_STARTED=threading.Event()
+
+@app.on_event('startup')
+def on_start():
+    """Work that must happen however the viewer was launched.
+
+    The stand may be started with `python app.py`, with uvicorn directly, or by
+    a launcher script. Unpacking waiting run bundles and picking up cluster
+    jobs again belong to the app, not to one entry point: a viewer started with
+    uvicorn used to come up with an empty gallery because the zip on the desk
+    was never unpacked."""
+    if _STARTED.is_set():
+        return
+    _STARTED.set()
+    # Large bundles take minutes to unpack; runs appear in the list as each lands.
+    threading.Thread(target=import_run_bundles,name='run-bundle-import',daemon=True).start()
+    # Cluster jobs submitted before a restart are still running; keep watching them.
+    try:
+        resumed=remote.resume_jobs(RUNS)
+        if resumed: print(f'Watching {len(resumed)} cluster job(s) again: {", ".join(resumed)}')
+    except Exception as exc:
+        print(f'Could not resume cluster jobs: {exc}')
+
 def new_run_id(demo:str)->str:
     return f'{demo}_{time.strftime("%Y%m%d_%H%M%S")}_{uuid.uuid4().hex[:5]}'
 
@@ -977,11 +1000,8 @@ if __name__=='__main__':
         print(f'  demo it launches will fail.')
         print('=' * 68)
     print(f'Leonardo Visual Demos -> {url}')
-    # Large bundles take minutes to unpack; runs appear in the list as each lands.
-    threading.Thread(target=import_run_bundles,name='run-bundle-import',daemon=True).start()
-    # Cluster jobs submitted before a restart are still running; keep watching them.
-    resumed=remote.resume_jobs(RUNS)
-    if resumed: print(f'Watching {len(resumed)} cluster job(s) again: {", ".join(resumed)}')
+    # Bundles and cluster jobs are picked up by the startup hook above, so they
+    # happen under uvicorn and any other launcher too.
     try: webbrowser.open(url)
     except Exception: pass
     uvicorn.run(app,host='127.0.0.1',port=port)

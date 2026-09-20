@@ -115,6 +115,13 @@ To generate an individual run directly:
 python run_demo.py reaction_diffusion --profile desktop --frames 150
 ```
 
+## Demo day
+
+Setting up a laptop as the machine that runs the stand, from nothing:
+[docs/DEMO_DAY_SETUP.md](docs/DEMO_DAY_SETUP.md). It covers what git does not
+carry (the saved runs, the videos and the Gaia sky), the two-display
+arrangement, and the checklist for the morning.
+
 ## Carry saved runs to another machine
 
 `runs/` is not in git (a showcase run can be gigabytes of frames). To move the

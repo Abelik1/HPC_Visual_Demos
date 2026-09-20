@@ -81,6 +81,15 @@ class RunBundleTests(unittest.TestCase):
             rb.import_bundle(self.zip,self.dst,self.update_dst_library,log=lambda m:None)
         self.assertFalse((self.dst.parent/'evil.txt').exists())
 
+    def test_the_viewer_imports_bundles_however_it_was_started(self):
+        """A stand started with uvicorn must unpack the zip on the desk too.
+
+        The import used to hang off app.py's __main__ block, so `uvicorn
+        app:app` came up with an empty gallery."""
+        import app
+        names = {getattr(handler, '__name__', '') for handler in app.app.router.on_startup}
+        self.assertIn('on_start', names, 'the viewer imports bundles only from __main__')
+
     def test_only_named_bundles_are_picked_up_outside_the_import_folder(self):
         root=self.zip.parent; (root/'other.zip').write_bytes(b'')
         drop=self.dst/'_import'; drop.mkdir()
