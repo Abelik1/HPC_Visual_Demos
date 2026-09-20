@@ -4,7 +4,18 @@ A portable gallery of visual high-performance computing demonstrations for publi
 
 ## On the stand
 
-These are the nine demos presented on demo day, in the order the walk-up viewer at `/demo` shows them. Every animation below is cut from one of that demo's curated **showcase runs**: the large renders made ahead of time on the Brain++ Discoverer GB200 nodes and on a CUDA desktop, which the stand replays when nobody is at the controls.
+The gallery, with an animation cut from each demo's curated **showcase runs**:
+the large renders made ahead of time on the Brain++ Discoverer GB200 nodes, on
+Leonardo and on a CUDA desktop, which the stand replays when nobody is at the
+controls.
+
+There are two demo days, and the walk-up viewer at `/demo` shows the lineup of
+whichever is active (`config/lineups.json`): **Discoverer** shows the 3-D
+galaxy collision, the wind tunnel, Neuro-Racers, the black hole and the
+Molecular Machine; **Leonardo** shows MUrB N-body, the ray-tracer films, Star
+in a Bottle, the cosmic web, Bat vs Moth and Pac-Man Agentic. The rest of the
+gallery below, including neural image compression, is still there in the full
+dashboard but is not on either stand.
 
 ### 1 · Star in a Bottle — fusion
 
