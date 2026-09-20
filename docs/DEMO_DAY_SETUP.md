@@ -86,6 +86,21 @@ the lineup shows the Leonardo demos.
 
 ## 5 · Check it before the doors open
 
+Run the check first — it reads what the stand will actually play and touches
+nothing:
+
+```bash
+python tools/check_stand.py --machine all
+```
+
+It reports, per demo, whether the showcase runs are there and complete, whether
+their frames are all on disk, whether the 3-D views and overlays came with
+them, and whether the video-only entries have their films. It is how the
+missing MUrB frames and two runs left marked "starting" were found the evening
+before.
+
+Then, by hand:
+
 - [ ] Every demo in the lineup opens and plays its showcase run.
 - [ ] The videos page plays the ray-tracer films (and Pac-Man, if they arrived).
 - [ ] "Rotate in 3D" works on the galaxy, the molecule and the fusion torus.
