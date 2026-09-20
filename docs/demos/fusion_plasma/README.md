@@ -23,11 +23,41 @@ One magnetic bottle, two selectable modes.
      replayed from the states that shot actually visited, half is sampled at
      random — and then the next shot starts.
 
+  **The budget is spread geometrically, not evenly** (`training_plan`). The
+  policy needs tens of updates, not hundreds: measured from scratch on the
+  exhibition PC, one update takes marker losses from 81,871 to 80,017, twenty
+  reach 41,882, sixty reach 2,477 and six hundred only 1,502. So an even split
+  of a cluster-sized budget spends enough in the *first* gap alone to solve the
+  task, and every later shot then scores the same — which is what the 19 Sep
+  Leonardo run did (1,267 lost at shot 2 and 1,273 at shot 10, with 1,500
+  updates split evenly). Each gap now trains about as much as all the training
+  before it: 1,500 updates over nine gaps become 2, 5, 11, 26, 58, 131, 295,
+  666, 1,500, which keeps the steep part of the learning curve spread over the
+  early shots and still spends the whole budget by the last one. Flying those
+  nine controllers through the same scored shot gives 81,871 → 78,537 →
+  74,227 → 72,851 → 15,628 → 2,796 → 1,750 → 1,566 → 1,505 → 1,452: every shot
+  better than the one before, where the even split gave one cliff and nine
+  identical bars.
+
+  **A run can continue an earlier one.** Every shot's controller is saved, and
+  a new run can start from the last one instead of from an untrained network
+  (`↻` on a saved run in the dashboard, `--resume` on the command line, or
+  `resume_from` in the API). The new run trains on top of what it inherited and
+  records where it came from in `meta.json` under `resumed_from`. Because the
+  policy converges well before a cluster-sized budget is spent, continuing a
+  *finished* run mostly buys the last few per cent; the feature is there to
+  carry training across machines and sessions, not to escape the plateau.
+
   Every shot is the *identical* experiment: same field seed, same marker seed,
   same start state, same disturbance sequence. Only the policy differs, so the
   scoreboard is a controlled comparison. A typical local run goes 616 → 92 →
   55 → 73 → 15 → 12 markers lost against a constant no-control reference of
   571; the small regression is real, not smoothed away.
+
+  The floor is the model's own edge transport: turbulent kicks are
+  edge-weighted and the well-controlled population sits at about 0.7 of the
+  wall radius, so losses become rare but never stop. No amount of training
+  removes them.
 
 Both modes share the same solver, the same parameters and the same rotatable
 3-D viewer. The mode is the run's `method`, chosen in the run panel.

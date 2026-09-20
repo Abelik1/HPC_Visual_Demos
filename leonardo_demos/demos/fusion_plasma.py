@@ -13,7 +13,7 @@ from ..base import Demo
 from ..colors import palette
 from ..plasma_control import (
     AXIS_GAIN, INPUT_NAMES, OUTPUT_NAMES, START_STATE, ConfinedParticles, FrozenController,
-    make_trainer, risk_of, sample_periodic, save_controller, transition_numpy,
+    load_controller, make_trainer, risk_of, sample_periodic, save_controller, transition_numpy,
 )
 from ..render import add_progress, add_title, font, mosaic
 from ..pipeline import FramePipeline
@@ -691,7 +691,7 @@ class FusionPlasmaDemo(Demo):
         self._legend_entry(d, 352, top + 19, (250, 255, 255), "magnetic axis")
         return image.convert("RGB")
 
-    def draw_shots(self, history, current, shots, size=(520, 300)):
+    def draw_shots(self, history, current, shots, size=(520, 300), carried=0):
         """Scoreboard: wall losses per finished shot, against the no-control run.
 
         ``history`` holds the finished shots, ``current`` the one in progress.
@@ -751,8 +751,9 @@ class FusionPlasmaDemo(Demo):
 
         d.line((left, floor, right, floor), fill=(60, 104, 150, 210), width=1)
         d.text((20, size[1] - 26), "shot", font=font(9), fill=(142, 191, 224, 220))
-        note = ("policy frozen during each shot, trained between them"
-                if len(rows) > 1 else "first shot: the policy has not trained yet")
+        note = ("policy frozen during each shot, trained between them" if len(rows) > 1
+                else f"first shot: carried over from an earlier run, {carried:,} updates" if carried
+                else "first shot: the policy has not trained yet")
         d.text((70, size[1] - 26), note, font=font(9), fill=(142, 191, 224, 220))
         return image.convert("RGB")
 
@@ -1009,6 +1010,53 @@ class FusionPlasmaDemo(Demo):
         self.ctx.save_frame(reveal, rp)
         self.ctx.finish(rp)
 
+    @staticmethod
+    def training_plan(gaps, total_updates, already=0):
+        """Cumulative training updates to have done before each later shot.
+
+        Splitting the budget evenly looks sensible and ruins the demonstration:
+        the policy needs tens of updates, not hundreds, so an even split spends
+        enough in the first gap alone to solve the task and every later shot
+        scores the same. Measured on the exhibition PC, from scratch: 1 update
+        already moves marker losses from 81,871 to 80,017, and by roughly 60
+        the task is solved. So the budget grows geometrically instead - each
+        gap trains about as much as all the training before it - which keeps
+        the steep part of the learning curve spread over the early shots and
+        still spends the whole budget by the last one.
+        """
+        gaps = max(1, int(gaps))
+        total = max(1, int(total_updates))
+        if total <= gaps:                       # tiny budget: one update a gap
+            steps = [min(total, g + 1) for g in range(gaps)]
+        else:
+            steps = [max(1, int(round(total ** ((g + 1) / gaps)))) for g in range(gaps)]
+        steps[-1] = total
+        for g in range(1, gaps):                # never go backwards
+            steps[g] = max(steps[g], steps[g - 1])
+        return [already + s for s in steps]
+
+    def resume_controller(self, trainer):
+        """Carry on from a controller an earlier run finished with, if asked.
+
+        ``_resume`` is a file inside this run's own directory (the viewer and
+        the cluster submitter both put the chosen checkpoint there), so a run
+        that continues another one is self-contained and can be re-run.
+        """
+        name = self.ctx.params.get("_resume")
+        empty = {"updates": 0, "run": None, "shot": None}
+        if not name:
+            return empty
+        path = self.ctx.run_dir / str(name)
+        loaded = load_controller(path, trainer) if path.exists() else 0
+        if not loaded:
+            # Never pretend: a run that says it continued another one must have.
+            raise RuntimeError(f"cannot continue from {name}: it does not fit this policy")
+        source = {"updates": int(float(self.ctx.params.get("_resume_updates", 0) or 0)),
+                  "run": self.ctx.params.get("_resume_run"),
+                  "shot": self.ctx.params.get("_resume_shot")}
+        self.ctx.write_meta({"resumed_from": source})
+        return source
+
     def shot_plan(self, frames):
         """Frame index boundaries of each virtual shot.
 
@@ -1033,6 +1081,7 @@ class FusionPlasmaDemo(Demo):
         field_lines = 9
 
         trainer = make_trainer(self.ctx, float(self.settings.get("learning_rate", 0.004)))
+        resumed = self.resume_controller(trainer)
         total_updates = max(1, int(self.settings.get("train_updates", 120)))
         shot_steps = max(4, int(self.settings.get("display_steps", 96)))
         count = int(self.settings.get("particles", 260))
@@ -1064,7 +1113,11 @@ class FusionPlasmaDemo(Demo):
 
         history = []
         loss = 0.0
-        trained = 0
+        # Where the policy already is, and where each later shot has to be.
+        trained = resumed["updates"]
+        plan_updates = self.training_plan(max(1, shots - 1), total_updates, trained)
+        budget = plan_updates[-1]
+        self.ctx.write_meta({"training_plan": plan_updates})
         for shot, (first, last) in enumerate(plan):
             save_controller(checkpoints / f"gen_{shot + 1:04d}.npz", trainer)
             # Every shot is the same experiment: same field seed, same marker
@@ -1114,7 +1167,7 @@ class FusionPlasmaDemo(Demo):
 
                 frame = first + index
                 image = self.guardian_hero(real, imag, particles, axis, action, frame, trained,
-                                           total_updates, pitch, field_lines, trainer.training)
+                                           budget, pitch, field_lines, trainer.training)
                 self.ctx.save_frame(image, self.ctx.frame_path(frame))
                 weights = trainer.weights()
                 self.ctx.save_frame(
@@ -1125,7 +1178,7 @@ class FusionPlasmaDemo(Demo):
                     self.ctx.run_dir / "overlays" / "poloidal" / f"frame_{frame:04d}.jpg")
                 progress = {"shot": shot + 1, "lost": int(stats["lost_total"]),
                             "baseline": int(reference_stats["lost_total"]), "count": count}
-                self.ctx.save_frame(self.draw_shots(history, progress, shots),
+                self.ctx.save_frame(self.draw_shots(history, progress, shots, carried=resumed["updates"]),
                                     self.ctx.run_dir / "overlays" / "shots" / f"frame_{frame:04d}.jpg")
                 self.write_guardian_view(real, imag, particles, axis, state, action,
                                          b, heating, density, stats, frame=frame)
@@ -1136,8 +1189,9 @@ class FusionPlasmaDemo(Demo):
                     "phase": f"shot {shot + 1} of {shots} running, policy frozen",
                     "control model": "neural policy" if trainer.training else "analytical fallback",
                     "training so far": (f"{trained:,} updates after shot {shot}" if shot
+                                        else f"{trained:,} updates, carried over" if trained
                                         else "none yet"),
-                    "policy loss": f"{loss:.4f}" if shot else "untrained",
+                    "policy loss": f"{loss:.4f}" if shot or trained else "untrained",
                     "confined markers": f"{count:,}",
                     "wall losses this shot": f"{stats['lost_total']:,}",
                     "wall losses this frame": f"{stats['lost']:,}",
@@ -1165,9 +1219,9 @@ class FusionPlasmaDemo(Demo):
             # Between shots, and only between shots: score what happened and
             # optimize the policy against it before the next one starts.
             if shot < shots - 1:
-                update_target = int(round(total_updates * (shot + 1) / max(1, shots - 1)))
+                update_target = plan_updates[shot]
                 loss = self.train(trainer, max(1, update_target - trained), drive, confine, visited)
-                trained = min(total_updates, update_target)
+                trained = update_target
                 history[-1]["trained_to"] = trained
                 history[-1]["loss_after"] = round(float(loss), 5)
             self.ctx.write_meta({"shot_history": history})

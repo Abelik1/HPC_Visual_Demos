@@ -342,13 +342,28 @@ function renderStageRuns(){
   if(!mine.length)return;
   let head=document.createElement('span');head.className='chip';head.style.cursor='default';
   head.innerHTML='<em>Replay:</em>';el.appendChild(head);
+  if(resumeFrom&&resumeFrom.demo!==current)resumeFrom=null;
+  if(resumeFrom){
+    let note=document.createElement('button');note.type='button';note.className='chip active';
+    note.innerHTML=`Carrying on from ${runLabel(resumeFrom)} <em>click to stop</em>`;
+    note.title='The next run starts from this run’s trained controller';
+    note.onclick=()=>setResumeFrom(null);el.appendChild(note);
+  }
   // Favourites first: they are the runs worth coming back to.
   mine=[...mine.filter(r=>r.favourite),...mine.filter(r=>!r.favourite)];
   mine.slice(0,12).forEach(r=>{
     let group=document.createElement('span');group.className='chipGroup';
     let c=document.createElement('button');c.className='chip'+(r.id===runId?' active':'')+(r.favourite?' favourite':'');
     c.innerHTML=`${r.favourite?STAR+' ':''}${runLabel(r)} <em>${r.backend||''}</em>`;
-    c.onclick=()=>openRun(r);group.append(c,favouriteButton(r));el.appendChild(group);
+    c.onclick=()=>openRun(r);group.append(c,favouriteButton(r));
+    if(canContinue(r)&&(!resumeFrom||resumeFrom.id!==r.id)){
+      let go=document.createElement('button');go.type='button';go.className='favStar';go.textContent='↻';
+      go.title='Carry on training this controller in the next run';
+      go.setAttribute('aria-label',go.title);
+      go.onclick=event=>{event.preventDefault();event.stopPropagation();setResumeFrom(r);};
+      group.append(go);
+    }
+    el.appendChild(group);
   });
 }
 
@@ -496,6 +511,11 @@ function addNeuralTargetTools(host,defaultKind){
 // Molecular Machine: write your own sequence (web/chain_builder.js). It follows
 // the Sequence preset until edited, and belongs to the fold mode only.
 let chainBuilder=null;
+// Star in a Bottle: the finished guardian run whose controller the next run
+// carries on training, instead of starting from an untrained network.
+let resumeFrom=null;
+function canContinue(r){return r.demo==='fusion_plasma'&&r.method==='guardian'&&!!r.lab;}
+function setResumeFrom(run){resumeFrom=run;renderStageRuns();}
 function addChainBuilder(host){
   const select=$('#p_sequence'),length=()=>Number($('#s_particles')?.value)||40;
   chainBuilder=new ChainBuilder(host,{preset:select?Number(select.value):0,length:length()});
@@ -531,7 +551,8 @@ function openDemo(id){let spec=specs&&specs.demos?specs.demos[id]:null;
   current=id;applyBackends();applyMethods();
   resetRunState();current=id;activeViewMode='frames';preferFusion3d=id==='fusion_plasma';overlayEnabled=new Set();currentStory=(stories[id]||[''])[0];$('#gallery').classList.add('hidden');$('#library').classList.add('hidden');$('#stage').classList.remove('hidden');let d=specs.demos[id];$('#fusionView').classList.toggle('hidden',id!=='fusion_plasma');$('#galaxy3dView').classList.toggle('hidden',!has3dView(id));$('#stageTitle').textContent=d.name;$('#stageTag').textContent=d.tagline;$('#stageEyebrow').textContent=(demoCategories[id]||'Science')+' / INTERACTIVE SIMULATION';let s=$('#sliders');s.innerHTML='';fluidBuilder=null;Object.entries(d.params).forEach(([k,p])=>{if(id==='neural_wall'&&k==='target')return;addParameterControl(s,k,p);});applyParameterMethods();if(id==='neural_wall')addNeuralTargetTools(s,d.params.target.value);if(id==='fluid')addFluidBuilder(s);chainBuilder=null;if(id==='molecular_dynamics')addChainBuilder(s);window.GameDemos?.mount(s,id);renderProfileSettings();configureParallelControl();configureRevealControl();updateTimelineHelp();clearSimulationSurface();renderDemoInfo();renderStageRuns();renderViewerDock();$('#status').textContent='READY';$('#status').style.color='';$('#bar').style.width='0';$('#metric1').textContent='frame —';$('#metric2').textContent='elapsed —';$('#metric3').textContent='backend —';window.scrollTo(0,0);$('#back').focus({preventScroll:true});return true;}
 $('#back').onclick=()=>{document.body.classList.remove('demoOpen');history.replaceState(null,'','/');resetRunState();$('#stage').classList.add('hidden');$('#gallery').classList.remove('hidden');$('#library').classList.remove('hidden');loadLibrary();window.scrollTo(0,0);$('#demoSearch').focus({preventScroll:true});};
-function buildRunRequest(){let settings;try{settings=collectProfileSettings();}catch(error){showUiMessage(error.message);return null;}let ps={};Object.keys(specs.demos[current].params).forEach(k=>{if(current==='neural_wall'&&k==='target')ps[k]=neuralTarget.kind;else ps[k]=parameterValue(k);});let req={profile:$('#profile').value,frames:Number($('#frames').value),params:ps,settings,backend:$('#backend').value,method:$('#method').value};if(parallelDemos.has(current))req.parallel_count=Number($('#parallelCount').value);else if(ensembleSetElsewhere())req.parallel_count=1;if(current==='fluid'&&fluidBuilder)req.obstacle_grid=fluidBuilder.cells;if(current==='neural_wall'&&neuralTarget.custom)req.target_image=$('#targetCanvas').toDataURL('image/png');if(current==='molecular_dynamics'&&chainBuilder&&['fold','default'].includes($('#method').value)){let own=chainBuilder.getChain();if(own)req.chain=own;}window.GameDemos?.decorateRequest(req);return req;}
+function buildRunRequest(){let settings;try{settings=collectProfileSettings();}catch(error){showUiMessage(error.message);return null;}let ps={};Object.keys(specs.demos[current].params).forEach(k=>{if(current==='neural_wall'&&k==='target')ps[k]=neuralTarget.kind;else ps[k]=parameterValue(k);});let req={profile:$('#profile').value,frames:Number($('#frames').value),params:ps,settings,backend:$('#backend').value,method:$('#method').value};if(parallelDemos.has(current))req.parallel_count=Number($('#parallelCount').value);else if(ensembleSetElsewhere())req.parallel_count=1;if(current==='fluid'&&fluidBuilder)req.obstacle_grid=fluidBuilder.cells;if(current==='neural_wall'&&neuralTarget.custom)req.target_image=$('#targetCanvas').toDataURL('image/png');if(current==='molecular_dynamics'&&chainBuilder&&['fold','default'].includes($('#method').value)){let own=chainBuilder.getChain();if(own)req.chain=own;}
+  if(resumeFrom&&current==='fusion_plasma'&&$('#method').value==='guardian')req.resume_from=resumeFrom.id;window.GameDemos?.decorateRequest(req);return req;}
 $('#run').onclick=async()=>{if(!current)return;let req=buildRunRequest();if(!req)return;let cluster=$('#runOn').value;
   if(cluster!=='local'){let id=await HPC.confirmRun(current,req,cluster);if(!id)return;resetRunState();runId=id;$('#status').textContent='SUBMITTING';$('#status').style.color='#ffd78a';timer=setInterval(poll,1000);return;}
   resetRunState();let response=await fetch('/api/run/'+current,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(req)});if(!response.ok){let detail='Request rejected';try{let body=await response.json();detail=body.detail||detail;}catch(_){ }$('#status').textContent='FAILED TO START';showUiMessage(detail);return;}runId=(await response.json()).id;$('#status').textContent='COMPUTING';$('#status').style.color='#67f0d0';timer=setInterval(poll,300);};

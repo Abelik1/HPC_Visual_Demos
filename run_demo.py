@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse, json, time, webbrowser
+import argparse, json, shutil, time, webbrowser
 from numbers import Integral, Real
 from pathlib import Path
 from leonardo_demos.backend import PRECISIONS, resolve_precision
@@ -71,7 +71,7 @@ def _normalise_backend(value):
 
 def run(demo,profile='local',frames=80,params=None,backend='auto',run_dir=None,
         method='default',timings=False,numerical_substeps=None,settings_override=None,
-        precision='fp32'):
+        precision='fp32',resume=None):
     profiles=load_profiles(); specs=load_specs(); profile=canonical_profile(profile)
     if demo not in DEMOS: raise SystemExit(f"Unknown demo {demo}. Choices: {', '.join(DEMOS)}")
     if profile not in profiles: raise SystemExit(f"Unknown profile {profile}")
@@ -100,6 +100,25 @@ def run(demo,profile='local',frames=80,params=None,backend='auto',run_dir=None,
         if demo not in {'galaxy_collision','galaxy_collision_3d'}:
             raise ValueError('numerical substeps are only defined for the collision solvers')
         settings['substeps']=int(numerical_substeps)
+    if resume:
+        # Continue an earlier run's controller: the file is copied into this
+        # run so the run stays self-contained (FusionPlasmaDemo.resume_controller).
+        source=Path(resume)
+        if source.is_dir():
+            saved=sorted(source.glob('checkpoints/gen_*.npz'))
+            if not saved: raise ValueError(f'{source} saved no controller to continue from')
+            source=saved[-1]
+        if not source.exists(): raise ValueError(f'no such controller: {source}')
+        run_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, run_dir/'resume.npz')
+        defaults['_resume']='resume.npz'
+        defaults['_resume_run']=source.parent.parent.name
+        defaults['_resume_shot']=int(source.stem.split('_')[-1]) if source.stem.startswith('gen_') else None
+        meta=source.parent.parent/'meta.json'
+        try: before=json.loads(meta.read_text(encoding='utf-8')) if meta.exists() else {}
+        except ValueError: before={}
+        done=[int(row.get('trained_to',0)) for row in (before.get('shot_history') or [])]
+        defaults['_resume_updates']=max(done or [int((before.get('settings') or {}).get('train_updates',0) or 0)])
     ctx=RunContext(run_dir,demo,profile,frames,defaults,backend,
                    demo_class.backend_kind,method,timings,precision)
     ctx.write_meta({'settings':settings,
@@ -116,6 +135,7 @@ def run(demo,profile='local',frames=80,params=None,backend='auto',run_dir=None,
 if __name__=='__main__':
     ap=argparse.ArgumentParser(description='Generate a visual HPC demo run')
     ap.add_argument('demo',choices=sorted(DEMOS)); ap.add_argument('--profile',type=canonical_profile,choices=sorted(load_profiles()),default='local'); ap.add_argument('--frames',type=int,default=80); ap.add_argument('--backend',default='auto'); ap.add_argument('--method',default='default'); ap.add_argument('--precision',choices=sorted(PRECISIONS),default='fp32',help='fp32, mixed (FP64 state/sums, FP32 pair maths; 3-D galaxy only) or fp64'); ap.add_argument('--numerical-substeps',type=int); ap.add_argument('--timings',action='store_true'); ap.add_argument('--param',action='append',default=[],help='scientific key=value, repeatable'); ap.add_argument('--setting',action='append',default=[],help='profile/scale key=value, repeatable'); ap.add_argument('--run-dir'); ap.add_argument('--open',action='store_true')
+    ap.add_argument('--resume',help='continue an earlier guardian run: its directory, or one gen_*.npz')
     ap.add_argument('--brain',help='JSON brain spec from the block builder (AI game demos)')
     a=ap.parse_args(); params={}; settings_override={}
     if a.brain:
@@ -134,6 +154,6 @@ if __name__=='__main__':
         except ValueError: pass
         settings_override[k]=v
     rd=run(a.demo,a.profile,a.frames,params,a.backend,a.run_dir,a.method,a.timings,
-           a.numerical_substeps,settings_override,a.precision)
+           a.numerical_substeps,settings_override,a.precision,a.resume)
     if a.open:
         webbrowser.open(f'file://{(rd/"frames"/"frame_0000.jpg").resolve()}')

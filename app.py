@@ -1,5 +1,5 @@
 from __future__ import annotations
-import atexit, base64, binascii, hashlib, io, json, math, multiprocessing, os, threading, time, uuid
+import atexit, base64, binascii, hashlib, io, json, math, multiprocessing, os, shutil, threading, time, uuid
 from collections import OrderedDict
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -52,6 +52,9 @@ class RunReq(BaseModel):
     name: str | None = Field(default=None, max_length=24)
     # Molecular Machine: a visitor-written sequence of H, P, + and - beads.
     chain: str | None = Field(default=None, max_length=400)
+    # Star in a Bottle: carry on training the controller an earlier guardian
+    # run finished with, instead of starting from an untrained network.
+    resume_from: str | None = Field(default=None, max_length=128)
 
 def save_target_image(data_url: str, destination: Path) -> None:
     """Validate a canvas PNG and save a bounded RGB target image."""
@@ -357,6 +360,26 @@ def prepare_run(demo:str,req:RunReq,rd:Path,*,remote:bool=False,dry:bool=False):
                 raise HTTPException(422, f'ghost run {ghost} has no saved champion')
             ghost_dirs.append(str(gd))
         params['_ghosts']=ghost_dirs
+    if req.resume_from:
+        if demo != 'fusion_plasma' or method != 'guardian':
+            raise HTTPException(422, 'only the AI plasma guardian continues an earlier run')
+        source=(RUNS/req.resume_from).resolve()
+        if RUNS.resolve() not in source.parents or not source.is_dir():
+            raise HTTPException(404, f'unknown run {req.resume_from}')
+        saved=sorted(source.glob('checkpoints/gen_*.npz'))
+        if not saved:
+            raise HTTPException(422, f'{req.resume_from} saved no controller to continue from')
+        latest=saved[-1]
+        try: before=json.loads((source/'meta.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError): before={}
+        done=[int(row.get('trained_to',0)) for row in (before.get('shot_history') or [])]
+        params['_resume']='resume.npz'
+        params['_resume_run']=req.resume_from
+        params['_resume_shot']=int(latest.stem.split('_')[-1])
+        params['_resume_updates']=max(done or [int((before.get('settings') or {}).get('train_updates',0) or 0)])
+        if not dry:
+            rd.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(latest, rd/'resume.npz')
     if req.target_image is not None:
         if demo != 'neural_wall':
             raise HTTPException(422, 'a custom drawing is only supported by the neural-network wall')
@@ -480,6 +503,9 @@ def remote_plan(demo:str,body:RemoteRunReq):
     if '_obstacle_grid' in kwargs['params']: extras.append('Your drawn obstacle shape')
     if '_brain' in kwargs['params']: extras.append('The brain built with the block builder')
     if '_target_path' in kwargs['params']: extras.append('Your own target picture')
+    if '_resume' in kwargs['params']:
+        extras.append(f"Continues {kwargs['params']['_resume_run']} "
+                      f"({kwargs['params']['_resume_updates']:,} updates already trained)")
     if '_chain' in kwargs['params']: extras.append(f"Your own sequence: {kwargs['params']['_chain']}")
     warnings=[]
     res=remote.resources(c,walltime,demo,kwargs['method'])
@@ -504,6 +530,7 @@ def remote_plan(demo:str,body:RemoteRunReq):
 def remote_run(demo:str,body:RemoteRunReq):
     c,walltime,rid,kwargs=_remote_plan(demo,body,dry=False)
     files={'target.png':RUNS/rid/'target.png'} if '_target_path' in kwargs['params'] else {}
+    if '_resume' in kwargs['params']: files['resume.npz']=RUNS/rid/'resume.npz'
     remote.create_job(RUNS,rid,c,kwargs,walltime,files)
     return {'id':rid,'cluster':c['name']}
 

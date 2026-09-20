@@ -302,6 +302,36 @@ def save_controller(path, trainer):
     np.savez_compressed(path, **arrays)
 
 
+def load_controller(path, trainer) -> int:
+    """Put a saved controller back into a trainable policy, to carry on training.
+
+    Returns the number of layers loaded, or 0 if the file holds the analytic
+    fallback or does not fit this network. A run that continues an earlier one
+    must not silently start from scratch, so the caller checks the count.
+    """
+    policy = getattr(trainer, "policy", None)
+    if policy is None:
+        return 0
+    layers = [m for m in policy if hasattr(m, "weight")]
+    with np.load(path, allow_pickle=False) as data:
+        if str(data["kind"]) != "mlp" or f"w{len(layers) - 1}" not in data:
+            return 0
+        shapes = [(data[f"w{i}"].shape, data[f"b{i}"].shape) for i in range(len(layers))]
+        if any(tuple(layer.weight.shape) != w or tuple(layer.bias.shape) != b
+               for layer, (w, b) in zip(layers, shapes)):
+            return 0
+        torch = trainer.torch
+        with torch.no_grad():
+            for i, layer in enumerate(layers):
+                layer.weight.copy_(torch.as_tensor(data[f"w{i}"], device=trainer.device))
+                layer.bias.copy_(torch.as_tensor(data[f"b{i}"], device=trainer.device))
+    # Adam's moments belong to the old optimizer; start it clean on the loaded
+    # weights rather than pretending the old momentum still applies.
+    trainer.optim = trainer.torch.optim.Adam(policy.parameters(),
+                                             lr=trainer.optim.param_groups[0]["lr"])
+    return len(layers)
+
+
 class FrozenController:
     """A saved controller, flown with NumPy exactly as the network computed it."""
 

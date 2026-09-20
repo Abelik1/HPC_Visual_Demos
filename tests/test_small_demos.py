@@ -79,6 +79,78 @@ class SmallDemoTests(unittest.TestCase):
             self.assertEqual(meta['status'],'complete')
             self.assertEqual(meta['fusion_view']['folder'],'modes/fusion3d')
             self.assertTrue((Path(t)/'modes/fusion3d/frame_0001.json').exists())
+    def test_guardian_training_budget_is_spread_over_the_shots(self):
+        # An even split spends enough in the first gap alone to solve the task,
+        # so every later shot scores the same. The budget has to start small.
+        plan = FusionPlasmaDemo.training_plan(9, 1500)
+        self.assertEqual(len(plan), 9)
+        self.assertEqual(plan[-1], 1500)
+        self.assertEqual(plan, sorted(plan))
+        self.assertLess(plan[0], 1500 // 9)
+        self.assertLess(plan[3], 60)          # the steep part of the curve
+        # Budgets smaller than the number of gaps still give every gap a turn.
+        self.assertEqual(FusionPlasmaDemo.training_plan(5, 3), [1, 2, 3, 3, 3])
+        self.assertEqual(FusionPlasmaDemo.training_plan(2, 10), [3, 10])
+        # Continuing an earlier run adds to what it already did.
+        self.assertEqual(FusionPlasmaDemo.training_plan(2, 10, already=40), [43, 50])
+
+    def test_guardian_controller_reloads_for_more_training(self):
+        __import__('torch')
+        import numpy as np
+        from leonardo_demos.plasma_control import (START_STATE, FrozenController, TorchPolicy,
+                                                   load_controller, save_controller)
+        with tempfile.TemporaryDirectory() as t:
+            trained = TorchPolicy('cpu', 0.004)
+            trained.train(3, 16, 6, 1.0, 1.0, None)
+            path = Path(t) / 'gen_0002.npz'
+            save_controller(path, trained)
+            fresh = TorchPolicy('cpu', 0.004)
+            self.assertEqual(load_controller(path, fresh), 3)
+            state = np.array(START_STATE, dtype=np.float32)
+            self.assertTrue(np.allclose(fresh.act(state), trained.act(state), atol=1e-6))
+            # Training can carry on from there, and does something.
+            fresh.train(3, 16, 6, 1.0, 1.0, None)
+            self.assertFalse(np.allclose(fresh.act(state), trained.act(state), atol=1e-6))
+            # A file that does not fit this network is refused, not half-loaded.
+            np.savez_compressed(Path(t) / 'other.npz', kind=np.array('analytic'))
+            self.assertEqual(load_controller(Path(t) / 'other.npz', fresh), 0)
+
+    def test_guardian_continues_an_earlier_run(self):
+        __import__('torch')
+        import shutil
+        settings = {'n': 24, 'total_steps': 8, 'ensemble': 2, 'sweep_n': 20, 'sweep_steps': 3,
+                    'tracers': 12, 'trail': 6, 'particles': 40, 'batch': 16, 'horizon': 6,
+                    'train_updates': 4, 'display_steps': 6, 'shots': 2}
+        params = {'magnetic_field': 5.0, 'heating': 25, 'density': 1.0, 'instability': 1.0}
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            FusionPlasmaDemo(RunContext(Path(first), 'fusion_plasma', 'local', 6, dict(params),
+                                        'cpu', method='guardian'), dict(settings)).run()
+            saved = sorted((Path(first) / 'checkpoints').glob('gen_*.npz'))
+            self.assertTrue(saved)
+            shutil.copyfile(saved[-1], Path(second) / 'resume.npz')
+            carried = dict(params, _resume='resume.npz', _resume_updates=4,
+                           _resume_run='first', _resume_shot=len(saved))
+            FusionPlasmaDemo(RunContext(Path(second), 'fusion_plasma', 'local', 6, carried,
+                                        'cpu', method='guardian'), dict(settings)).run()
+            meta = json.loads((Path(second) / 'meta.json').read_text())
+            self.assertEqual(meta['status'], 'complete')
+            self.assertEqual(meta['resumed_from']['updates'], 4)
+            self.assertEqual(meta['resumed_from']['run'], 'first')
+            # The plan carries on from what the first run did rather than restarting.
+            self.assertTrue(all(step > 4 for step in meta['training_plan']))
+
+    def test_guardian_refuses_to_pretend_it_continued(self):
+        settings = {'n': 24, 'total_steps': 8, 'ensemble': 2, 'sweep_n': 20, 'sweep_steps': 3,
+                    'tracers': 12, 'trail': 6, 'particles': 40, 'batch': 16, 'horizon': 6,
+                    'train_updates': 4, 'display_steps': 6, 'shots': 2}
+        with tempfile.TemporaryDirectory() as t:
+            c = RunContext(Path(t), 'fusion_plasma', 'local', 6,
+                           {'magnetic_field': 5.0, 'heating': 25, 'density': 1.0,
+                            'instability': 1.0, '_resume': 'missing.npz'},
+                           'cpu', method='guardian')
+            with self.assertRaisesRegex(RuntimeError, 'continue'):
+                FusionPlasmaDemo(c, settings).run()
+
     def test_fusion_plasma_guardian(self):
         with tempfile.TemporaryDirectory() as t:
             c=RunContext(Path(t),'fusion_plasma','local',6,
