@@ -33,7 +33,7 @@
   ],
   "extras": {
     "raytracer": {
-      "name": "Raytracer",
+      "name": "Dragon Raytracer",
       "tagline": "A dragon in gold, blue and glass, ray-traced inside a Cornell box on the GPU.",
       "category": "Physics",
       "kind": "video",
