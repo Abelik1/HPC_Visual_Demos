@@ -59,6 +59,24 @@ elevated command, and `scripts/leonardo_login.ps1` wraps the whole flow —
 including a `-CertOnly` mode that writes the certificate to a file for `rsync`
 and `scp`, and for machines where the agent is unavailable.
 
+**Issue the certificate without a passphrase** on any machine that launches
+cluster jobs — the dashboard, the demo stand, scripts:
+
+```powershell
+.\scripts\leonardo_login.ps1 -Email abelik@tcd.ie -User abelik00 -CertOnly -NoPassword
+```
+
+By default `step` encrypts the new private key (`~\.ssh\cineca_leonardo`) with
+a passphrase. The dashboard's `ssh` runs in batch mode and cannot type it, so
+Leonardo *accepts* the certificate and then refuses the login — `ssh -v` shows
+`Server accepts key` followed by `Permission denied (publickey,...)`.
+`-NoPassword` writes the key unencrypted. That is the intended trade: the key
+is useless without a certificate, the certificate dies after 12 hours, and
+getting a new one needs your password and OTP. If you would rather keep the
+passphrase, load the key once per certificate with
+`ssh-add $HOME\.ssh\cineca_leonardo` (the agent must be running) — but that is
+one more step to forget on demo morning.
+
 `login.leonardo.cineca.it` is round-robin DNS over four login nodes
 (`login01/02/05/07-ext`), each with its own host key. Reaching a node you have
 not used before therefore prints a host-key warning that is not an attack.

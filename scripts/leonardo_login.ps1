@@ -10,6 +10,11 @@
 # one-time code from your authenticator app.  Re-run whenever the 12 hours
 # lapse; -CertOnly refreshes the certificate without opening a session, which
 # is what rsync and scp need.
+#
+# Where jobs are launched unattended (the dashboard, the demo stand), add
+# -NoPassword: their batch-mode ssh cannot type a key passphrase.
+#
+#   .\scripts\leonardo_login.ps1 -Email you@example.org -User abelik00 -CertOnly -NoPassword
 
 [CmdletBinding()]
 param(

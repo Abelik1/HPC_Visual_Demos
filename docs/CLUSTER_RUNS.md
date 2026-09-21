@@ -85,7 +85,9 @@ checkout, the Python environment and the run folder.
      a placeholder until you enter it;
   2. a valid **CINECA SSH certificate**, which lasts 12 hours. Enter your UserDB
      e-mail, then **Refresh certificate** opens `scripts/leonardo_login.ps1
-     -CertOnly` in a PowerShell window for the browser/OTP sign-in;
+     -CertOnly -NoPassword` in a PowerShell window for the browser/OTP
+     sign-in. The key gets **no passphrase** because the dashboard's
+     batch-mode `ssh` cannot type one (docs/TROUBLESHOOTING.md);
   3. a **Python venv** at `$WORK/venvs/leonardo-visual-demos`
      (docs/LEONARDO.md §3). The code checkout (`$WORK/Leonardo_Visual_Demos`) is
      created by the first run.

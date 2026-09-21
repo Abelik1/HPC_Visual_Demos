@@ -103,6 +103,23 @@ Where admin rights are unavailable, `scripts/leonardo_login.ps1 -CertOnly`
 writes the certificate to a file for use with `ssh -i`. Certificates expire
 after 12 hours either way; the agent saves the flag, not the daily re-auth.
 
+## Leonardo "accepts" the key, then says `Permission denied`
+
+`ssh -v` shows `Server accepts key: ... ECDSA-CERT` and then
+`Permission denied (publickey,gssapi-keyex,gssapi-with-mic)`. The certificate
+is fine; the private key behind it has a passphrase and nothing could type it
+(batch mode, the dashboard, a script). Check with
+`ssh-keygen -y -P "" -f $HOME\.ssh\cineca_leonardo` — "incorrect passphrase"
+confirms it. Reissue without one:
+
+```powershell
+.\scripts\leonardo_login.ps1 -Email abelik@tcd.ie -User abelik00 -CertOnly -NoPassword
+```
+
+or keep the passphrase and `ssh-add $HOME\.ssh\cineca_leonardo` once per
+certificate. The dashboard's **Refresh certificate** button passes
+`-NoPassword` itself. See docs/LEONARDO.md §1.
+
 ## JSON or `.env` written on Windows is rejected on Leonardo
 
 Windows PowerShell 5.1 writes a UTF-8 **byte-order mark** with `Out-File

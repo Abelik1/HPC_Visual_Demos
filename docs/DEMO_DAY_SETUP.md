@@ -122,7 +122,29 @@ Then, by hand:
 | Gallery is empty | the zip was not in `runs/_import/`, or it is still unpacking — watch the terminal |
 | A demo shows "Play recorded video (none yet)" | the `videos/` folder did not come across |
 | Black hole refuses to start a live run | `data/gaia_sky.npz` is missing; saved runs still replay |
-| A cluster button is offered but fails | the laptop has no CINECA certificate; the stand does not need one |
+| A cluster button is offered but fails | the laptop has no CINECA certificate (see below); the stand does not need one |
+
+## Optional: launching Leonardo jobs from the laptop
+
+Only if the stand should start cluster runs. Once per laptop:
+
+```powershell
+winget install Smallstep.step
+# elevated PowerShell:
+Set-Service -Name ssh-agent -StartupType Automatic; Start-Service ssh-agent
+```
+
+Then on the morning (the certificate lasts 12 hours) — **without a passphrase**,
+because the dashboard's `ssh` cannot type one:
+
+```powershell
+.\scripts\leonardo_login.ps1 -Email abelik@tcd.ie -User abelik00 -CertOnly -NoPassword
+```
+
+The dashboard connects to `login01-ext.leonardo.cineca.it`, whose host key a
+fresh laptop does not know; verify and add it as in docs/TROUBLESHOOTING.md
+before relying on the button. Discoverer (`login.brainplusplus.bg:2226`) is
+unreachable from some networks — if `ssh` times out, try another connection.
 
 More: [DEMO_MODE.md](DEMO_MODE.md) for the walk-up viewer,
 [DEMO_STORIES.md](DEMO_STORIES.md) for what to say at each demo,

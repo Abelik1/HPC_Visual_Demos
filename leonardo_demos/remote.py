@@ -229,7 +229,9 @@ def open_certificate_login(c: dict) -> None:
     identity = _identity(c) or str(Path.home() / ".ssh" / "cineca_leonardo")
     script = ROOT / "scripts" / "leonardo_login.ps1"
     subprocess.Popen(["powershell", "-NoExit", "-ExecutionPolicy", "Bypass", "-File", str(script),
-                      "-Email", email, "-User", c["user"], "-KeyPath", identity, "-CertOnly"],
+                      "-Email", email, "-User", c["user"], "-KeyPath", identity, "-CertOnly",
+                      # Our ssh runs in batch mode and cannot type a key passphrase.
+                      "-NoPassword"],
                      creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0), cwd=str(ROOT))
 
 
