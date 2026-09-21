@@ -200,6 +200,28 @@ def _cuda_kernels():
     return _CUDA_KERNELS
 
 
+def rival_label(run_dir: Path, champion_meta: dict) -> str:
+    """A saved champion's name tag: the visitor's name, else where it trained.
+
+    Champions saved without a visitor name carry the run's last five
+    characters, which means nothing on screen, so those are named after
+    their training track instead.
+    """
+    try:
+        meta = json.loads((run_dir / "meta.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        meta = {}
+    name = meta.get("name") or (meta.get("params") or {}).get("_name")
+    if not name and champion_meta.get("name") != run_dir.name[-5:]:
+        name = champion_meta.get("name")
+    if name:
+        return str(name)
+    track = (meta.get("summary") or {}).get("track")
+    if not track:
+        track = TRACKS.get(int(champion_meta.get("track", -1)), (None,))[0]
+    return f"{track} champion" if track else f"run {run_dir.name[-5:]}"
+
+
 class RaceSim:
     """All cars of one brain architecture driving one track in lockstep."""
 
@@ -698,8 +720,10 @@ class NeuroRacersDemo(Demo):
         for j, g in enumerate(gens):
             cars.append(car(result, j, label=f"gen {int(g)}", gen=int(g)))
             brains.append(brain_payload(brain, catalogue, genomes[j:j + 1], result["inputs"][:, j], f"Generation {int(g)} champion"))
-        # Other visitors' champions, each with its own brain, from the same pose.
-        # They come after the own cars so ``brains`` still lines up with ``cars``.
+        # Other runs' champions, each with its own brain, from the same pose and
+        # on this track whichever track they trained on.  They come after the
+        # own cars so ``brains`` still lines up with ``cars``.
+        rivals = []
         for path in env.get("ghosts") or []:
             try:
                 genome, ghost_brain, ghost_meta = load_champion(Path(path) / "champion.npz")
@@ -708,7 +732,13 @@ class NeuroRacersDemo(Demo):
             ghost_sim = RaceSim(np, track, ghost_brain, catalogue)
             ghost_result = ghost_sim.run(Population(np, 2, ghost_brain["layer_sizes"], seed=0), steps, every,
                                          genome=genome, pose=pose)
-            cars.append(car(ghost_result, 0, label=str(ghost_meta.get("name") or f"run {Path(path).name[-5:]}"), ghost=True))
+            rivals.append(car(ghost_result, 0, label=rival_label(Path(path), ghost_meta), ghost=True, run=Path(path).name))
+        # Two champions from the same track would share a label; the run's
+        # short id tells them apart.
+        for c in rivals:
+            if sum(r["label"] == c["label"] for r in rivals) > 1:
+                c["label"] = f"{c['label']} {c['run'][-5:]}"
+        cars += rivals
         return {"kind": "racers", "generation": [int(g) for g in gens], "sample_dt": DT * every,
                 "replay": {"gens": [int(g) for g in gens], "seed": int(seed), "track": track["id"], "trained_track": trained},
                 "arena": cls.arena_payload(track), "cars": cars, "brains": brains, "ghosts": []}

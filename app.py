@@ -125,6 +125,25 @@ def specs():
                                   'precisions':list(cls.precisions)}
                             for name,cls in DEMOS.items()}}
 
+_PLAYBACK_CACHE={}
+def _playback_frames(d,meta,frames):
+    """Replay length for runs whose tail is idle; None means play everything.
+
+    Folds record it when they finish. Folds saved before that are measured
+    once from their per-frame radius of gyration.
+    """
+    if meta.get('playback_frames'): return min(frames,int(meta['playback_frames']))
+    if meta.get('demo')!='molecular_dynamics' or meta.get('method')!='fold' or meta.get('status')!='complete': return None
+    key=(d.name,frames)
+    if key not in _PLAYBACK_CACHE:
+        from leonardo_demos.demos.molecular_dynamics import fold_playback_frames
+        rgs=[]
+        for i in range(frames):
+            try: rgs.append(float(json.loads((d/'frame_data'/f'frame_{i:04d}.json').read_text(encoding='utf-8'))['values']['radius of gyration']))
+            except (OSError,ValueError,KeyError,TypeError): break
+        _PLAYBACK_CACHE[key]=fold_playback_frames(rgs) if len(rgs)==frames else None
+    return _PLAYBACK_CACHE[key]
+
 @app.get('/api/runs')
 def list_runs(demo:str|None=None,limit:int=120):
     """Saved runs, newest first, with everything the viewer needs to replay one.
@@ -185,6 +204,10 @@ def list_runs(demo:str|None=None,limit:int=120):
             'favourite':d.name in favourites,
             # AI games: the visitor's name tag, for their champion and as a ghost.
             'name':meta.get('name') or (meta.get('params') or {}).get('_name'),
+            # Neuro-Racers: a saved champion that can race in other runs' replays.
+            'has_champion':(d/'champion.npz').exists(),
+            # Frames worth replaying on a loop, where the rest adds nothing.
+            'playback_frames':_playback_frames(d,meta,len(frames)),
             # Star in a Bottle guardian: the conditions its controller trained in.
             'trained_world':meta.get('trained_world'),
         })

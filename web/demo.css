@@ -459,6 +459,8 @@ body.hasBrain .stage{max-width:min(1680px,100%);--pic:min(54vh,600px)}
 .testGrid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
 .testGrid .box{background:var(--raise)}
 .testGrid .seg button{flex:1 1 0;min-width:max-content}
+.rivalBox .seg button{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:7px 11px;text-align:left}
+.rivalBox .seg button small{font-size:11px;opacity:.8;font-weight:400}
 .instPanel header{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .instPanel header b{font-size:14.5px}
 .instPanel header small{color:var(--muted);font-size:12px}

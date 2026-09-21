@@ -166,6 +166,22 @@ extern "C" __global__ void fold_steps(float* pos, float* vel, const float* eps, 
 """
 
 
+def fold_playback_frames(rgs) -> int:
+    """How many frames of a fold are worth replaying.
+
+    A chain collapses within the first tenth or so of a run and then only
+    jiggles, which on a loop reads as "it just becomes a blob". Replay stops
+    at twice the frame where the radius of gyration first comes within 10%
+    of its final plateau, plus ten frames on the folded ball.
+    """
+    rgs = [float(r) for r in rgs]
+    if len(rgs) < 4:
+        return len(rgs)
+    plateau = float(np.median(rgs[len(rgs) // 2:]))
+    settle = next((i for i, r in enumerate(rgs) if r <= plateau * 1.1), len(rgs))
+    return min(len(rgs), max(20, 2 * settle + 10))
+
+
 def parse_chain(text: str) -> list[int]:
     text = str(text).strip().upper()
     if not CHAIN_PATTERN.match(text):
@@ -410,6 +426,7 @@ class MolecularDynamicsDemo(Demo):
         self._begin_3d("fold", FOLD_PALETTE, FOLD_LABELS)
         done = 0
         best = None
+        rgs = []
         for i in range(self.ctx.frames):
             target = int(round(total * (i + 1) / self.ctx.frames))
             with self.ctx.stage("simulation"):
@@ -420,6 +437,7 @@ class MolecularDynamicsDemo(Demo):
             done = target
             pn = to_numpy(pos)
             diag = self.fold_diagnostics(pn, types)
+            rgs.append(diag["rg"])
             best = diag if best is None or diag["compactness"] > best["compactness"] else best
             with self.ctx.stage("render"):
                 image = self.render(pn, types, FOLD_PALETTE, bonds=None, angle=0.01 * i,
@@ -438,7 +456,8 @@ class MolecularDynamicsDemo(Demo):
                 "pair evaluations": f"{done * n * (n - 1) // 2:,}"})
         self.ctx.write_meta({"summary": {"mode": "fold", "chain": text, "radius_of_gyration": round(diag["rg"], 3),
                                          "oily_contacts": diag["hh"], "buried_oil": round(diag["buried"], 3),
-                                         "salt_bridges": diag["salt"]}})
+                                         "salt_bridges": diag["salt"]},
+                             "playback_frames": fold_playback_frames(rgs)})
         self.ctx.finish()
 
     # ----------------------------------------------------------- shuttle --

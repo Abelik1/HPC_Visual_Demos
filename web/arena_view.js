@@ -52,6 +52,27 @@ class ArenaView {
   }
   // Stalled for good, as opposed to merely slow as the recording ends.
   static stalled(car,at){const out=ArenaView.outSample(car);return car.crash<0&&at>=out&&car.x.length-1-out>30;}
+  // A stalled car that never really left its start: its network brakes about
+  // as hard as it accelerates, so from a standstill it never gets going.
+  static stuckAtStart(car){
+    if(car.crash>=0||ArenaView.outSample(car)>0)return false;
+    for(let i=1;i<car.x.length;i++)if(Math.hypot(car.x[i]-car.x[0],car.y[i]-car.y[0])>ArenaView.START_BOX)return false;
+    return true;
+  }
+  // How a car is doing at sample ``at`` (``seconds`` into the drive).
+  static stateAt(car,at,seconds){
+    if(car.crash>=0&&at>=car.crash)return 'crashed';
+    if(car.lap_s&&seconds>=car.lap_s)return `lap ${car.lap_s.toFixed(1)} s`;
+    if(ArenaView.stalled(car,at))return ArenaView.stuckAtStart(car)?'stalled at the start':'stalled';
+    return 'driving';
+  }
+  // How the whole drive went, for summaries under the picture.
+  static outcome(car){
+    if(car.lap_s)return `lap ${car.lap_s.toFixed(1)} s`;
+    if(car.crash>=0)return 'crashed';
+    if(ArenaView.stuckAtStart(car))return 'stalled at the start';
+    return `${Number(car.laps).toFixed(2)} laps`;
+  }
   // A hunt is over once its last moth is caught.
   static huntOver(hunt,n){const m=hunt.moths||[];return m.length&&m.every(x=>x.caught>=0)?Math.max(...m.map(x=>x.caught)):n-1;}
   // Last sample worth showing: once every car on screen has crashed or stalled,
@@ -158,8 +179,9 @@ class ArenaView {
     own.forEach((i,rank)=>{const c=cars[i];c.colour=ArenaView.GEN_COLOURS[Math.round(rank*(ArenaView.GEN_COLOURS.length-1)/Math.max(1,own.length-1))];
       c.tag=this.ownerName?(own.length>1?`${this.ownerName} · ${c.label}`:this.ownerName):c.label;});
     ghosts.forEach((i,rank)=>{const c=cars[i];c.colour=ArenaView.GHOST_COLOURS[rank%ArenaView.GHOST_COLOURS.length];c.tag=c.label;});
+    const at=Math.floor(cursor),stuck=order.filter(i=>ArenaView.stateAt(cars[i],Math.min(cars[i].x.length-1,at),seconds)==='stalled at the start');
     [...ghosts,...own].forEach(i=>{const c=cars[i],focus=!c.ghost&&i===this.focusIndex();
-      this.drawAgent(c,focus?0:1,v,cursor,{trail:c.colour+'cc',width:focus?3:2,fill:c.colour,size:9,label:c.tag});});
+      this.drawAgent(c,focus?0:1,v,cursor,{trail:c.colour+'cc',width:focus?3:2,fill:c.colour,size:9,label:stuck.includes(i)?`${c.tag} · stalled`:c.tag});});
     const where=this.arena?.track?`${this.arena.track} · `:'';
     const title=ghosts.length?`RACE · ${own.length+ghosts.length} CHAMPIONS · SAME START`
       :own.length>1?`GENERATIONS ${own.map(i=>cars[i].gen).join(' · ')} · SAME START`:`GENERATION ${cars[own[0]].gen} · FRESH START`;
@@ -167,9 +189,13 @@ class ArenaView {
     // Legend: how each car is doing at this moment.
     if(this.hud===false)return;
     let y=90*d;ctx.font=`700 ${12*d}px Arial`;
-    order.forEach(i=>{const c=cars[i],k=Math.min(c.x.length-1,Math.floor(cursor)),state=c.crash>=0&&k>=c.crash?'crashed':c.lap_s&&seconds>=c.lap_s?`lap ${c.lap_s.toFixed(1)} s`:'driving';
+    order.forEach(i=>{const c=cars[i],k=Math.min(c.x.length-1,Math.floor(cursor)),state=ArenaView.stateAt(c,k,seconds);
       const text=`● ${c.tag} · ${state}`,tw=ctx.measureText(text).width;
       ctx.fillStyle='rgba(3,7,18,.8)';ctx.fillRect(18*d,y-13*d,Math.max(190*d,tw+16*d),19*d);ctx.fillStyle=c.colour;ctx.fillText(text,26*d,y);y+=22*d;});
+    // Why a car sits still: without this it looks like the display froze.
+    if(stuck.length){ctx.font=`${11*d}px Arial`;
+      ['Stalled at the start: this network brakes about as hard','as it accelerates, so from a standstill it never gets going.'].forEach(line=>{
+        const tw=ctx.measureText(line).width;ctx.fillStyle='rgba(3,7,18,.8)';ctx.fillRect(18*d,y-12*d,tw+16*d,17*d);ctx.fillStyle='#c9d6ea';ctx.fillText(line,26*d,y);y+=17*d;});}
   }
   focusIndex(){const n=(this.gen?.brains||[]).length;if(!n)return 0;return this.focus===null||this.focus>=n?n-1:this.focus;}
   drawTraining(v,cursor){
@@ -337,6 +363,8 @@ ArenaView.MAX_LANES=16;
 // A car that stays inside a square this wide (centi-units) until the end of
 // its drive has stalled.
 ArenaView.STALL_BOX=150;
+// Centi-units a car may creep from its start and still count as never started.
+ArenaView.START_BOX=15;
 ArenaView.GEN_COLOURS=['#ff6b6b','#ffa94d','#ffd43b','#69db7c','#4dabf7','#da77f2'];
 // Other visitors' champions in a race: violet family, apart from GEN_COLOURS.
 ArenaView.GHOST_COLOURS=['#be96ff','#ff8fd8','#8fe3ff','#d0ff8f','#ffc9a8'];

@@ -199,6 +199,12 @@ const KIOSK={
       {key:'recipe',label:'Recipe of the Universe'},
       {key:'gravity',label:'Gravity strength',decimals:2},
       {key:'helium',label:'Helium fraction',decimals:2}],
+    // Settings a saved run is told apart by that have no control on the stand.
+    summary:[{key:'warm_dark_matter',label:'warm dark matter',ifChanged:true},
+      {key:'dark_energy',label:'dark energy',ifChanged:true},
+      {key:'expanding_space',label:'expanding space',ifChanged:true},
+      {key:'seed',label:'Seed'},
+      {setting:'particles',format:v=>`${(Number(v)/1e6).toFixed(1)}M particles`}],
     numbers:['universe','clumping density contrast','solver step']},
 
   galaxy_collision:{
@@ -293,7 +299,7 @@ let specs=null,library=[],current=null,runId=null,meta={};
 let pollTimer=null,playTimer=null,idleTimer=null;
 let frame=0,total=0,playing=false,lastKnownFrame=-1;
 let arena=null,fusion=null,galaxy=null,view=null,arenaGeneration=-1,failedViews=new Set();
-let gridViews=[],champion={mode:'final',seed:0,data:null,results:[],env:{}},fusionTest={seed:0,env:{},results:[]};
+let gridViews=[],champion={mode:'final',seed:0,data:null,results:[],env:{},rivals:null},fusionTest={seed:0,env:{},results:[]};
 // Full meta.json of a saved run: the library listing leaves out bulky fields
 // (generation statistics, shot history) that only the instrument strip needs.
 const fullMetaCache=new Map();
@@ -511,7 +517,8 @@ function presentGo(index){
   if(item.demo!==current)openDemo(item.demo,{run:item.run});else openRun(item.run);
   const slideshow=present.kind==='slideshow';
   $('#presentTitle').textContent=slideshow?`Slideshow · ${d.name}`:`Showcase · ${d.name}`;
-  $('#presentMeta').textContent=`${present.index+1} of ${n} · ${runLabel(item.run)}`;
+  const settings=runSummary(item.run);
+  $('#presentMeta').textContent=`${present.index+1} of ${n} · ${runLabel(item.run)}${settings?` · ${settings}`:''}`;
   $('#presentPrev').disabled=$('#presentNext').disabled=n<2;
   $('#presentTry').textContent=slideshow?'Try this one':'Try it yourself';
   setStatus(slideshow?'SLIDESHOW':'SHOWCASE','replay');
@@ -1082,7 +1089,26 @@ function championWorlds(env){
 }
 function championGhosts(env){
   if(current!=='neuro_racers'||champion.mode!=='race')return [];
-  return ghostRuns(env.track).filter(r=>r.id!==runId).map(r=>r.id);
+  return selectedRivals(env.track);
+}
+// Champion races: which saved champions race the open run's champion. Any of
+// them can race on any track: the server re-simulates each with its own brain
+// from the same start, whichever track it trained on.
+const MAX_RIVALS=5;
+function championRuns(){
+  return library.filter(r=>r.demo==='neuro_racers'&&r.status==='complete'&&r.has_champion&&r.id!==runId);
+}
+function rivalName(r){return r.name||`${r.summary?.track||'Saved'} champion`;}
+// Until the presenter picks, the fastest saved champions on the test track.
+function selectedRivals(track){
+  const all=new Set(championRuns().map(r=>r.id));
+  if(Array.isArray(champion.rivals))return champion.rivals.filter(id=>all.has(id));
+  return ghostRuns(track).map(r=>r.id).filter(id=>all.has(id));
+}
+function toggleRival(id){
+  const env=championEnv(),picked=selectedRivals(env.track);
+  champion.rivals=picked.includes(id)?picked.filter(x=>x!==id):[...picked,id].slice(-MAX_RIVALS);
+  setChampionEnv({});
 }
 async function enterChampion(def){
   if(!runId||!meta.lab)return markViewUnusable(def?.id||'champion');
@@ -1140,7 +1166,7 @@ function worldLabel(data,trained){
   const rp=data.replay||{},own=data.cars.find(c=>!c.ghost)||data.cars[0];
   if(current==='neuro_racers'){
     const home=rp.track===trained.track?' · trained here':'';
-    return `${data.arena?.track||'track'}${home} · ${own.lap_s?`lap ${own.lap_s.toFixed(1)} s`:own.crash>=0?'crashed':`${Number(own.laps).toFixed(2)} laps`}`;
+    return `${data.arena?.track||'track'}${home} · ${ArenaView.outcome(own)}`;
   }
   const caught=data.moths.filter(m=>m.caught>=0).length;
   return `cave ${rp.cave}${rp.cave===trained.cave?' · trained here':''} · ${caught} of ${data.moths.length} caught`;
@@ -1314,7 +1340,7 @@ function generationAt(index){
 function resetRun(){
   if(pollTimer)clearInterval(pollTimer);pollTimer=null;
   stopPlay();exitArena();exitFusion();exitGalaxy();exitGrid();
-  champion={mode:champion.mode,seed:0,data:null,results:[],env:{}};fusionTest={seed:0,env:fusionTest.env,results:[]};
+  champion={mode:champion.mode,seed:0,data:null,results:[],env:{},rivals:null};fusionTest={seed:0,env:fusionTest.env,results:[]};
   $('#onScreen').classList.add('hidden');$('#instruments').classList.add('hidden');
   runId=null;meta={};frame=0;total=0;lastKnownFrame=-1;numbers={};arenaGeneration=-1;view=null;
   failedViews=new Set();
@@ -1326,8 +1352,9 @@ function resetRun(){
 }
 function openRun(r){
   resetRun();
-  runId=r.id;meta=r;total=r.frames;
-  $('#seek').max=Math.max(0,r.frames-1);
+  // A fold is over once the chain has collapsed; replay ends there.
+  runId=r.id;meta=r;total=r.playback_frames||r.frames;
+  $('#seek').max=Math.max(0,total-1);
   enableTransport(true);
   setStatus('SAVED RUN','replay');
   // Star in a Bottle's mode buttons follow the run on screen, so a guardian
@@ -1639,13 +1666,21 @@ function testWorldPanel(){
       `<button type="button" data-env-track="${v}"${on(env.boxes===1&&Number(v)===env.track)}>${escapeHtml(n)}${Number(v)===t.track?' ★':''}</button>`).join('')}
       <button type="button" data-env-boxes="4"${on(env.boxes>1)}>All four at once</button></div>
       <small class="boxHint">★ is the track it trained on.</small></div>`);
-    const rivals=ghostRuns(env.track).filter(r=>r.id!==runId);
-    const names=rivals.map(r=>r.name||`run ${r.id.slice(-5)}`);
+    const all=championRuns(),picked=selectedRivals(env.track);
     cells.push(`<div class="box wide"><label>Who drives</label><div class="seg">
       <button type="button" data-champ="final"${on(champion.mode==='final')}>Final champion</button>
       <button type="button" data-champ="learn"${on(champion.mode==='learn')}>First · middle · final</button>
-      <button type="button" data-champ="race"${on(champion.mode==='race')}${rivals.length?'':' disabled'}>Race the ghosts</button></div>
-      <small class="boxHint">${rivals.length?`Race your champion against ${names.map(escapeHtml).join(', ')}: the best saved champions on this track, from the same start.`:'No other saved champions on this track yet.'}</small></div>`);
+      <button type="button" data-champ="race"${on(champion.mode==='race')}${all.length?'':' disabled'}>Race other champions</button></div>
+      <small class="boxHint">${all.length?'Race this run’s champion against champions saved by other runs, from the same start.':'No other saved champions yet: finish another run to race it.'}</small></div>`);
+    if(champion.mode==='race'&&all.length){
+      // Home-track champions first, fastest first; the rest re-simulated here.
+      const sorted=[...all].sort((a,b)=>(Number(b.summary?.track_id)===env.track)-(Number(a.summary?.track_id)===env.track)
+        ||(a.summary?.best_lap_s??1e9)-(b.summary?.best_lap_s??1e9));
+      cells.push(`<div class="box wide rivalBox"><label>Rivals · ${picked.length} of up to ${MAX_RIVALS}</label><div class="seg">${sorted.map(r=>{const s=r.summary||{};
+        const detail=[Number(s.track_id)===env.track?'trained here':`trained on ${s.track||'?'}`,s.best_lap_s?`best lap ${s.best_lap_s.toFixed(1)} s`:null,s.brain_points?`${s.brain_points} pts`:null,runLabel(r)].filter(Boolean).join(' · ');
+        return `<button type="button" data-rival="${escapeHtml(r.id)}"${on(picked.includes(r.id))}><b>${escapeHtml(rivalName(r))}</b><small>${escapeHtml(detail)}</small></button>`;}).join('')}</div>
+        <small class="boxHint">${picked.length?'Each rival drives this track with its own saved brain, whichever track it trained on.':'Pick at least one rival to race.'}</small></div>`);
+    }
   }else{
     const stepper=(key,label,value,spec)=>`<div class="box"><label>${label}</label><div class="boxRow">
       <button class="stepBtn" type="button" data-env-step="${key}" data-dir="-1"${value<=Number(spec.min)?' disabled':''} aria-label="Decrease">−</button>
@@ -1663,6 +1698,7 @@ function testWorldPanel(){
 }
 function wireTestWorldPanel(host){
   host.querySelectorAll('[data-champ]').forEach(b=>b.onclick=()=>rerollChampion(b.dataset.champ==='reroll'?null:b.dataset.champ));
+  host.querySelectorAll('[data-rival]').forEach(b=>b.onclick=()=>toggleRival(b.dataset.rival));
   host.querySelectorAll('[data-env-track]').forEach(b=>b.onclick=()=>setChampionEnv({track:Number(b.dataset.envTrack),boxes:1},{now:true}));
   host.querySelectorAll('[data-env-boxes]').forEach(b=>b.onclick=()=>setChampionEnv({boxes:Number(b.dataset.envBoxes)},{now:true}));
   host.querySelectorAll('[data-env-step]').forEach(b=>b.onclick=()=>{
@@ -1680,9 +1716,10 @@ function updateInferenceText(){
   }
   if(current==='neuro_racers'){
     const where=data.replay?.track!==undefined&&data.replay.track!==trained.track?` on the ${data.arena?.track||'new track'}, a track it never trained on,`:'';
-    const parts=data.cars.map(c=>`${c.ghost?c.label:(meta.name?`${meta.name} ${c.label}`:c.label)}: ${c.lap_s?`lap ${c.lap_s.toFixed(1)} s`:c.crash>=0?'crashed':`${Number(c.laps).toFixed(2)} laps`}`);
-    const own=data.cars.filter(c=>!c.ghost).length;
-    text.textContent=`Saved champion network${own>1?'s':''}, frozen, driving${where} from a fresh random start (#${seed}) it has never seen. ${parts.join(' · ')}.`;
+    const parts=data.cars.map(c=>`${c.ghost?c.label:(meta.name?`${meta.name} ${c.label}`:c.label)}: ${ArenaView.outcome(c)}`);
+    const own=data.cars.filter(c=>!c.ghost).length,stuck=data.cars.some(c=>ArenaView.stuckAtStart(c));
+    text.textContent=`Saved champion network${own>1?'s':''}, frozen, driving${where} from a fresh random start (#${seed}) it has never seen. ${parts.join(' · ')}.`
+      +(stuck?' A car stalled at the start has a network that brakes about as hard as it accelerates, so from a standstill it never gets going; try a new random start.':'');
   }else{
     const caught=data.moths.filter(m=>m.caught>=0).length,rp=data.replay||{};
     const moved=rp.cave!==undefined&&(rp.cave!==trained.cave||rp.moths!==trained.moths)?` in cave ${rp.cave} with ${rp.moths} moths (it trained in cave ${trained.cave} with ${trained.moths})`:'';
@@ -1776,6 +1813,12 @@ function runSummary(r){
   // Only where the mode is a visitor choice; a solver name is noise elsewhere.
   if(methodLabel&&(KIOSK[r.demo]?.controls||[]).some(c=>c.method))parts.unshift(methodLabel.replace(/^Mode \d · /,''));
   if(r.params?._obstacle_grid)parts.push('custom shape');
+  // Hidden settings: toggles only when they differ from the default.
+  (KIOSK[r.demo]?.summary||[]).forEach(s=>{
+    if(s.setting){const v=r.settings?.[s.setting];if(v!==undefined)parts.push(s.format(v));return;}
+    const value=r.params?.[s.key],p=specs.demos[r.demo]?.params?.[s.key];if(value===undefined)return;
+    if(s.ifChanged&&p&&Number(value)===Number(p.value))return;
+    parts.push(p?.kind==='toggle'?`${Number(value)?'with':'no'} ${s.label}`:`${s.label} ${paramText(r.demo,s.key,value)}`);});
   return parts.join(' · ');
 }
 
