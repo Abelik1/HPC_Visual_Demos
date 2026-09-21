@@ -147,6 +147,21 @@ def _bundle_members(zf: zipfile.ZipFile):
     return members
 
 
+def _rename_when_free(src: Path, dst: Path):
+    """os.rename, retried while Windows holds a freshly written file open.
+
+    Defender and the search indexer open new files to scan them, and renaming a
+    folder with any file open fails with WinError 5. Unpacking a 14 GB bundle
+    lost that race at a different run each time and stopped half way."""
+    for attempt in range(100):
+        try:
+            os.rename(src, dst)
+            return
+        except PermissionError:
+            time.sleep(0.2)
+    os.rename(src, dst)
+
+
 def import_bundle(zip_path: Path, runs_dir: Path, update_library: Callable[[Callable[[dict], dict]], None],
                   log: Callable[[str], None] = print):
     """Unpack one bundle into runs_dir. Runs that already exist are left alone.
@@ -188,7 +203,7 @@ def import_bundle(zip_path: Path, runs_dir: Path, update_library: Callable[[Call
                 shutil.rmtree(staging, ignore_errors=True)
                 log(f'  [{index}/{len(pending)}] {rid}: no meta.json, skipped')
                 continue
-            os.rename(staging, runs_dir/rid)
+            _rename_when_free(staging, runs_dir/rid)
             # The run list is ordered by folder time; keep the original age
             # instead of floating every imported run to the top.
             if newest:
