@@ -1,5 +1,5 @@
 {
-  "active": "all",
+  "active": "leonardo",
   "machines": {
     "discoverer": {
       "label": "Discoverer",
