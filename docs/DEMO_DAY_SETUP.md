@@ -30,12 +30,18 @@ Upload to Google Drive, together with:
 Python 3.10 or newer, and about 25 GB free.
 
 ```bash
-git clone https://github.com/Abelik1/HPC_Visual_Demos.git
+git clone -b feat/demo-days-cluster-runs https://github.com/Abelik1/HPC_Visual_Demos.git
 cd HPC_Visual_Demos
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 ```
+
+The `-b` matters: the demo-day work (both lineups, the Molecular Machine
+motors, the plasma guardian fix, bundle unpacking under any launcher,
+`check_stand.py`) is on `feat/demo-days-cluster-runs`. Until that branch is
+merged, a plain `git clone` gets `main`, which has none of it. `git log -1`
+should show `config(lineups): open on the Leonardo demo day` or later.
 
 That is all the viewer needs: NumPy, Pillow, FastAPI, uvicorn and pydantic. A
 GPU is **not** required — everything on the stand is a replay of a run made on
