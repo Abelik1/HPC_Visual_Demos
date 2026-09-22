@@ -1,0 +1,80 @@
+{
+  "demo": "cosmic_web",
+  "machine": "discoverer",
+  "unit": "one particle-mesh step",
+  "sizes": [
+    "2.4M particles, 1,024\u00b2 mesh",
+    "10.5M particles, 2,048\u00b2 mesh",
+    "41.9M particles, 4,096\u00b2 mesh"
+  ],
+  "gpus": {
+    "1": [
+      {
+        "seconds": 0.0009761794935911894,
+        "ms": 0.976,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.0025976818054914475,
+        "ms": 2.598,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.009517821879126132,
+        "ms": 9.518,
+        "repetitions": 5
+      }
+    ],
+    "2": [
+      {
+        "seconds": 0.0025033994810655714,
+        "ms": 2.503,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.0026141586015000938,
+        "ms": 2.614,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.0065474655013531445,
+        "ms": 6.547,
+        "repetitions": 5
+      }
+    ],
+    "4": [
+      {
+        "seconds": 0.004228300997056067,
+        "ms": 4.228,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.004365457012318075,
+        "ms": 4.365,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.006386622809804976,
+        "ms": 6.387,
+        "repetitions": 5
+      }
+    ]
+  },
+  "cores": {},
+  "provenance": {
+    "gpu": {
+      "machine": "discoverer",
+      "kind": "gpu",
+      "node": "gpu-11",
+      "architecture": "aarch64",
+      "date": "2026-09-22 06:33 UTC",
+      "slurm_job_id": "8827",
+      "git_revision": "f74e56d+local",
+      "cpus_allocated": "16",
+      "code_digest": "9c3ba5dbfd18ad66",
+      "cpu_model": "Neoverse-V2",
+      "gpu_model": "NVIDIA GB200"
+    },
+    "cpu": null
+  }
+}

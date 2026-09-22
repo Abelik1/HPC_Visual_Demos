@@ -1,0 +1,80 @@
+{
+  "demo": "bat_vs_moth",
+  "machine": "discoverer",
+  "unit": "one 600-step hunt in every cave",
+  "sizes": [
+    "16,384 caves (1 bat + 4 moths each)",
+    "65,536 caves (1 bat + 4 moths each)",
+    "131,072 caves (1 bat + 4 moths each)"
+  ],
+  "gpus": {
+    "1": [
+      {
+        "seconds": 0.6040129289031029,
+        "ms": 604.013,
+        "repetitions": 5
+      },
+      {
+        "seconds": 2.421009382000193,
+        "ms": 2421.009,
+        "repetitions": 5
+      },
+      {
+        "seconds": 4.841108836000785,
+        "ms": 4841.109,
+        "repetitions": 5
+      }
+    ],
+    "2": [
+      {
+        "seconds": 0.42689683893695474,
+        "ms": 426.897,
+        "repetitions": 5
+      },
+      {
+        "seconds": 1.2447617889847606,
+        "ms": 1244.762,
+        "repetitions": 5
+      },
+      {
+        "seconds": 2.4663231300655752,
+        "ms": 2466.323,
+        "repetitions": 5
+      }
+    ],
+    "4": [
+      {
+        "seconds": 0.39242642698809505,
+        "ms": 392.426,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.682919868035242,
+        "ms": 682.92,
+        "repetitions": 5
+      },
+      {
+        "seconds": 1.364715953124687,
+        "ms": 1364.716,
+        "repetitions": 5
+      }
+    ]
+  },
+  "cores": {},
+  "provenance": {
+    "gpu": {
+      "machine": "discoverer",
+      "kind": "gpu",
+      "node": "gpu-11",
+      "architecture": "aarch64",
+      "date": "2026-09-22 06:38 UTC",
+      "slurm_job_id": "8829",
+      "git_revision": "f74e56d+local",
+      "cpus_allocated": "16",
+      "code_digest": "ffea8a8df432d021",
+      "cpu_model": "Neoverse-V2",
+      "gpu_model": "NVIDIA GB200"
+    },
+    "cpu": null
+  }
+}

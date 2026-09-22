@@ -13,6 +13,7 @@ physics beyond the closing-speed input.  See docs/SCIENTIFIC_NOTES.md.
 """
 from __future__ import annotations
 
+import copy
 import json
 import math
 from pathlib import Path
@@ -22,6 +23,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from ..backend import to_numpy
 from ..base import Demo
+from ..multigpu import split
 from ..neuroevo import (Population, action_labels, brain_catalogue, brain_payload, input_labels,
                         load_checkpoint, save_checkpoint, validate_brains)
 from ..neuro_render import draw_brain
@@ -351,6 +353,21 @@ def _offsets(sensors, widths):
             offsets[block] = width
             width += widths[block]
     return {name: offsets.get(name, -1) for name in widths}, width
+
+
+PER_CAVE = ("bat_fitness", "slot_fitness", "catch_step", "chirps", "jammed_chirps", "near_steps", "near_jam",
+            "far_steps", "far_jam", "bat_inputs", "moth_inputs")      # axis 0 is the cave (moth_inputs: cave*k)
+
+
+def merge_hunts(results, devices):
+    """Join CaveSim.run results for consecutive slices of the caves on the first GPU."""
+    merged = {key: devices.gather([r[key] for r in results]) for key in PER_CAVE}
+    merged["record"] = {key: devices.gather([r["record"][key] for r in results], axis=1)
+                        for key in results[0]["record"]}
+    for key in ("chirp_log", "fake_log"):                           # axis 0 is the step
+        merged[key] = devices.gather([r[key] for r in results], axis=1)
+    merged["record_every"] = results[0]["record_every"]
+    return merged
 
 
 class CaveSim:
@@ -702,7 +719,44 @@ class BatVsMothDemo(Demo):
         return brain_catalogue(specs, self.id)
 
     def hunt(self, sim, bats, moths, moth_index, steps, seed):
+        devices = self.ctx.devices
+        if devices.count > 1 and bats.size >= 2 * devices.count:
+            return self._split_hunt(devices, sim, bats, moths, moth_index, steps, seed)
         return sim.run(bats, moths, moth_index, steps, seed, self.record_every)
+
+    def _split_hunt(self, devices, sim, bats, moths, moth_index, steps, seed):
+        """One hunt with the caves split across GPUs.
+
+        Caves never interact, so each GPU hunts in its own share of them (its
+        slice of the bats; every moth genome, since any cave may fly any moth)
+        and the results are joined on the first GPU.  Each GPU draws its own
+        random noise (echo phantoms, dive jitter) from a stream derived from
+        ``seed``: drawing the whole population's noise on every GPU and
+        slicing it would cost more host time than the hunt, so a split hunt is
+        an equally valid, not bit-identical, realisation of the one-GPU hunt.
+        """
+        parts = split(bats.size, devices.count)
+        key = (tuple(devices.ids), id(self.cave))
+        if getattr(self, "_split_sims", (None,))[0] != key:
+            sims = [sim]
+            for i in range(1, devices.count):
+                with devices.device(i):
+                    sims.append(CaveSim(devices.xp, self.cave, self.brains["bat"], self.brains["moth"], self.k))
+            self._split_sims = (key, sims)
+        sims = self._split_sims[1]
+
+        def on(population, genome, i):
+            part = copy.copy(population)            # same brain; this GPU's genomes
+            part.genome, part.size = genome, int(genome.shape[0])
+            part.__dict__.pop("_cuda_sizes", None)  # the fused forward caches it per device
+            return part
+
+        bat_parts = [on(bats, devices.to(bats.genome[p], i), i) for i, p in enumerate(parts)]
+        moth_parts = [on(moths, devices.to(moths.genome, i), i) for i in range(devices.count)]
+        seeds = [(int(seed) + 1_000_003 * i) % (1 << 31) for i in range(devices.count)]
+        results = devices.run(lambda i: sims[i].run(bat_parts[i], moth_parts[i], moth_index[parts[i]], steps,
+                                                    seeds[i], self.record_every))
+        return merge_hunts(results, devices)
 
     # ---- rendering -----------------------------------------------------
     def rock_layer(self, lit):

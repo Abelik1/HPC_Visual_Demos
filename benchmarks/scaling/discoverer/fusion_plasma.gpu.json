@@ -1,0 +1,75 @@
+{
+  "unit": "one plasma-field solver step",
+  "sizes": [
+    "3,840\u00d72,160 lattice",
+    "7,680\u00d74,320 lattice",
+    "15,360\u00d78,640 lattice"
+  ],
+  "columns": {
+    "1": [
+      {
+        "seconds": 9.513265831628814e-05,
+        "ms": 0.095,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.00035103640402667224,
+        "ms": 0.351,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.0013665363439940847,
+        "ms": 1.367,
+        "repetitions": 5
+      }
+    ],
+    "2": [
+      {
+        "seconds": 7.688652840442955e-05,
+        "ms": 0.077,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.000213446473935619,
+        "ms": 0.213,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.0007478831248590723,
+        "ms": 0.748,
+        "repetitions": 5
+      }
+    ],
+    "4": [
+      {
+        "seconds": 8.940559928305447e-05,
+        "ms": 0.089,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.00017032615869538859,
+        "ms": 0.17,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.00044784606143366545,
+        "ms": 0.448,
+        "repetitions": 5
+      }
+    ]
+  },
+  "demo": "fusion_plasma",
+  "provenance": {
+    "machine": "discoverer",
+    "kind": "gpu",
+    "node": "gpu-11",
+    "architecture": "aarch64",
+    "date": "2026-09-22 06:31 UTC",
+    "slurm_job_id": "8826",
+    "git_revision": "f74e56d+local",
+    "cpus_allocated": "16",
+    "code_digest": "1bd2fbb37de83281",
+    "cpu_model": "Neoverse-V2",
+    "gpu_model": "NVIDIA GB200"
+  }
+}

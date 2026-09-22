@@ -31,6 +31,8 @@ import threading
 import time
 from pathlib import Path
 
+from .multigpu import MULTI_GPU_DEMOS
+
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULTS = ROOT / "config" / "clusters.json"
 PLAN = ROOT / "config" / "hpc_plan.json"          # per-demo device and resources
@@ -362,17 +364,25 @@ def demo_needs(demo: str, method: str | None = None) -> dict:
     return need
 
 
-def resources(c: dict, walltime: str | None = None, demo: str | None = None, method: str | None = None) -> dict:
+def resources(c: dict, walltime: str | None = None, demo: str | None = None, method: str | None = None,
+              gpus_requested: int | None = None) -> dict:
     """The Slurm request for one run: only the devices the demo actually uses.
 
     Every earlier job asked Discoverer for a whole node (4 GPUs, 128 cores) and
     used one GPU: billing counts every allocated GPU and core, busy or not.
+    ``gpus_requested`` (the presenter's choice) spreads a demo that can split
+    across that many of the node's GPUs, with cores and memory to match.
     """
     need = demo_needs(demo or "", method)
     node = c.get("gpu_node" if need["device"] == "gpu" else "cpu_node") or c.get("gpu_node") or {}
+    scale = 1
+    if need["device"] == "gpu" and demo in MULTI_GPU_DEMOS and gpus_requested and int(gpus_requested) > 1:
+        scale = int(gpus_requested)
+        need = {**need, "gpus": scale}
     gpus = min(int(need["gpus"]), int(node.get("gpus", need["gpus"]) or 0)) if need["device"] == "gpu" else 0
-    cpus = min(int(need["cpus"]), int(node.get("cpus", need["cpus"])))
-    mem = min(int(need["mem_gb"]), int(node.get("mem_gb", need["mem_gb"])))
+    scale = max(1, min(scale, gpus or 1))
+    cpus = min(int(need["cpus"]) * scale, int(node.get("cpus", need["cpus"])))
+    mem = min(int(need["mem_gb"]) * scale, int(node.get("mem_gb", need["mem_gb"])))
     if need["device"] == "cpu":
         account = c.get("cpu_account") or c.get("account")
         partition = c.get("cpu_partition", c.get("partition"))
@@ -400,8 +410,8 @@ def account_missing(c: dict, res: dict) -> bool:
     return not res.get("account") or res.get("account") == PLACEHOLDER_ACCOUNT
 
 
-def job_script(c: dict, run_dir: str, demo: str, method: str, walltime: str) -> str:
-    res = resources(c, walltime, demo, method)
+def job_script(c: dict, run_dir: str, demo: str, method: str, walltime: str, gpus: int | None = None) -> str:
+    res = resources(c, walltime, demo, method, gpus)
     lines = ["#!/bin/bash", f"#SBATCH --job-name=lvd-{demo[:24]}",
              f"#SBATCH --output={run_dir}/slurm.log", f"#SBATCH --error={run_dir}/slurm.log",
              f"#SBATCH --time={walltime}", f"#SBATCH --account={res['account']}"]
@@ -571,7 +581,8 @@ def _lifecycle(runs: Path, rid: str) -> None:
 
 def _submit(c: dict, rd: Path, rid: str, remote: dict) -> None:
     job = json.loads((rd / "job.json").read_text(encoding="utf-8"))
-    if account_missing(c, resources(c, None, job["demo"], job.get("method"))):
+    gpus = (job.get("params") or {}).get("_gpus")
+    if account_missing(c, resources(c, None, job["demo"], job.get("method"), gpus)):
         raise RemoteError(f"No Slurm account is set for {c['label']} (this demo's partition). Enter it in HPC settings.")
     _update(rd, stage="syncing", message=f"Checking the {c['label']} checkout…")
     sync_code(c, say=lambda message: _update(rd, message=message))
@@ -580,7 +591,7 @@ def _submit(c: dict, rd: Path, rid: str, remote: dict) -> None:
     remote_dir = f"{runs_root}/{rid}"
     job = json.loads((rd / "job.json").read_text(encoding="utf-8"))
     script = job_script(c, remote_dir, job["demo"], job.get("method", "default"),
-                        remote.get("walltime") or c["walltime"])
+                        remote.get("walltime") or c["walltime"], (job.get("params") or {}).get("_gpus"))
     (rd / "job.sbatch").write_text(script, encoding="utf-8", newline="\n")
     files = [rd / "job.json", rd / "job.sbatch"] + [rd / name for name in remote.get("files") or []]
     buf = io.BytesIO()

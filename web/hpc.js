@@ -224,13 +224,19 @@ window.HPC=(()=>{
       m.el.addEventListener('mousedown',e=>{if(e.target===m.el)finish(null);});
       document.addEventListener('keydown',function esc_(e){if(e.key==='Escape'){document.removeEventListener('keydown',esc_);finish(null);}});
       m.body.innerHTML='<p class="hpcHint">Checking the configuration…</p>';
-      let walltime=null;
+      let walltime=null,firstPlan=true;
+      // GPUs to split the run across: the presenter's last choice, default 1.
+      const savedGpus=()=>{try{return Number(localStorage.getItem('hpc.gpus'))||1;}catch(_){return 1;}};
       const plan=async()=>{
         const r=await fetch(`/api/remote/plan/${encodeURIComponent(demo)}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({cluster,walltime,request})});
         const body=await r.json().catch(()=>({}));
         if(!r.ok){m.body.innerHTML=`<p class="hpcWarn">${esc(body.detail||'This run cannot be sent to the cluster.')}</p>`;
           m.foot.innerHTML='<button class="hpcSecondary">Close</button>';m.foot.querySelector('button').onclick=()=>finish(null);return;}
+        if(firstPlan){firstPlan=false;const n=Math.min(savedGpus(),body.node_gpus||1);
+          if(body.multi_gpu&&n>1&&!request.gpus){request={...request,gpus:n};return plan();}}
         const p=body,res=p.resources;walltime=res.walltime;
+        const gpuChoice=p.multi_gpu&&p.node_gpus>1?`<div><small>GPUs</small><span class="hpcSeg">${[1,2,4].filter(n=>n<=p.node_gpus).map(n=>
+          `<button type="button" data-gpus="${n}" aria-pressed="${(request.gpus||1)===n}">${n}</button>`).join('')}</span></div>`:'';
         const fmt=v=>typeof v==='number'?(Number.isInteger(v)?v.toLocaleString():String(+v.toFixed(4))):esc(v);
         const optionText=(x,v)=>x.options?.[String(Math.round(v))]||fmt(v);
         m.body.innerHTML=`${p.warnings.map(w=>`<p class="hpcWarn">⚠ ${esc(w)}</p>`).join('')}
@@ -247,10 +253,13 @@ window.HPC=(()=>{
           <div class="hpcSummary">
             <div><small>Account</small><b>${esc(res.account||'—')}</b></div><div><small>QoS</small><b>${esc(res.qos||'—')}</b></div>
             <div><small>Partition</small><b>${esc(res.partition||'default')}</b></div>
-            <div><small>Time limit</small><input id="hpcWalltime" value="${esc(res.walltime)}" size="10" aria-label="Time limit"></div></div>
+            <div><small>Time limit</small><input id="hpcWalltime" value="${esc(res.walltime)}" size="10" aria-label="Time limit"></div>${gpuChoice}</div>
           <p class="hpcHint">${esc(res.note)}<br><code>sbatch ${esc(res.sbatch.join(' '))}</code><br><code>srun ${esc(res.srun.join(' '))} ${esc(p.python)} tools/run_job.py</code></p>
           <p class="hpcHint">The code is synced first if it changed. When the job ends the run is copied into <code>runs/</code> and plays here automatically. You can close this page; the viewer keeps watching the job.</p>`;
         m.body.querySelector('#hpcWalltime').onchange=e=>{walltime=e.target.value.trim();plan();};
+        m.body.querySelectorAll('[data-gpus]').forEach(b=>b.onclick=()=>{const n=Number(b.dataset.gpus);
+          try{localStorage.setItem('hpc.gpus',String(n));}catch(_){}
+          request={...request};if(n>1)request.gpus=n;else delete request.gpus;plan();});
         m.foot.innerHTML=`<span class="hpcStatus"></span><button class="hpcSecondary" data-no>Cancel</button><button class="hpcPrimary" data-yes>Submit to ${esc(label)}</button>`;
         m.foot.querySelector('[data-no]').onclick=()=>finish(null);
         m.foot.querySelector('[data-yes]').onclick=async e=>{

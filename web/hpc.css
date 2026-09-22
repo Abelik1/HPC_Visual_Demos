@@ -64,6 +64,9 @@
 .hpcSummary{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
 .hpcSummary>div{border:1px solid #172945;border-radius:10px;padding:8px 10px;background:#07101f;display:flex;flex-direction:column;gap:3px}
 .hpcSummary small{color:#7d93b6;font-size:11.5px;text-transform:uppercase;letter-spacing:.08em}
+.hpcSeg{display:flex;gap:4px}
+.hpcSeg button{flex:1;min-width:34px;padding:3px 0;border-radius:7px;border:1px solid #1f3558;background:#0b1830;color:#c8d6ee;font-weight:700;cursor:pointer}
+.hpcSeg button[aria-pressed="true"]{background:#b5e7cf;border-color:#b5e7cf;color:#0c241c}
 .hpcTable{width:100%;border-collapse:collapse;font-size:13.5px}
 .hpcTable td,.hpcTable th{padding:6px 8px;border-bottom:1px solid #132540;text-align:left;vertical-align:top}
 .hpcTable th{color:#7d93b6;font-weight:500;font-size:12px}

@@ -1382,6 +1382,7 @@ function showInfo(){
 const MACHINE_LABELS={discoverer:'Discoverer (Sofia) · one node',leonardo:'Leonardo (Bologna) · one node'};
 const SCALING_NOTES={
   nbody_murb:'MUrB, the C++/CUDA code: CPU columns are its OpenMP backend, 1 GPU its tiled CUDA kernel, 4 GPUs its MPI backend with one GPU per rank (built for exactly four ranks, so there is no 2-GPU run). Median over the timed iterations after 3 warm-up ones; — = not run.',
+  cosmic_web:'Physics only, no drawing. The particles are split across 1, 2 or 4 of the node\'s GPUs; the FFT gravity solve on the mesh stays on one GPU, and the meshes cross NVLink every step, so the gain needs many particles. Median of 5 timed repetitions after 3 warm-up ones.',
   _default:'Physics only, no drawing. The one simulation is split across 1, 2 or 4 of the node\'s GPUs. Median of 5 timed repetitions after 3 warm-up ones; one repetition where a single one takes over 20 s; — = not run.'};
 // meta.arena_view.frames maps each saved frame to [generation, fraction].
 function generationAt(index){

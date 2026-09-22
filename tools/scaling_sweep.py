@@ -116,8 +116,53 @@ def bench_fluid(ctx, size):
     return step, float(nx * ny), None
 
 
+def bench_fusion(ctx, size):
+    from leonardo_demos.demos.fusion_plasma import FusionPlasmaDemo
+    nx, ny = size
+    demo = FusionPlasmaDemo(ctx, {})
+    state = list(demo.initialise(ny, nx))
+
+    def step():
+        state[0], state[1] = demo.step(state[0], state[1], 5.0, 25.0, 1.0, 32)
+    step.per_call = 32                      # timed as 32 solver steps, reported per step
+    return step, float(nx * ny), None
+
+
+def bench_cosmic(ctx, size):
+    from leonardo_demos.demos.cosmic_web import CosmicWebDemo
+    grid, particles = size
+    demo = CosmicWebDemo(ctx, {})
+    demo.t0 = demo.time = 1.0
+    state = list(demo.init(particles, 42, n=grid))
+
+    def step():
+        state[0], state[1], _ = demo.step(state[0], state[1], grid, .8, 10, .5, True, True)
+    step.per_call = 10                      # timed as 10 particle-mesh steps, reported per step
+    return step, float(particles), None
+
+
+def bench_batmoth(ctx, caves):
+    from leonardo_demos.demos import bat_vs_moth as bm
+    from leonardo_demos.neuroevo import Population
+    demo = bm.BatVsMothDemo(ctx, {})
+    demo.catalogues_data = demo.catalogues()
+    demo.brains = bm.validate_brains({}, demo.catalogues_data)
+    demo.cave, demo.k, demo.record_every = bm.cave_geometry(11), 4, 2
+    sim = bm.CaveSim(ctx.xp, demo.cave, demo.brains["bat"], demo.brains["moth"], demo.k)
+    bats = Population(ctx.xp, caves, demo.brains["bat"]["layer_sizes"], seed=1)
+    moths = Population(ctx.xp, caves, demo.brains["moth"]["layer_sizes"], seed=2)
+    index = bm.assign_moths(np.random.default_rng(0), 1, caves, caves, demo.k)
+    return (lambda: demo.hunt(sim, bats, moths, index, 600, 1)), float(caves), None
+
+
 # demo -> (bench, sizes, row label, unit of one step)
 BENCHES = {
+    "bat_vs_moth": (bench_batmoth, [16_384, 65_536, 131_072],
+                    lambda n: f"{n:,} caves (1 bat + 4 moths each)", "one 600-step hunt in every cave"),
+    "cosmic_web": (bench_cosmic, [(1024, 2_400_000), (2048, 10_485_760), (4096, 41_943_040)],
+                   lambda s: f"{s[1] / 1e6:.1f}M particles, {s[0]:,}² mesh", "one particle-mesh step"),
+    "fusion_plasma": (bench_fusion, [(3840, 2160), (7680, 4320), (15360, 8640)],
+                      lambda s: f"{s[0]:,}×{s[1]:,} lattice", "one plasma-field solver step"),
     "fluid": (bench_fluid, [(3840, 2160), (7680, 4320), (15360, 8640)],
               lambda s: f"{s[0]:,}×{s[1]:,} cells", "one lattice-Boltzmann step"),
     "galaxy_collision_3d": (bench_galaxy, [100_000, 500_000, 1_000_000],
@@ -170,8 +215,8 @@ def run_python(kind, demos, cores, pilot):
         def point(count, size):
             with tempfile.TemporaryDirectory() as tmp:
                 ctx = _context(tmp, demo, "gpu" if kind == "gpu" else "numpy",
-                               **({"method": "leapfrog"} if demo == "galaxy_collision_3d" else
-                                  {"method": "schwarzschild"} if demo == "black_hole" else {}))
+                               method={"galaxy_collision_3d": "leapfrog", "black_hole": "schwarzschild",
+                                       "fusion_plasma": "passive"}.get(demo, "default"))
                 if kind == "gpu":
                     import cupy as cp
                     ctx._devices = Devices(cp, list(range(count)))
@@ -205,8 +250,10 @@ def bench_work(demo, size):
         return float(size) ** 2
     if demo == "black_hole":
         return float(size[0] * size[1] * size[2] ** 2)
-    if demo == "fluid":
+    if demo in ("fluid", "fusion_plasma"):
         return float(size[0] * size[1])
+    if demo == "cosmic_web":
+        return float(size[1])
     return float(size)
 
 

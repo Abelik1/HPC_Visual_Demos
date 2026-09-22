@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from ..base import Demo
 from ..backend import to_numpy
+from ..multigpu import split
 from ..render import add_title, add_progress, save_frame, mosaic, font, palette
 
 # Atomic masses in atomic mass units. Helium-4 has atomic NUMBER 2 but MASS
@@ -140,6 +141,8 @@ class CosmicWebDemo(Demo):
         the filaments and voids never survived to be seen.
         """
         xp=self.ctx.xp; dt=.018
+        if xp is not np and self.ctx.devices.count>1:
+            return self._multi_gpu_step(pos,vel,n,g,steps,jeans,expanding,dark_energy,power,dt)
         for _ in range(steps):
             self.time+=dt
             if expanding:
@@ -155,6 +158,55 @@ class CosmicWebDemo(Demo):
             vel=vel+dt*(acc-H*vel)
             pos=(pos+dt*vel/a)%1.0
         return pos,vel,self.density(pos,n)
+    def _expansion(self,dt,expanding,dark_energy,power):
+        self.time+=dt
+        if not expanding:
+            return 1.0,0.0
+        lambda_rate=float(self.settings.get('dark_energy_rate',.035)) if dark_energy else 0.0
+        return (self.time/self.t0)**power*math.exp(lambda_rate*(self.time-self.t0)),power/self.time+lambda_rate
+
+    def _multi_gpu_step(self,pos,vel,n,g,steps,jeans,expanding,dark_energy,power,dt):
+        """Particle-mesh steps with the particles split across GPUs.
+
+        Each GPU deposits its own particles onto its own mesh; the meshes are
+        summed on the first GPU (the counts are whole numbers, so the sum is
+        exact in any order), which solves Poisson with the FFTs and sends the
+        two force meshes back; every GPU then moves its own particles.  The
+        result is the one-GPU result exactly.  Particles stay on their GPUs
+        between calls; positions are gathered once per call for the frame.
+        """
+        devices,cp=self.ctx.devices,self.ctx.xp
+        m=getattr(self,"_particles",None)
+        if m is None or m["returned"]!=(id(pos),id(vel)):
+            parts=split(len(pos),devices.count)
+            m=self._particles={"pos":[devices.to(pos[p],i) for i,p in enumerate(parts)],
+                               "vel":[devices.to(vel[p],i) for i,p in enumerate(parts)]}
+        P,V=m["pos"],m["vel"]
+
+        def counts(i):
+            p=P[i]; ix=(p[:,0]*n).astype(cp.int32)%n; iy=(p[:,1]*n).astype(cp.int32)%n
+            rho=cp.zeros((n,n),dtype=cp.float32); cp.add.at(rho,(iy,ix),1.0)
+            return rho
+
+        for _ in range(steps):
+            a,H=self._expansion(dt,expanding,dark_energy,power)
+            grids=devices.run(counts)
+            total=grids[0]
+            for i in range(1,devices.count):
+                total=total+devices.to(grids[i],0)
+            rho=total/(cp.mean(total)+1e-12)-1.0
+            fx,fy=self.force_grid(rho,g,jeans)
+            forces=[(fx,fy)]+[(devices.to(fx,i),devices.to(fy,i)) for i in range(1,devices.count)]
+
+            def move(i):
+                acc=self.sample_force(P[i],*forces[i])/a
+                V[i]=V[i]+dt*(acc-H*V[i])
+                P[i]=(P[i]+dt*V[i]/a)%1.0
+            devices.run(move)
+        pos,vel=devices.gather(P),devices.gather(V)
+        m["returned"]=(id(pos),id(vel))
+        return pos,vel,self.density(pos,n)
+
     def render_density(self,rho,size=(1280,720)):
         a=to_numpy(rho); a=np.log1p(np.maximum(0,a-a.min())*2.5); rgb=palette(a,'cosmic')
         return Image.fromarray(rgb).resize(size,Image.Resampling.BILINEAR)

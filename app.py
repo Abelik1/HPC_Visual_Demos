@@ -14,6 +14,7 @@ from leonardo_demos.registry import DEMOS
 from leonardo_demos.backend import probe as probe_backends
 from leonardo_demos.neuroevo import BrainError, brain_catalogue, validate_brains
 from leonardo_demos import run_bundles, lineups, remote
+from leonardo_demos.multigpu import MULTI_GPU_DEMOS
 
 ROOT=Path(__file__).resolve().parent; RUNS=ROOT/'runs'; RUNS.mkdir(exist_ok=True)
 app=FastAPI(title='Leonardo Visual Demos')
@@ -43,6 +44,8 @@ class RunReq(BaseModel):
     numerical_substeps: int | None = Field(default=None, ge=1, le=32)
     target_image: str | None = Field(default=None, max_length=400_000)
     parallel_count: int | None = Field(default=None, ge=1, le=64)
+    # GPUs of one node to split the simulation across (demos in MULTI_GPU_DEMOS).
+    gpus: int | None = Field(default=None, ge=1, le=8)
     obstacle_grid: list[list[int]] | None = None
     # Visitor-built network for the AI game demos; validated against the
     # demo's block catalogue in config/demo_specs.json.
@@ -364,6 +367,10 @@ def prepare_run(demo:str,req:RunReq,rd:Path,*,remote:bool=False,dry:bool=False):
         if req.parallel_count not in {1,4,9,16,25,36,49,64}:
             raise HTTPException(422, 'parallel count must be 1 or form a square reveal grid: 4, 9, 16, 25, 36, 49 or 64')
         params['_parallel_count']=int(req.parallel_count)
+    if req.gpus is not None and req.gpus>1:
+        if demo not in MULTI_GPU_DEMOS:
+            raise HTTPException(422, f'{demo} runs on one GPU; only {", ".join(sorted(MULTI_GPU_DEMOS))} split across several')
+        params['_gpus']=int(req.gpus)
     if req.obstacle_grid is not None:
         if demo != 'fluid':
             raise HTTPException(422, 'a custom obstacle grid is only supported by the wind tunnel')
@@ -567,8 +574,10 @@ def remote_plan(demo:str,body:RemoteRunReq):
         extras.append(f"Continues {kwargs['params']['_resume_run']} "
                       f"({kwargs['params']['_resume_updates']:,} updates already trained)")
     if '_chain' in kwargs['params']: extras.append(f"Your own sequence: {kwargs['params']['_chain']}")
+    gpus=kwargs['params'].get('_gpus')
     warnings=[]
-    res=remote.resources(c,walltime,demo,kwargs['method'])
+    res=remote.resources(c,walltime,demo,kwargs['method'],gpus)
+    if gpus: extras.append(f"Split across {res['gpus']} GPUs of one node")
     if remote.account_missing(c,res):
         warnings.append(f"No Slurm account is set for {c['label']} ({'CPU' if res['device']=='cpu' else 'GPU'} partition). Open HPC settings and enter it.")
     cert=remote.certificate_status(c)
@@ -584,7 +593,8 @@ def remote_plan(demo:str,body:RemoteRunReq):
             'method':kwargs['method'],'method_label':DEMOS[demo].method_labels.get(kwargs['method'],kwargs['method']),
             'profile':kwargs['profile'],'frames':kwargs['frames'],'backend':kwargs['backend'],
             'precision':kwargs['precision'],'params':params,'settings':settings,'extras':extras,
-            'warnings':warnings}
+            'warnings':warnings,'multi_gpu':demo in MULTI_GPU_DEMOS,
+            'node_gpus':int((c.get('gpu_node') or {}).get('gpus',1))}
 
 @app.post('/api/remote/run/{demo}')
 def remote_run(demo:str,body:RemoteRunReq):

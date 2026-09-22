@@ -28,6 +28,13 @@ from typing import Any, Callable, Sequence
 import numpy as np
 
 
+# Demos whose physics splits across several GPUs of one node (a cluster run
+# may ask for up to a node's GPUs).  MUrB's multi-GPU backend is a separate
+# MPI executable, and the molecular machines are too small to split.
+MULTI_GPU_DEMOS = frozenset({"galaxy_collision_3d", "black_hole", "neuro_racers", "fluid",
+                             "fusion_plasma", "cosmic_web", "bat_vs_moth"})
+
+
 def split(length: int, parts: int) -> list[slice]:
     """``parts`` contiguous slices covering ``range(length)``, sizes within one."""
     parts = max(1, min(int(parts), max(1, int(length))))

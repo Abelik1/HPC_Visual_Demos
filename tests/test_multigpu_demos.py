@@ -141,6 +141,87 @@ class FluidSplitTests(unittest.TestCase):
             np.testing.assert_array_equal(one, split_)
 
 
+class PlasmaSplitTests(unittest.TestCase):
+    def evolve(self, ctx, settings, steps=40):
+        from leonardo_demos.demos.fusion_plasma import FusionPlasmaDemo
+        demo = FusionPlasmaDemo(ctx, settings)
+        real, imag = demo.initialise(157, 280)
+        for _ in range(4):                      # several calls: the strips persist between them
+            real, imag = demo.step(real, imag, 5.0, 25.0, 1.0, steps // 4)
+        return cp.asnumpy(real), cp.asnumpy(imag)
+
+    @unittest.skipUnless(HAVE_GPU, "needs CuPy and a GPU")
+    def test_fused_kernels_match_the_array_solver(self):
+        with tempfile.TemporaryDirectory() as t:
+            ctx = context(t, "fusion_plasma", backend="gpu", method="passive")
+            fused = self.evolve(ctx, {})
+            array = self.evolve(ctx, {"array_solver": True})
+            ctx.shutdown_compute()
+        for a, b in zip(fused, array):
+            np.testing.assert_allclose(a, b, rtol=1e-5, atol=1e-5)
+
+    @unittest.skipUnless(HAVE_GPU, "needs CuPy and a GPU")
+    def test_strips_with_halo_exchange_match_the_whole_lattice(self):
+        with tempfile.TemporaryDirectory() as t:
+            ctx = context(t, "fusion_plasma", backend="gpu", method="passive")
+            one = self.evolve(ctx, {})
+            ctx._devices = Devices(cp, [0, 0, 0])
+            many = self.evolve(ctx, {})
+            ctx.shutdown_compute()
+        for a, b in zip(one, many):
+            np.testing.assert_array_equal(a, b)
+
+
+class CosmicWebSplitTests(unittest.TestCase):
+    @unittest.skipUnless(HAVE_GPU, "needs CuPy and a GPU")
+    def test_particles_split_across_devices_match_one_device(self):
+        from leonardo_demos.demos.cosmic_web import CosmicWebDemo
+        results = []
+        for devices in (None, [0, 0, 0]):
+            with tempfile.TemporaryDirectory() as t:
+                ctx = context(t, "cosmic_web", backend="gpu")
+                if devices:
+                    ctx._devices = Devices(cp, devices)
+                demo = CosmicWebDemo(ctx, {})
+                demo.t0 = demo.time = 1.0
+                pos, vel = demo.init(20_011, 3, n=128)
+                for _ in range(3):
+                    pos, vel, rho = demo.step(pos, vel, 128, .8, 4, .5, True, True)
+                results.append([cp.asnumpy(a) for a in (pos, vel, rho)] + [demo.time])
+                ctx.shutdown_compute()
+        for a, b in zip(*results):
+            np.testing.assert_array_equal(a, b)
+
+
+class BatMothSplitTests(unittest.TestCase):
+    def hunt(self, ctx, caves=96, seed=5):
+        from leonardo_demos.demos import bat_vs_moth as bm
+        demo = bm.BatVsMothDemo(ctx, {})
+        demo.catalogues_data = demo.catalogues()                 # as BatVsMothDemo.run sets up
+        demo.brains = bm.validate_brains({}, demo.catalogues_data)
+        demo.cave, demo.k, demo.record_every = bm.cave_geometry(11), 3, 2
+        sim = bm.CaveSim(cp, demo.cave, demo.brains["bat"], demo.brains["moth"], demo.k)
+        bats = Population(cp, caves, demo.brains["bat"]["layer_sizes"], seed=1)
+        moths = Population(cp, caves, demo.brains["moth"]["layer_sizes"], seed=2)
+        index = bm.assign_moths(np.random.default_rng(0), 1, caves, caves, demo.k)
+        return demo.hunt(sim, bats, moths, index, 120, seed)
+
+    @unittest.skipUnless(HAVE_GPU, "needs CuPy and a GPU")
+    def test_split_hunt_has_the_one_gpu_layout_and_is_reproducible(self):
+        with tempfile.TemporaryDirectory() as t:
+            ctx = context(t, "bat_vs_moth", backend="gpu")
+            one = self.hunt(ctx)
+            ctx._devices = Devices(cp, [0, 0, 0])
+            a, b = self.hunt(ctx), self.hunt(ctx)
+            ctx.shutdown_compute()
+        for key in ("bat_fitness", "slot_fitness", "catch_step", "chirp_log", "fake_log", "moth_inputs"):
+            self.assertEqual(a[key].shape, one[key].shape, key)
+            np.testing.assert_array_equal(cp.asnumpy(a[key]), cp.asnumpy(b[key]), err_msg=key)
+        for key in one["record"]:
+            self.assertEqual(a["record"][key].shape, one["record"][key].shape, key)
+        self.assertTrue(np.isfinite(cp.asnumpy(a["bat_fitness"])).all())
+
+
 class RacersSplitTests(unittest.TestCase):
     def race(self, ctx, xp=np):
         demo = NeuroRacersDemo(ctx, {})

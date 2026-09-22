@@ -119,13 +119,53 @@ about 7 units/hour instead of about 1.2–1.7.
 | Black hole | GPU | 1 GPU + 16 cores | ray tracing 11× faster on the GPU |
 | Molecular fold | GPU | 1 GPU + 4 cores | one fused CUDA kernel |
 | Molecular shuttle | **CPU** | 2 cores, no GPU | 12 beads cannot keep a GPU busy |
-| NBody (MUrB) | **CPU** (DCGP on Leonardo) | 32 cores | OpenMP; GPU only once murb is built with CUDA |
+| NBody (MUrB) | **CPU** (DCGP on Leonardo) | 32 cores | OpenMP; the GPU solvers use the CUDA build (1 GPU) |
 | Star in a Bottle, cosmic web | GPU | 1 GPU + 8 cores | a quarter of a Booster node |
 
 On Leonardo, GPU demos go to `boost_usr_prod` and CPU demos to `dcgp_usr_prod`
 (which can have its own account: `cpu_account` in HPC settings).
 
 "Auto" compute on a cluster means the plan's backend, not whatever the node has.
+
+## Several GPUs per run
+
+The 3-D galaxy, wind tunnel, black hole, Neuro-Racers, Bat vs Moth, Star in a
+Bottle (passive) and the cosmic web split one simulation across the GPUs of a
+node (`leonardo_demos/multigpu.py`; `MULTI_GPU_DEMOS`). The cluster
+confirmation dialog has a **GPUs 1 / 2 / 4** choice for those demos (default 1,
+remembered per browser): the job asks for that many GPUs, with the plan's cores
+and memory multiplied to match, and the run's `_gpus` parameter tells the demo
+how many to use. Billing scales with the GPUs allocated.
+
+How each one splits: galaxy forces by target body; black hole by bands of pixel
+rows; wind tunnel and plasma by strips of the lattice with 16-row halos swapped
+every 16 steps; Neuro-Racers and Bat vs Moth by cars / caves; cosmic web by
+particles, with the FFT gravity solve on the first GPU. Each split is checked
+against the one-GPU result in `tests/test_multigpu_demos.py` (exactly equal,
+except Bat vs Moth, whose split hunts draw independent random noise per GPU).
+
+MUrB keeps one GPU from the dashboard: its four-GPU backend is a separate MPI
+build that needs exactly four ranks (`build-discoverer-multi`, launched by
+`tools/scaling_sweep.py`).
+
+## "Why HPC": measured scaling tables
+
+`tools/scaling_sweep.py` times each demo's physics (no drawing) on 1, 2 and 4
+GPUs of one node, and MUrB also on 1–144 CPU cores, then writes
+`benchmarks/scaling/<machine>/<demo>.json`. The stand shows them in each demo's
+**Why HPC** tab.
+
+```bat
+.venv\Scripts\python.exe tools\scaling_sweep.py submit discoverer --pilot   & rem smallest size, 1 repetition
+.venv\Scripts\python.exe tools\scaling_sweep.py submit discoverer           & rem the full sweep (three jobs)
+.venv\Scripts\python.exe tools\scaling_sweep.py collect discoverer          & rem fetch and merge the tables
+```
+
+On Discoverer MUrB is built in `/weka/ehpc-school-2026/abelik/NBody-EuroHPC`:
+`build-generic` (CPU), `build-discoverer-cuda` (GB200, `CMAKE_CUDA_ARCHITECTURES=100`,
+CUDA 12.8 from `/usr/local/cuda` on the GPU nodes) and `build-discoverer-multi`
+(plus `openmpi4/gcc/4.1.8`, launched with `srun --mpi=pmix --gpus-per-task=1`).
+Build on a GPU node: the compute nodes are aarch64, the login node x86_64.
 
 ## Drawing no longer idles the GPU
 

@@ -16,7 +16,47 @@ from ..plasma_control import (
     load_controller, make_trainer, risk_of, sample_periodic, save_controller, transition_numpy,
 )
 from ..render import add_progress, add_title, font, mosaic
+from ..multigpu import split
 from ..pipeline import FramePipeline
+
+# One solver step of FusionPlasmaDemo.step as two fused kernels: the
+# Ginzburg--Landau update (periodic 5-point Laplacian), then the poloidal
+# shear on the updated field and the clip.  Every expression keeps the array
+# code's float32 operation order; compiled with --fmad=false so no multiply-add
+# is contracted, which keeps the rounding the same as NumPy's.
+CGL_KERNELS = r'''
+extern "C" __global__ void cgl_update(const float* __restrict__ re, const float* __restrict__ im,
+                                      float* __restrict__ r1, float* __restrict__ i1, const int ny, const int nx,
+                                      const float drive, const float c1, const float c3, const float dt,
+                                      const float damp)
+{
+    const int c = blockIdx.x * blockDim.x + threadIdx.x;
+    if (c >= ny * nx) return;
+    const int y = c / nx, x = c % nx;
+    const int up = ((y - 1 + ny) % ny) * nx + x, dn = ((y + 1) % ny) * nx + x;
+    const int lf = y * nx + (x - 1 + nx) % nx, rt = y * nx + (x + 1) % nx;
+    const float r = re[c], i = im[c];
+    const float lap_r = 0.25f * ((((re[up] + re[dn]) + re[lf]) + re[rt]) - 4.0f * r);
+    const float lap_i = 0.25f * ((((im[up] + im[dn]) + im[lf]) + im[rt]) - 4.0f * i);
+    const float amp2 = r * r + i * i;
+    const float dr = ((((drive * r) + lap_r) - c1 * lap_i) - amp2 * r) + (c3 * amp2) * i;
+    const float di = ((((drive * i) + lap_i) + c1 * lap_r) - amp2 * i) - (c3 * amp2) * r;
+    r1[c] = r + dt * (dr - damp * r);
+    i1[c] = i + dt * (di - damp * i);
+}
+
+extern "C" __global__ void cgl_shear(const float* __restrict__ r1, const float* __restrict__ i1,
+                                     float* __restrict__ re, float* __restrict__ im, const int ny, const int nx,
+                                     const float shear)
+{
+    const int c = blockIdx.x * blockDim.x + threadIdx.x;
+    if (c >= ny * nx) return;
+    const int y = c / nx, x = c % nx;
+    const int lf = y * nx + (x - 1 + nx) % nx, rt = y * nx + (x + 1) % nx;
+    re[c] = fminf(fmaxf(r1[c] + shear * (r1[lf] - r1[rt]), -2.5f), 2.5f);
+    im[c] = fminf(fmaxf(i1[c] + shear * (i1[lf] - i1[rt]), -2.5f), 2.5f);
+}
+'''
 
 
 # AXIS_GAIN lives in plasma_control so the renderer and the training objective
@@ -58,6 +98,7 @@ class FusionPlasmaDemo(Demo):
 
     methods = ("passive", "guardian")
     default_method = "passive"
+    _cgl = None
     method_labels = {
         "passive": "Mode 1 · Passive confinement",
         "guardian": "Mode 2 · AI plasma guardian (3D)",
@@ -97,22 +138,91 @@ class FusionPlasmaDemo(Demo):
             xp.asarray(imag.astype(np.float32)),
         )
 
+    HALO = 16       # ghost rows per GPU strip = solver steps between halo exchanges
+
+    @staticmethod
+    def cgl_coefficients(magnetic_field, heating, density):
+        b, heat, dens = float(magnetic_field), float(heating), float(density)
+        return {"c1": 0.55 + 2.1 / (b + 1.2), "c3": 0.45 + 0.032 * heat / max(0.45, dens),
+                "drive": 0.74 + 0.015 * heat, "damping": 0.36 + 0.22 * dens + 0.08 * b, "dt": 0.075,
+                "shear": 0.012 * (heat / 25.0) / max(0.6, b / 4.0)}
+
+    def _cgl_launch(self, real, imag, spare, k, steps):
+        """``steps`` solver steps on one (strip of the) lattice, two fused kernels per step."""
+        cp = self.ctx.xp
+        if FusionPlasmaDemo._cgl is None:
+            module = cp.RawModule(code=CGL_KERNELS, options=("--fmad=false",))
+            FusionPlasmaDemo._cgl = (module.get_function("cgl_update"), module.get_function("cgl_shear"))
+        update, shear = FusionPlasmaDemo._cgl
+        ny, nx = real.shape
+        grid, threads = ((ny * nx + 255) // 256,), (256,)
+        f = np.float32
+        r1, i1 = spare
+        for _ in range(steps):
+            update(grid, threads, (real, imag, r1, i1, np.int32(ny), np.int32(nx), f(k["drive"]), f(k["c1"]),
+                                   f(k["c3"]), f(k["dt"]), f(0.12 * k["damping"])))
+            shear(grid, threads, (r1, i1, real, imag, np.int32(ny), np.int32(nx), f(k["shear"])))
+        return real, imag
+
+    def _multi_gpu_cgl(self, real, imag, k, steps):
+        """The lattice in horizontal strips, one per GPU, with HALO-row halos.
+
+        As in the wind tunnel: rows that depend on ghosts go stale one row per
+        step from the outside in, so the GPUs run HALO steps back to back and
+        then swap edge rows over NVLink.  The whole field is gathered onto the
+        first GPU at the end of the call for the tracers and the drawing.
+        """
+        devices, cp = self.ctx.devices, self.ctx.xp
+        ny, nx = real.shape
+        m = getattr(self, "_cgl_strips", None)
+        if m is None or m["returned"] != (id(real), id(imag)):
+            parts = split(ny, devices.count)
+            halo = max(1, min(self.HALO, min(p.stop - p.start for p in parts)))
+            strips = []
+            for i, p in enumerate(parts):
+                rows = cp.asarray(np.arange(p.start - halo, p.stop + halo) % ny)
+                r, im = (devices.to(cp.ascontiguousarray(a[rows]), i) for a in (real, imag))
+                with devices.device(i):
+                    strips.append({"r": r, "i": im, "spare": (cp.empty_like(r), cp.empty_like(r))})
+            m = self._cgl_strips = {"halo": halo, "strips": strips}
+        halo, strips = m["halo"], m["strips"]
+        done = 0
+        while done < steps:
+            block = min(halo, steps - done)
+            for i, s in enumerate(strips):
+                with devices.device(i):
+                    self._cgl_launch(s["r"], s["i"], s["spare"], k, block)
+            devices.synchronize()
+            for key in ("r", "i"):
+                devices.halo_exchange([s[key] for s in strips], halo=halo, axis=0, periodic=True)
+            done += block
+        real = devices.gather([s["r"][halo:-halo] for s in strips])
+        imag = devices.gather([s["i"][halo:-halo] for s in strips])
+        m["returned"] = (id(real), id(imag))
+        return real, imag
+
     def step(self, real, imag, magnetic_field, heating, density, steps):
         """Integrate a complex Ginzburg--Landau amplitude equation.
 
         Magnetic confinement shifts the dispersion coefficients and reduces
         the effective drive. Heating increases nonlinear drive; density adds
         damping. The coefficients are deliberately dimensionless.
+
+        On CUDA each solver step is two fused kernels (CGL_KERNELS), the same
+        float32 arithmetic as the array code below; with several GPUs the
+        lattice is split into strips (``_multi_gpu_cgl``).
         """
         xp = self.ctx.xp
+        k = self.cgl_coefficients(magnetic_field, heating, density)
+        if xp is not np and not self.settings.get("array_solver"):
+            real, imag = xp.ascontiguousarray(real, dtype=xp.float32), xp.ascontiguousarray(imag, dtype=xp.float32)
+            if self.ctx.devices.count > 1 and real.shape[0] >= 8 * self.ctx.devices.count:
+                return self._multi_gpu_cgl(real, imag, k, steps)
+            return self._cgl_launch(real, imag, (xp.empty_like(real), xp.empty_like(imag)), k, steps)
         b = float(magnetic_field)
         heat = float(heating)
         dens = float(density)
-        c1 = 0.55 + 2.1 / (b + 1.2)
-        c3 = 0.45 + 0.032 * heat / max(0.45, dens)
-        drive = 0.74 + 0.015 * heat
-        damping = 0.36 + 0.22 * dens + 0.08 * b
-        dt = 0.075
+        c1, c3, drive, damping, dt = k["c1"], k["c3"], k["drive"], k["damping"], k["dt"]
         for _ in range(steps):
             lap_r = 0.25 * (
                 xp.roll(real, 1, 0) + xp.roll(real, -1, 0)
