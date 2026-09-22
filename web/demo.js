@@ -299,6 +299,8 @@ let specs=null,library=[],current=null,runId=null,meta={};
 let pollTimer=null,playTimer=null,idleTimer=null;
 let frame=0,total=0,playing=false,lastKnownFrame=-1;
 let arena=null,fusion=null,galaxy=null,view=null,arenaGeneration=-1,failedViews=new Set();
+// {demo: {machine: table}} from tools/scaling_sweep.py, for the "Why HPC" view.
+let scaling={};
 let gridViews=[],champion={mode:'final',seed:0,data:null,results:[],env:{},rivals:null},fusionTest={seed:0,env:{},results:[]};
 // Full meta.json of a saved run: the library listing leaves out bulky fields
 // (generation statistics, shot history) that only the instrument strip needs.
@@ -329,9 +331,11 @@ function savePrefs(){try{localStorage.setItem('leonardo.demo',JSON.stringify(pre
 // ------------------------------------------------------------------ init --
 async function init(){
   specs=await (await fetch('/api/specs')).json();
+  scaling=await fetch('/api/scaling').then(r=>r.ok?r.json():{}).catch(()=>({}));
   await HPC.load();refreshOrder();
   HPC.machineSwitch($('#machineSwitch'));
   HPC.onChange(()=>{refreshOrder();if(!current)renderPicker();});
+  HPC.watch();
   $('#hpcSettings').onclick=()=>HPC.openSettings(specs.demos);
   setupRunOn();
   $('#profile').value=prefs.profile||'local';
@@ -468,9 +472,7 @@ function openDemo(id,{run=null}={}){
   starfieldFor(id);
   const first=run||showcaseRuns(id)[0]||null;
   $('#replay').classList.toggle('hidden',!showcaseRuns(id).length);
-  setAction('Ready when you are',first
-    ? `Change anything above, then run a brand-new simulation ${$('#runOn').value==='local'?'on this machine':'on '+($('#runOn').selectedOptions[0]?.textContent||'the cluster')}.`
-    : 'Nothing saved yet for this experiment — press Run it.');
+  readyAction(Boolean(first));
   renderViewSwitch();
   renderHistory();
   if(first)openRun(first);
@@ -557,8 +559,10 @@ function renderControls(){
   if(isGame())addTrainingHeader(host);
   // Star in a Bottle's guardian is trained ahead of time: visitors test the
   // saved controller under the picture, and training is the presenter's (⚙).
-  const locked=guardianLocked();
+  const locked=guardianLocked(),wasLocked=document.body.classList.contains('trainingLocked');
   document.body.classList.toggle('trainingLocked',locked);
+  // Leaving the guardian must also take away its "Trained ahead of time" note.
+  if(wasLocked&&!locked)readyAction(Boolean(showcaseRuns(current).length));
   controlDefs().forEach(def=>{
     if(def.onlyMethod&&def.onlyMethod!==methodValue())return;
     if(def.method)return addMethodBox(host,def);
@@ -674,10 +678,11 @@ function addMethodBox(host,def){
   const seg=document.createElement('div');seg.className='seg';el.appendChild(seg);
   methods.forEach(m=>{const b=document.createElement('button');b.type='button';
     b.textContent=capability.method_labels?.[m]||m.replaceAll('_',' ');
-    b.onclick=()=>{$('#method').value=m;renderControls();renderAdvanced();syncChain();showRunForMethod(m);};
+    b.onclick=()=>switchMethod(m);
     b.classList.toggle('on',m===methodValue());b.setAttribute('aria-pressed',String(m===methodValue()));
     seg.appendChild(b);});
 }
+function switchMethod(m){$('#method').value=m;renderControls();renderAdvanced();syncChain();showRunForMethod(m);}
 // The population control replaces the old "show scale reveal" button, and only
 // exists where the population is the science rather than a screen-filling trick.
 function addPopulationBox(host,def){
@@ -821,13 +826,21 @@ function mountBuilders(){
 // enough: without the second test the viewer would sit on a canvas that can
 // never draw, showing nothing at all while the run computes.
 function availableViews(){
-  return (KIOSK[current]?.views||[]).filter(v=>{
+  const own=KIOSK[current]?.views||[];
+  const list=own.filter(v=>{
     if(failedViews.has(v.id))return false;
     if(!v.needs)return true;
     if(v.needs==='has_reveal'||v.needs==='reveal')return Boolean(meta.has_reveal||meta.reveal);
     if(v.needs==='arena_lanes')return Number(meta.arena_view?.lanes)>1;
     return Boolean(meta[v.needs]);
   });
+  // Every demo with measured scaling gets a "Why HPC" tab; one that has no
+  // views of its own first gets an explicit tab for its picture.
+  if(scaling[current]&&Object.keys(scaling[current]).length){
+    if(!own.length)list.push({id:'frames',label:'Simulation',kind:'frames'});
+    list.push({id:'whyhpc',label:'Why HPC',kind:'info'});
+  }
+  return list;
 }
 // Fall back to the next usable view - ultimately the plain rendered frames.
 function markViewUnusable(id){
@@ -856,10 +869,11 @@ async function setView(id,{autoplay=null}={}){
   const resume=autoplay??playing;
   stopPlay();
   view=id;renderViewSwitch();
-  exitArena();exitFusion();exitGalaxy();exitGrid();
+  exitArena();exitFusion();exitGalaxy();exitGrid();exitInfo();
   const def=viewDef();
   renderInstruments();
-  if(def?.kind==='arena')await enterArena(def);
+  if(def?.kind==='info')showInfo();
+  else if(def?.kind==='arena')await enterArena(def);
   else if(def?.kind==='champion')await enterChampion(def);
   else if(def?.kind==='grid')await enterGrid();
   else if(def?.kind==='fusiontest')await enterFusionTest(def);
@@ -874,9 +888,11 @@ async function setView(id,{autoplay=null}={}){
   $('#captionRead').textContent=def?.kind==='champion'?(k.readChampion||k.read||'')
     :def?.kind==='grid'?(k.readGrid||k.read||''):def?.kind==='fusiontest'?((def.shots?k.readShots:k.readTest)||k.read||''):def?.lanes?(k.readLanes||k.read||''):(k.readByMethod?.[meta.method||methodValue()]||k.read||'');
   // The frame timeline belongs to the training run, not to a replay or grid.
-  const timeline=!(def?.kind==='champion'||def?.kind==='grid'||def?.kind==='fusiontest');
+  const timeline=!(def?.kind==='champion'||def?.kind==='grid'||def?.kind==='fusiontest'||def?.kind==='info');
   $('#seek').disabled=!timeline||!runId;$('#fsSeek').disabled=$('#seek').disabled;
-  if(!timeline){$('#captionNumbers').innerHTML='';$('#frameLabel').textContent=def.kind==='grid'?'all boxes':def.kind==='fusiontest'?'live test':'replay';}
+  if(def?.kind==='info'){const cores=Object.values(scaling[current]||{}).some(t=>Object.keys(t.cores||{}).length);
+    $('#captionRead').textContent=`Measured on the supercomputer: the physics of this demo, timed on more GPUs${cores?' and on more CPU cores':''}.`;}
+  if(!timeline){$('#captionNumbers').innerHTML='';$('#frameLabel').textContent=def.kind==='grid'?'all boxes':def.kind==='fusiontest'?'live test':def.kind==='info'?'measured':'replay';}
   else if(runId)$('#frameLabel').textContent=`${frame+1} / ${total}`;
 }
 
@@ -890,7 +906,7 @@ function showFrame(index,count=total){
   if(!runId||count<1)return;
   index=Math.max(0,Math.min(count-1,Math.trunc(index)));frame=index;
   const def=viewDef();
-  if(def&&def.kind==='reveal')return;
+  if(def&&(def.kind==='reveal'||def.kind==='info'))return;
   if(!def||def.kind==='frames'){
     const image=$('#screen'),fallback=`/runs/${runId}/frames/frame_${pad(index)}.jpg`;
     image.onerror=()=>{image.onerror=null;image.src=fallback;};
@@ -928,6 +944,11 @@ function showReveal(){
     : 'Every box is a completely separate search, started from its own random population. None of them shared anything.';
 }
 function setAction(label,hint){$('#actionLabel').textContent=label;$('#runHint').textContent=hint||'';}
+function readyAction(saved=true){
+  setAction('Ready when you are',saved
+    ? `Change anything above, then run a brand-new simulation ${$('#runOn').value==='local'?'on this machine':'on '+($('#runOn').selectedOptions[0]?.textContent||'the cluster')}.`
+    : 'Nothing saved yet for this experiment — press Run it.');
+}
 function setBusy(on,text){$('#busy').classList.toggle('hidden',!on);if(text)$('#busyText').textContent=text;}
 function setStatus(text,state){const el=$('#status');el.textContent=text;if(state)el.dataset.state=state;else delete el.dataset.state;}
 
@@ -946,7 +967,7 @@ function renderNumbers(values){
   numbers=values||{};
   const host=$('#captionNumbers'),wanted=KIOSK[current]?.numbers||[];
   const kind=viewDef()?.kind;
-  if(kind==='champion'||kind==='grid'||kind==='fusiontest'){host.innerHTML='';syncFullscreen();return;}
+  if(kind==='champion'||kind==='grid'||kind==='fusiontest'||kind==='info'){host.innerHTML='';syncFullscreen();return;}
   const entries=[];
   wanted.forEach(key=>{const hit=Object.keys(numbers).find(k=>k.toLowerCase()===key.toLowerCase());
     if(hit)entries.push([hit,numbers[hit]]);});
@@ -1263,13 +1284,20 @@ function fusionTestPanel(){
       <button class="stepBtn" type="button" data-fusion-step="${key}" data-by="${-step}"${v<=Number(p.min)+1e-9?' disabled':''} aria-label="Decrease">−</button>
       <div class="boxValue"><span>${v.toFixed(dp)}</span><small>${Math.abs(v-t[key])<1e-6?`${unit} · as trained`:unit}</small></div>
       <button class="stepBtn" type="button" data-fusion-step="${key}" data-by="${step}"${v>=Number(p.max)-1e-9?' disabled':''} aria-label="Increase">+</button></div></div>`;};
-  return `<div class="instPanel wide testWorld"><header><span class="phaseTag infer">Test the controller</span><small>change the plasma, not the network: the trained controller simply flies it</small></header>
+  return `<div class="instPanel wide testWorld"><header><span class="phaseTag infer">Test the controller</span><small>change the plasma, not the network: the trained controller simply flies it</small>${passiveButton()}</header>
     <div class="testGrid">${stepper('magnetic_field','Magnetic field','T',.5,1)}${stepper('heating','Heating power','MW',5,0)}${stepper('instability','Instability drive','',.05,2)}
       <div class="box"><label>Compare with no control</label><div class="seg"><button type="button" data-fusion-compare="0"${on(!env.compare)}>Off</button><button type="button" data-fusion-compare="1"${on(env.compare)}${env.boxes>1?' disabled':''}>On</button></div>
         <small class="boxHint">The same plasma with the coils left alone.</small></div>
       <div class="box wide"><label>Plasmas at once</label><div class="seg">${[1,4,9,16].map(n=>`<button type="button" data-fusion-boxes="${n}"${on(env.boxes===n)}>${n}</button>`).join('')}</div>
         <small class="boxHint">Each box is a harder instability drive than the one before: push it until it breaks.</small></div></div>
     <div class="instButtons"><button type="button" data-fusion-reroll>New random start</button>${fusionIsTrained()?'':'<button type="button" data-fusion-reset>Back to the training conditions</button>'}</div></div>`;
+}
+// In mode 2 the test panel pushes the mode buttons well below the fold, so the
+// way back to mode 1 (and its Run button) is offered here too.
+function passiveButton(){
+  const cap=specs.capabilities?.fusion_plasma||{},other=(cap.methods||[]).find(m=>m!=='guardian');
+  if(!other||methodValue()!=='guardian')return '';
+  return `<button type="button" class="modeBack" data-fusion-mode="${escapeHtml(other)}">← ${escapeHtml(cap.method_labels?.[other]||other)}</button>`;
 }
 function wireFusionTestPanel(host){
   host.querySelectorAll('[data-fusion-step]').forEach(b=>b.onclick=()=>{
@@ -1279,6 +1307,7 @@ function wireFusionTestPanel(host){
   host.querySelectorAll('[data-fusion-boxes]').forEach(b=>b.onclick=()=>setFusionEnv({boxes:Number(b.dataset.fusionBoxes),...(Number(b.dataset.fusionBoxes)>1?{compare:false}:{})},{now:true}));
   host.querySelector('[data-fusion-reroll]')?.addEventListener('click',()=>{fusionTest.seed=Math.floor(Math.random()*1e6);setView(view);});
   host.querySelector('[data-fusion-reset]')?.addEventListener('click',()=>{fusionTest.env={};setFusionEnv({},{now:true});});
+  host.querySelector('[data-fusion-mode]')?.addEventListener('click',e=>switchMethod(e.currentTarget.dataset.fusionMode));
 }
 function fusionTestText(def){
   const results=fusionTest.results||[];if(!results.length)return '';
@@ -1328,6 +1357,32 @@ async function enterGrid(){
   }catch(_){markViewUnusable('grid');}
 }
 function exitGrid(){gridViews.forEach(v=>v.stop());gridViews=[];const host=$('#gridView');if(host){host.innerHTML='';host.classList.add('hidden');}}
+
+// ---------------------------------------------------------------- why HPC ---
+// The same physics timed on 1 / 2 / 4 GPUs and on 1 … N cores of one node
+// (benchmarks/scaling, made by tools/scaling_sweep.py). Numbers only.
+function exitInfo(){const host=$('#infoView');if(host){host.innerHTML='';host.classList.add('hidden');}$('#screen').classList.remove('hidden');}
+function showInfo(){
+  const host=$('#infoView'),tables=scaling[current]||{};
+  $('#screen').classList.add('hidden');surfaceLive(true);
+  const time=s=>s==null?'—':s<1?`${(s*1000).toFixed(s<0.01?2:1)} ms`:s<60?`${s.toFixed(s<10?2:1)} s`:`${(s/60).toFixed(1)} min`;
+  const cell=c=>c?`<td><b>${time(c.seconds)}</b>${c.gflops?`<small>${Math.round(c.gflops).toLocaleString()} GFLOP/s</small>`:''}</td>`:'<td class="na">—</td>';
+  host.innerHTML=Object.entries(tables).map(([machine,t])=>{
+    const g=Object.keys(t.gpus||{}),c=Object.keys(t.cores||{});
+    const gp=t.provenance?.gpu,cp=t.provenance?.cpu,label=MACHINE_LABELS[machine]||machine;
+    const head=`<tr><th rowspan="2">Problem size</th>${g.length?`<th colspan="${g.length}">GPUs${gp?.gpu_model?` · ${escapeHtml(gp.gpu_model)}`:''}</th>`:''}${c.length?`<th colspan="${c.length}">CPU cores${cp?.cpu_model?` · ${escapeHtml(cp.cpu_model)}`:''}</th>`:''}</tr>
+      <tr>${g.map(n=>`<th>${n}</th>`).join('')}${c.map(n=>`<th>${n}</th>`).join('')}</tr>`;
+    const rows=(t.sizes||[]).map((size,i)=>`<tr><th>${escapeHtml(size)}</th>${g.map(n=>cell(t.gpus[n][i])).join('')}${c.map(n=>cell(t.cores[n][i])).join('')}</tr>`).join('');
+    const jobs=[gp,cp].filter(Boolean).map(p=>`job ${escapeHtml(p.slurm_job_id||'?')} on ${escapeHtml(p.node||'?')}, ${escapeHtml(p.date||'')}`).join(' · ');
+    return `<section class="whyHpc"><header><b>${escapeHtml(label)}</b><small>time for ${escapeHtml(t.unit||'one step')}</small></header>
+      <table>${head}${rows}</table><p class="whyNote">${escapeHtml(SCALING_NOTES[current]||SCALING_NOTES._default)} ${jobs}.</p></section>`;
+  }).join('')||'<p class="whyNote">No measurements yet.</p>';
+  host.classList.remove('hidden');
+}
+const MACHINE_LABELS={discoverer:'Discoverer (Sofia) · one node',leonardo:'Leonardo (Bologna) · one node'};
+const SCALING_NOTES={
+  nbody_murb:'MUrB, the C++/CUDA code: CPU columns are its OpenMP backend, 1 GPU its tiled CUDA kernel, 4 GPUs its MPI backend with one GPU per rank (built for exactly four ranks, so there is no 2-GPU run). Median over the timed iterations after 3 warm-up ones; — = not run.',
+  _default:'Physics only, no drawing. The one simulation is split across 1, 2 or 4 of the node\'s GPUs. Median of 5 timed repetitions after 3 warm-up ones; one repetition where a single one takes over 20 s; — = not run.'};
 // meta.arena_view.frames maps each saved frame to [generation, fraction].
 function generationAt(index){
   const frames=meta.arena_view?.frames;

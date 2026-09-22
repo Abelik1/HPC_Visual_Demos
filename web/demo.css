@@ -473,6 +473,9 @@ body.hasBrain .stage{max-width:min(1680px,100%);--pic:min(54vh,600px)}
   font-weight:700;font-size:13.5px;color:var(--muted)}
 .instButtons button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .instButtons button:not(.on):hover{border-color:var(--accent);color:var(--text)}
+.instPanel header .modeBack{margin-left:auto;align-self:center;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--accent);
+  background:var(--raise);font-weight:700;font-size:13.5px;color:var(--text)}
+.instPanel header .modeBack:hover{background:var(--accent);color:var(--accent-ink)}
 .phaseTag{display:inline-block;border-radius:999px;padding:3px 11px;font-size:11.5px;font-weight:850;letter-spacing:.09em;text-transform:uppercase}
 .phaseTag.train{background:#2a2110;color:var(--warm);border:1px solid #6b5a2e}
 .phaseTag.infer{background:#10271f;color:var(--accent);border:1px solid #2f6d5c}
@@ -491,6 +494,23 @@ body.hasBrain .stage{max-width:min(1680px,100%);--pic:min(54vh,600px)}
 
 /* ============================== GRID VIEW ============================== */
 .surface>.gridView{position:absolute;inset:0;display:grid;gap:4px;padding:4px;background:#02050b;z-index:1}
+/* Why HPC: measured scaling tables over the picture area */
+.surface>.infoView{position:absolute;inset:0;overflow:auto;padding:18px 22px;background:var(--bg);z-index:3;
+  display:flex;flex-direction:column;gap:18px}
+.whyHpc header{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.whyHpc header b{font-size:17px}
+.whyHpc header small{color:var(--muted);font-size:13px}
+.whyHpc table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.whyHpc th,.whyHpc td{border:1px solid var(--line);padding:8px 10px;text-align:right}
+.whyHpc thead th,.whyHpc tr:first-child th,.whyHpc tr:nth-child(2) th{background:var(--raise);color:var(--muted);
+  font-size:12px;font-weight:700;text-align:center}
+.whyHpc tbody th,.whyHpc tr>th:first-child{text-align:left;color:var(--text);font-weight:600;white-space:nowrap}
+.whyHpc td b{display:block;font-size:17px;color:var(--text)}
+.whyHpc td small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+.whyHpc td.na{color:var(--muted);text-align:center}
+.whyNote{color:var(--muted);font-size:12px;line-height:1.45;margin:8px 0 0}
+/* The table is not the saved run, so the run's "on screen" badge stays out of it */
+.surface:has(.infoView:not(.hidden)) .onScreen{display:none}
 .gridCell{position:relative;min-width:0;min-height:0;border-radius:6px;overflow:hidden;background:#030813}
 .gridCell canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
 .gridLabel{position:absolute;left:6px;bottom:6px;padding:3px 8px;border-radius:999px;background:#030813d9;

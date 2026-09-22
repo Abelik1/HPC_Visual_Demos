@@ -21,6 +21,15 @@ window.HPC=(()=>{
   }
   function changed(){listeners.forEach(fn=>{try{fn(lineup);}catch(e){console.error(e);}});}
   function onChange(fn){listeners.add(fn);}
+  // The lineup is usually edited in another window (the presenter dashboard)
+  // while the stand is open, so re-read it now and then and pass on changes.
+  function watch(ms=10000){
+    setInterval(async()=>{
+      const before=JSON.stringify(lineup);
+      try{const r=await fetch('/api/lineups',{cache:'no-store'});if(r.ok)lineup=await r.json();}catch(_){return;}
+      if(JSON.stringify(lineup)!==before)changed();
+    },ms);
+  }
 
   // ---------------------------------------------------------------- lineup --
   const active=()=>lineup.active||'all';
@@ -114,7 +123,9 @@ window.HPC=(()=>{
       <div class="hpcColumns">${cols.map(col=>`<section class="hpcCol" data-col="${esc(col.key)}"><h4>${esc(col.label)} <small>${col.list.length}</small></h4>
         <ol>${col.list.map((id,i)=>`<li data-id="${esc(id)}"><span class="hpcItem">${esc(name(id))}${draft.extras[id]?' <i class="hpcTag">video</i>':''}</span>
           <span class="hpcItemTools">${col.fixed?'':`<button data-act="up" ${i===0?'disabled':''} title="Move up">↑</button><button data-act="down" ${i===col.list.length-1?'disabled':''} title="Move down">↓</button>`}
-          <select data-act="to" aria-label="Move ${esc(name(id))}"><option value="">Move to…</option>${cols.filter(c=>c.key!==col.key).map(c=>`<option value="${esc(c.key)}">${c.key in draft.machines?'Add to ':''}${esc(c.label)}</option>`).join('')}</select></span></li>`).join('')||'<li class="hpcEmpty">Nothing here</li>'}</ol></section>`).join('')}</div>
+          <select data-act="to" aria-label="Move ${esc(name(id))}"><option value="">Move to…</option>${cols.filter(c=>c.key!==col.key).map(c=>c.key in draft.machines
+            ?`<option value="${esc(c.key)}">Move to ${esc(c.label)}</option>${col.key in draft.machines?`<option value="+${esc(c.key)}">Also show on ${esc(c.label)}</option>`:''}`
+            :`<option value="${esc(c.key)}">${esc(c.label)}</option>`).join('')}</select></span></li>`).join('')||'<li class="hpcEmpty">Nothing here</li>'}</ol></section>`).join('')}</div>
       <h4 class="hpcSub">Video items</h4>
       <div class="hpcExtras">${Object.entries(draft.extras).map(([id,x])=>`<div class="hpcExtra" data-extra="${esc(id)}">
         <label>Name <input data-f="name" value="${esc(x.name)}"></label>
@@ -126,10 +137,10 @@ window.HPC=(()=>{
       pane.querySelectorAll('.hpcCol li[data-id]').forEach(li=>{
         const id=li.dataset.id,col=li.closest('.hpcCol').dataset.col;
         li.querySelectorAll('button[data-act]').forEach(b=>b.onclick=()=>{const list=listOf(col),i=list.indexOf(id),j=i+(b.dataset.act==='up'?-1:1);[list[i],list[j]]=[list[j],list[i]];render();});
-        li.querySelector('select').onchange=e=>{if(!e.target.value)return;
-          // Adding to a second machine keeps it in the first; "Not shown"/archive moves it.
-          if(e.target.value in draft.machines&&col in draft.machines){const dst=draft.machines[e.target.value].demos;if(!dst.includes(id))dst.push(id);render();}
-          else move(id,col,e.target.value);};
+        li.querySelector('select').onchange=e=>{const to=e.target.value;if(!to)return;
+          // "Also show on" keeps it on this day too; every other choice moves it.
+          if(to.startsWith('+')){const dst=draft.machines[to.slice(1)]?.demos;if(dst&&!dst.includes(id))dst.push(id);render();}
+          else move(id,col,to);};
       });
       pane.querySelectorAll('.hpcExtra input').forEach(input=>input.oninput=()=>{draft.extras[input.closest('.hpcExtra').dataset.extra][input.dataset.f]=input.value;});
       pane.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{const id=b.dataset.remove;delete draft.extras[id];
@@ -261,6 +272,6 @@ window.HPC=(()=>{
             badge:({queued:'QUEUED',running:'RUNNING',fetching:'FETCHING',syncing:'SYNCING',submitting:'SUBMITTING'}[r.stage]||'PREPARING')+' · '+String(r.label||r.cluster).toUpperCase(),
             progress:r.total&&r.frame>=0?(r.frame+1)/r.total:null};
   }
-  return {load,onChange,active,machineLabel,isArchived,extra,machinesOf,items,videoHref,setActive,machineSwitch,
+  return {load,onChange,watch,active,machineLabel,isArchived,extra,machinesOf,items,videoHref,setActive,machineSwitch,
           openSettings,confirmRun,describe,cancel,clusterList,get lineup(){return lineup;}};
 })();
