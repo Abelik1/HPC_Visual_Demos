@@ -7,6 +7,7 @@ import io, json, math, os, platform, socket, threading, time, traceback
 from typing import Any, Callable, Dict
 import numpy as np
 from .backend import choose_backend, resolve_precision
+from .multigpu import Devices, devices_for, requested_gpus
 
 
 def _cpu_worker_count() -> int:
@@ -56,6 +57,7 @@ class RunContext:
     _frame_pool: ThreadPoolExecutor | None = field(init=False, default=None, repr=False)
     _frame_futures: list[Future] = field(init=False, default_factory=list, repr=False)
     _compute_pool: ThreadPoolExecutor | None = field(init=False, default=None, repr=False)
+    _devices: Devices | None = field(init=False, default=None, repr=False)
     _timings: Dict[str, Dict[str, float]] = field(init=False, default_factory=dict, repr=False)
     _timing_lock: threading.Lock = field(init=False, default_factory=threading.Lock, repr=False)
     _meta_lock: threading.RLock = field(init=False, default_factory=threading.RLock, repr=False)
@@ -104,6 +106,18 @@ class RunContext:
     @property
     def on_gpu(self) -> bool:
         return self.xp is not np
+
+    @property
+    def gpus(self) -> int:
+        """GPUs this run may spread over (``_gpus`` parameter or LEONARDO_DEMO_GPUS)."""
+        return requested_gpus(self.params)
+
+    @property
+    def devices(self) -> Devices:
+        """The GPUs the physics is split across; one host part on a CPU run."""
+        if self._devices is None:
+            self._devices=devices_for(self)
+        return self._devices
 
     def record_kernel(self, name: str, info: Dict[str, Any]):
         """Record the CUDA launch configuration a solver actually used."""
@@ -160,6 +174,7 @@ class RunContext:
         }
         result={"host":socket.gethostname(),"architecture":platform.machine(),
                 "cpu_workers":self.cpu_workers,"host_cpu_count":os.cpu_count(),
+                "gpus_requested":self.gpus,
                 "slurm":{key:value for key,value in slurm.items() if value is not None}}
         # Keep the two legacy top-level fields so older dashboard consumers do
         # not need to know about the nested scheduler record.
@@ -289,6 +304,8 @@ class RunContext:
         if self._compute_pool is not None:
             self._compute_pool.shutdown(wait=True)
             self._compute_pool=None
+        if self._devices is not None:
+            self._devices.close()
     def write_status(self, frame, message="", overlay=None):
         """Publish live status and optional per-frame HTML-overlay values."""
         update={"status":"running","frame":frame,"message":message,

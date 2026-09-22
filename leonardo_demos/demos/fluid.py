@@ -5,6 +5,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from .. import tuning
 from ..base import Demo
 from ..backend import to_numpy
+from ..multigpu import split
 from ..render import add_title, add_progress, save_frame, font
 from ..colors import palette
 from ..pipeline import FramePipeline
@@ -157,14 +158,66 @@ class FluidDemo(Demo):
             self._lbm_kernels[key]=kernel
         return kernel
 
-    def _gpu_launch(self,src,dst,u0,stream,macro,config):
+    def _gpu_launch(self,src,dst,u0,stream,macro,config,solid=None,dummy=None):
         xp=self.ctx.xp; real=self.ctx.state_dtype
         _,ny,nx=src.shape
         bx,by=int(config["bx"]),int(config["by"])
-        rho,ux,uy=macro if macro is not None else (self._macro_dummy,)*3
+        rho,ux,uy=macro if macro is not None else ((self._macro_dummy if dummy is None else dummy),)*3
         self._lbm_kernel(bx,by)(((nx+bx-1)//bx,(ny+by-1)//by),(bx,by),
-            (src,dst,self._solid,np.int32(nx),np.int32(ny),real(u0),real(1/LBM_TAU),
+            (src,dst,self._solid if solid is None else solid,np.int32(nx),np.int32(ny),real(u0),real(1/LBM_TAU),
              np.int32(stream),np.int32(macro is not None),rho,ux,uy))
+
+    HALO=16      # ghost rows per side of a strip = lattice steps between exchanges
+
+    def _multi_gpu_step(self,f,u0,steps):
+        """The fused lattice update split into horizontal strips, one per GPU.
+
+        Each GPU owns ny/k rows plus HALO ghost rows above and below, and the
+        same kernel updates the whole strip.  Rows that depend on ghosts go
+        stale one row per step, from the outside in, so after HALO steps only
+        the ghosts themselves are stale and every GPU's own rows are exact:
+        the GPUs run HALO steps back to back, then swap HALO edge rows with
+        their neighbours over NVLink (a few MB).  That is 16x fewer exchanges
+        than swapping one row every step, for 2*HALO extra rows of work.
+        Kernels are launched asynchronously from this thread.  The macroscopic
+        fields are gathered onto the first GPU once per call, for the tracers
+        and the drawing.  ``f`` stays the key; the live state is in the strips.
+        """
+        devices=self.ctx.devices; cp=self.ctx.xp
+        _,ny,nx=f.shape
+        m=getattr(self,"_strips",None)
+        if m is None or m["source"] is not f:
+            parts=split(ny,devices.count)
+            halo=max(1,min(self.HALO,min(p.stop-p.start for p in parts)))
+            src,dst,solid,dummy=[],[],[],[]
+            for i,p in enumerate(parts):
+                rows=cp.asarray(np.arange(p.start-halo,p.stop+halo)%ny)
+                src.append(devices.to(cp.ascontiguousarray(f[:,rows,:]),i))
+                solid.append(devices.to(cp.ascontiguousarray(self._solid[rows,:]),i))
+                with devices.device(i):
+                    dst.append(cp.empty_like(src[-1]))
+                    dummy.append(cp.empty(1,dtype=f.dtype))
+            m=self._strips={"source":f,"parts":parts,"halo":halo,"src":src,"dst":dst,"solid":solid,"dummy":dummy}
+        src,dst,halo=m["src"],m["dst"],m["halo"]
+        macro=[]
+        for k in range(steps):
+            last=k==steps-1
+            for i in range(devices.count):
+                with devices.device(i):
+                    out=None
+                    if last:
+                        shape=src[i].shape[1:]
+                        out=(cp.empty(shape,dtype=f.dtype),cp.empty(shape,dtype=f.dtype),cp.empty(shape,dtype=f.dtype))
+                        macro.append(out)
+                    self._gpu_launch(src[i],dst[i],u0,1,out,self._lbm_config,solid=m["solid"][i],dummy=m["dummy"][i])
+            src,dst=dst,src
+            if (k+1)%halo==0 or last:
+                devices.synchronize()
+                devices.halo_exchange(src,halo=halo,axis=1,periodic=True)
+        m["src"],m["dst"]=src,dst
+        rho,ux,uy=(devices.gather([mac[j][halo:-halo] for mac in macro]) for j in range(3))
+        vort=cp.roll(uy,-1,1)-cp.roll(uy,1,1) - (cp.roll(ux,-1,0)-cp.roll(ux,1,0))
+        return f,ux,uy,vort,rho
 
     def _gpu_collide_initial(self,f,mask,u0):
         xp=self.ctx.xp
@@ -200,6 +253,8 @@ class FluidDemo(Demo):
 
     def step(self,f,c,w,mask,u0,steps):
         if self.ctx.xp is not np:
+            if self.ctx.devices.count>1:
+                return self._multi_gpu_step(f,u0,steps)
             return self._gpu_step(f,mask,u0,steps)
         xp=self.ctx.xp; tau=LBM_TAU; omega=1/tau
         opposite=[0,3,4,1,2,7,8,5,6]

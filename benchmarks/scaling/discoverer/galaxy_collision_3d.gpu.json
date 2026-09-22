@@ -1,0 +1,84 @@
+{
+  "unit": "one all-pairs force evaluation",
+  "sizes": [
+    "100,000 bodies",
+    "500,000 bodies",
+    "1,000,000 bodies"
+  ],
+  "columns": {
+    "1": [
+      {
+        "seconds": 0.0053948520217090845,
+        "ms": 5.395,
+        "repetitions": 5,
+        "gflops": 37072.4
+      },
+      {
+        "seconds": 0.10840402217581868,
+        "ms": 108.404,
+        "repetitions": 5,
+        "gflops": 46123.7
+      },
+      {
+        "seconds": 0.4243651130236685,
+        "ms": 424.365,
+        "repetitions": 5,
+        "gflops": 47129.2
+      }
+    ],
+    "2": [
+      {
+        "seconds": 0.003996026935055852,
+        "ms": 3.996,
+        "repetitions": 5,
+        "gflops": 50049.7
+      },
+      {
+        "seconds": 0.059906928800046444,
+        "ms": 59.907,
+        "repetitions": 5,
+        "gflops": 83462.8
+      },
+      {
+        "seconds": 0.22941711894236505,
+        "ms": 229.417,
+        "repetitions": 5,
+        "gflops": 87177.5
+      }
+    ],
+    "4": [
+      {
+        "seconds": 0.0028716670349240303,
+        "ms": 2.872,
+        "repetitions": 5,
+        "gflops": 69646.0
+      },
+      {
+        "seconds": 0.036205457989126444,
+        "ms": 36.205,
+        "repetitions": 5,
+        "gflops": 138100.7
+      },
+      {
+        "seconds": 0.13403251394629478,
+        "ms": 134.033,
+        "repetitions": 5,
+        "gflops": 149217.5
+      }
+    ]
+  },
+  "demo": "galaxy_collision_3d",
+  "provenance": {
+    "machine": "discoverer",
+    "kind": "gpu",
+    "node": "gpu-11",
+    "architecture": "aarch64",
+    "date": "2026-09-21 22:51 UTC",
+    "slurm_job_id": "8814",
+    "git_revision": "0f0e35f+local changes",
+    "cpus_allocated": "16",
+    "code_digest": "366b653dbf7c009c",
+    "cpu_model": "Neoverse-V2",
+    "gpu_model": "NVIDIA GB200"
+  }
+}

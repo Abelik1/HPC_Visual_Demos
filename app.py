@@ -444,6 +444,20 @@ def start(demo:str,req:RunReq):
     kwargs=prepare_run(demo,req,rd)
     threading.Thread(target=_supervise_run,args=(rid,rd,kwargs),daemon=True).start(); return {'id':rid}
 
+# ---- "Why HPC": scaling tables from tools/scaling_sweep.py ----------------
+SCALING=ROOT/'benchmarks'/'scaling'
+
+@app.get('/api/scaling')
+def scaling():
+    """{demo: {machine: table}} for every merged table in benchmarks/scaling/<machine>/."""
+    out={}
+    for path in sorted(SCALING.glob('*/*.json')):
+        if path.name.count('.')!=1: continue           # per-kind and pilot files
+        try: table=json.loads(path.read_text(encoding='utf-8'))
+        except (OSError,ValueError): continue
+        out.setdefault(table.get('demo') or path.stem,{})[path.parent.name]=table
+    return out
+
 # ---- demo-day lineups: which demos each machine's demo day shows ----------
 class LineupReq(BaseModel):
     active: str = 'all'

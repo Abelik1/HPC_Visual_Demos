@@ -1,0 +1,80 @@
+{
+  "demo": "fluid",
+  "machine": "discoverer",
+  "unit": "one lattice-Boltzmann step",
+  "sizes": [
+    "3,840\u00d72,160 cells",
+    "7,680\u00d74,320 cells",
+    "15,360\u00d78,640 cells"
+  ],
+  "gpus": {
+    "1": [
+      {
+        "seconds": 0.00011467754375189542,
+        "ms": 0.115,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.0004339837469160557,
+        "ms": 0.434,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.0016780272941105067,
+        "ms": 1.678,
+        "repetitions": 5
+      }
+    ],
+    "2": [
+      {
+        "seconds": 9.623265359550714e-05,
+        "ms": 0.096,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.0002881955006159842,
+        "ms": 0.288,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.001018848444800824,
+        "ms": 1.019,
+        "repetitions": 5
+      }
+    ],
+    "4": [
+      {
+        "seconds": 9.545184439048171e-05,
+        "ms": 0.095,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.00021201419876888395,
+        "ms": 0.212,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.0006821262068115175,
+        "ms": 0.682,
+        "repetitions": 5
+      }
+    ]
+  },
+  "cores": {},
+  "provenance": {
+    "gpu": {
+      "machine": "discoverer",
+      "kind": "gpu",
+      "node": "gpu-11",
+      "architecture": "aarch64",
+      "date": "2026-09-21 23:17 UTC",
+      "slurm_job_id": "8819",
+      "git_revision": "0f0e35f+local changes",
+      "cpus_allocated": "16",
+      "code_digest": "03fd39b278a87a87",
+      "cpu_model": "Neoverse-V2",
+      "gpu_model": "NVIDIA GB200"
+    },
+    "cpu": null
+  }
+}

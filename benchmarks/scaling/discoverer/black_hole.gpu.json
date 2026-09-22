@@ -1,0 +1,75 @@
+{
+  "unit": "one ray-traced frame",
+  "sizes": [
+    "3840\u00d72160, 9 rays/pixel",
+    "7680\u00d74320, 16 rays/pixel",
+    "15360\u00d78640, 16 rays/pixel"
+  ],
+  "columns": {
+    "1": [
+      {
+        "seconds": 0.0017107950989156961,
+        "ms": 1.711,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.010799015872180462,
+        "ms": 10.799,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.04174562310799956,
+        "ms": 41.746,
+        "repetitions": 5
+      }
+    ],
+    "2": [
+      {
+        "seconds": 0.001413353020325303,
+        "ms": 1.413,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.006927630165591836,
+        "ms": 6.928,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.026182127185165882,
+        "ms": 26.182,
+        "repetitions": 5
+      }
+    ],
+    "4": [
+      {
+        "seconds": 0.0013820570893585682,
+        "ms": 1.382,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.005209986120462418,
+        "ms": 5.21,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.01875094184651971,
+        "ms": 18.751,
+        "repetitions": 5
+      }
+    ]
+  },
+  "demo": "black_hole",
+  "provenance": {
+    "machine": "discoverer",
+    "kind": "gpu",
+    "node": "gpu-11",
+    "architecture": "aarch64",
+    "date": "2026-09-21 22:51 UTC",
+    "slurm_job_id": "8814",
+    "git_revision": "0f0e35f+local changes",
+    "cpus_allocated": "16",
+    "code_digest": "366b653dbf7c009c",
+    "cpu_model": "Neoverse-V2",
+    "gpu_model": "NVIDIA GB200"
+  }
+}

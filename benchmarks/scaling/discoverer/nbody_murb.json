@@ -1,0 +1,161 @@
+{
+  "demo": "nbody_murb",
+  "machine": "discoverer",
+  "unit": "one simulation step (MUrB, median over the timed iterations)",
+  "sizes": [
+    "100,000 bodies",
+    "200,000 bodies",
+    "500,000 bodies"
+  ],
+  "gpus": {
+    "1": [
+      {
+        "seconds": 0.006512652799999999,
+        "ms": 6.513,
+        "repetitions": 1,
+        "gflops": 30709.5
+      },
+      {
+        "seconds": 0.024522249500000003,
+        "ms": 24.522,
+        "repetitions": 1,
+        "gflops": 32623.4
+      },
+      {
+        "seconds": 0.12161480000000001,
+        "ms": 121.615,
+        "repetitions": 1,
+        "gflops": 41113.4
+      }
+    ],
+    "2": [
+      null,
+      null,
+      null
+    ],
+    "4": [
+      {
+        "seconds": 0.0072056461,
+        "ms": 7.206,
+        "repetitions": 1,
+        "gflops": 27756.0
+      },
+      {
+        "seconds": 0.0143137171,
+        "ms": 14.314,
+        "repetitions": 1,
+        "gflops": 55890.4
+      },
+      {
+        "seconds": 0.0354164311,
+        "ms": 35.416,
+        "repetitions": 1,
+        "gflops": 141177.4
+      }
+    ]
+  },
+  "cores": {
+    "1": [
+      {
+        "seconds": 7.17461244,
+        "ms": 7174.612,
+        "repetitions": 1,
+        "gflops": 27.9
+      },
+      {
+        "seconds": 29.697530999999998,
+        "ms": 29697.531,
+        "repetitions": 1,
+        "gflops": 26.9
+      },
+      null
+    ],
+    "8": [
+      {
+        "seconds": 0.580176189,
+        "ms": 580.176,
+        "repetitions": 1,
+        "gflops": 344.7
+      },
+      {
+        "seconds": 2.56925353,
+        "ms": 2569.254,
+        "repetitions": 1,
+        "gflops": 311.4
+      },
+      {
+        "seconds": 17.6014332,
+        "ms": 17601.433,
+        "repetitions": 1,
+        "gflops": 284.1
+      }
+    ],
+    "32": [
+      {
+        "seconds": 0.145908442,
+        "ms": 145.908,
+        "repetitions": 1,
+        "gflops": 1370.7
+      },
+      {
+        "seconds": 0.631377765,
+        "ms": 631.378,
+        "repetitions": 1,
+        "gflops": 1267.1
+      },
+      {
+        "seconds": 4.50974117,
+        "ms": 4509.741,
+        "repetitions": 1,
+        "gflops": 1108.7
+      }
+    ],
+    "144": [
+      {
+        "seconds": 0.048122697,
+        "ms": 48.123,
+        "repetitions": 1,
+        "gflops": 4156.0
+      },
+      {
+        "seconds": 0.236898358,
+        "ms": 236.898,
+        "repetitions": 1,
+        "gflops": 3377.0
+      },
+      {
+        "seconds": 1.71643068,
+        "ms": 1716.431,
+        "repetitions": 1,
+        "gflops": 2913.0
+      }
+    ]
+  },
+  "provenance": {
+    "gpu": {
+      "machine": "discoverer",
+      "kind": "murb-gpu",
+      "node": "gpu-12",
+      "architecture": "aarch64",
+      "date": "2026-09-21 22:51 UTC",
+      "slurm_job_id": "8815",
+      "git_revision": "0f0e35f+local changes",
+      "cpus_allocated": "8",
+      "code_digest": "366b653dbf7c009c",
+      "cpu_model": "Neoverse-V2",
+      "gpu_model": "NVIDIA GB200"
+    },
+    "cpu": {
+      "machine": "discoverer",
+      "kind": "murb-cpu",
+      "node": "gpu-12",
+      "architecture": "aarch64",
+      "date": "2026-09-21 22:57 UTC",
+      "slurm_job_id": "8816",
+      "git_revision": "0f0e35f+local changes",
+      "cpus_allocated": "144",
+      "code_digest": "366b653dbf7c009c",
+      "cpu_model": "Neoverse-V2"
+    }
+  }
+}

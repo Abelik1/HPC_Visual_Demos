@@ -1,0 +1,69 @@
+{
+  "unit": "one simulation step (MUrB, median over the timed iterations)",
+  "sizes": [
+    "100,000 bodies",
+    "200,000 bodies",
+    "500,000 bodies"
+  ],
+  "columns": {
+    "1": [
+      {
+        "seconds": 0.006512652799999999,
+        "ms": 6.513,
+        "repetitions": 1,
+        "gflops": 30709.5
+      },
+      {
+        "seconds": 0.024522249500000003,
+        "ms": 24.522,
+        "repetitions": 1,
+        "gflops": 32623.4
+      },
+      {
+        "seconds": 0.12161480000000001,
+        "ms": 121.615,
+        "repetitions": 1,
+        "gflops": 41113.4
+      }
+    ],
+    "2": [
+      null,
+      null,
+      null
+    ],
+    "4": [
+      {
+        "seconds": 0.0072056461,
+        "ms": 7.206,
+        "repetitions": 1,
+        "gflops": 27756.0
+      },
+      {
+        "seconds": 0.0143137171,
+        "ms": 14.314,
+        "repetitions": 1,
+        "gflops": 55890.4
+      },
+      {
+        "seconds": 0.0354164311,
+        "ms": 35.416,
+        "repetitions": 1,
+        "gflops": 141177.4
+      }
+    ]
+  },
+  "demo": "nbody_murb",
+  "provenance": {
+    "machine": "discoverer",
+    "kind": "murb-gpu",
+    "node": "gpu-12",
+    "architecture": "aarch64",
+    "date": "2026-09-21 22:51 UTC",
+    "slurm_job_id": "8815",
+    "git_revision": "0f0e35f+local changes",
+    "cpus_allocated": "8",
+    "code_digest": "366b653dbf7c009c",
+    "cpu_model": "Neoverse-V2",
+    "gpu_model": "NVIDIA GB200"
+  }
+}

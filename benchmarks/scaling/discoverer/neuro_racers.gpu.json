@@ -1,0 +1,75 @@
+{
+  "unit": "one generation (1,500 steps)",
+  "sizes": [
+    "32,768 cars",
+    "262,144 cars",
+    "1,048,576 cars"
+  ],
+  "columns": {
+    "1": [
+      {
+        "seconds": 0.018021784955635667,
+        "ms": 18.022,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.07182556902989745,
+        "ms": 71.826,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.25167794106528163,
+        "ms": 251.678,
+        "repetitions": 5
+      }
+    ],
+    "2": [
+      {
+        "seconds": 0.018799517070874572,
+        "ms": 18.8,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.049302441999316216,
+        "ms": 49.302,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.1807843460701406,
+        "ms": 180.784,
+        "repetitions": 5
+      }
+    ],
+    "4": [
+      {
+        "seconds": 0.020628361962735653,
+        "ms": 20.628,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.04029988590627909,
+        "ms": 40.3,
+        "repetitions": 5
+      },
+      {
+        "seconds": 0.1280419451650232,
+        "ms": 128.042,
+        "repetitions": 5
+      }
+    ]
+  },
+  "demo": "neuro_racers",
+  "provenance": {
+    "machine": "discoverer",
+    "kind": "gpu",
+    "node": "gpu-11",
+    "architecture": "aarch64",
+    "date": "2026-09-21 22:51 UTC",
+    "slurm_job_id": "8814",
+    "git_revision": "0f0e35f+local changes",
+    "cpus_allocated": "16",
+    "code_digest": "366b653dbf7c009c",
+    "cpu_model": "Neoverse-V2",
+    "gpu_model": "NVIDIA GB200"
+  }
+}

@@ -8,7 +8,104 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from ..backend import to_numpy
 from ..base import Demo
+from ..multigpu import split
 from ..pipeline import FramePipeline
+
+# Exact Schwarzschild lensing of one band of pixel rows, fused: the same steps
+# as BlackHoleDemo._render_rows -> schwarzschild.lens_directions ->
+# gaia_sky.sample_cube / sample_equirect, in double precision, one thread per
+# pixel looping over its supersamples.  Interpolation follows np.interp
+# (clamped at both ends).  ``captured`` counts the pixel's rays that fell in.
+LENS_KERNEL = r'''
+__device__ double interp(double x, const double* xs, const double* ys, int n) {
+    if (x <= xs[0]) return ys[0];
+    if (x >= xs[n - 1]) return ys[n - 1];
+    int lo = 0, hi = n - 1;                 /* xs[lo] <= x < xs[hi] */
+    while (hi - lo > 1) { int mid = (lo + hi) >> 1; if (xs[mid] <= x) lo = mid; else hi = mid; }
+    return ys[lo] + (ys[hi] - ys[lo]) / (xs[hi] - xs[lo]) * (x - xs[lo]);
+}
+
+__constant__ int FACE_M[6]  = {0, 0, 1, 1, 2, 2};
+__constant__ int FACE_UA[6] = {2, 2, 0, 0, 0, 0};
+__constant__ double FACE_US[6] = {-1, 1, 1, 1, 1, -1};
+__constant__ int FACE_VA[6] = {1, 1, 2, 2, 1, 1};
+__constant__ double FACE_VS[6] = {-1, -1, 1, -1, -1, -1};
+
+extern "C" __global__ void lens_band(
+    const float* __restrict__ cube, const int size,
+    const float* __restrict__ glow, const int gh, const int gw,
+    const double* __restrict__ psi_out, const double* __restrict__ phi_out, const int n_out,
+    const double* __restrict__ log_gap, const double* __restrict__ phi_in, const int n_in,
+    const double psi_edge,
+    const double fx, const double fy, const double fz, const double rx, const double ry, const double rz,
+    const double ux, const double uy, const double uz, const double cx, const double cy, const double cz,
+    const int width, const int height, const int row0, const int rows, const int ss, const double half,
+    const double boost, double* __restrict__ stars, double* __restrict__ diffuse, double* __restrict__ captured)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= rows * width) return;
+    const int px = idx % width, py = row0 + idx / width;
+    const double PI = 3.141592653589793;
+    double s0 = 0, s1 = 0, s2 = 0, g0 = 0, g1 = 0, g2 = 0, caught = 0;
+    for (int j = 0; j < ss; ++j) {
+        for (int i = 0; i < ss; ++i) {
+            const double x = ((px + (i + .5) / ss) / width * 2 - 1) * half;
+            const double y = (1 - (py + (j + .5) / ss) / height * 2) * half * height / width;
+            double d0 = fx + x * rx + y * ux, d1 = fy + x * ry + y * uy, d2 = fz + x * rz + y * uz;
+            const double dn = sqrt(d0 * d0 + d1 * d1 + d2 * d2);
+            d0 /= dn; d1 /= dn; d2 /= dn;
+            const double along = d0 * cx + d1 * cy + d2 * cz;
+            const double psi = acos(fmin(fmax(-along, -1.0), 1.0));
+            if (psi <= psi_edge) { caught += 1; continue; }
+            const double phi = psi < PI / 2 ? interp(log(fmax(psi - psi_edge, 1e-11)), log_gap, phi_in, n_in)
+                                            : interp(psi, psi_out, phi_out, n_out);
+            double e0 = d0 - along * cx, e1 = d1 - along * cy, e2 = d2 - along * cz;
+            const double en = sqrt(e0 * e0 + e1 * e1 + e2 * e2);
+            if (en > 1e-12) { const double m = fmax(en, 1e-12); e0 /= m; e1 /= m; e2 /= m; }
+            else { e0 = e1 = e2 = 0; }
+            const double c = cos(phi), s = sin(phi);
+            const double k[3] = {c * cx + s * e0, c * cy + s * e1, c * cz + s * e2};
+            /* cube map, as gaia_sky.cube_coordinates + sample_cube */
+            const double a0 = fabs(k[0]), a1 = fabs(k[1]), a2 = fabs(k[2]);
+            const int major = (a0 >= a1 && a0 >= a2) ? 0 : (a1 >= a2 ? 1 : 2);
+            const int face = major * 2 + (k[major] >= 0 ? 0 : 1);
+            const double denom = fmax(fabs(k[FACE_M[face]]), 1e-12);
+            const double u = fmin(fmax((FACE_US[face] * k[FACE_UA[face]] / denom + 1) / 2, 0.0), 1.0);
+            const double v = fmin(fmax((FACE_VS[face] * k[FACE_VA[face]] / denom + 1) / 2, 0.0), 1.0);
+            const double tx = u * size - 0.5, ty = v * size - 0.5;
+            const long x0 = (long)floor(tx), y0 = (long)floor(ty);
+            const double wx = tx - x0, wy = ty - y0;
+            const long x0c = min(max(x0, 0L), (long)size - 1), x1c = min(max(x0 + 1, 0L), (long)size - 1);
+            const long y0c = min(max(y0, 0L), (long)size - 1), y1c = min(max(y0 + 1, 0L), (long)size - 1);
+            const float* base = cube + (size_t)face * size * size * 3;
+            const float* p00 = base + (y0c * size + x0c) * 3; const float* p01 = base + (y0c * size + x1c) * 3;
+            const float* p10 = base + (y1c * size + x0c) * 3; const float* p11 = base + (y1c * size + x1c) * 3;
+            s0 += (1 - wx) * (1 - wy) * p00[0] + wx * (1 - wy) * p01[0] + (1 - wx) * wy * p10[0] + wx * wy * p11[0];
+            s1 += (1 - wx) * (1 - wy) * p00[1] + wx * (1 - wy) * p01[1] + (1 - wx) * wy * p10[1] + wx * wy * p11[1];
+            s2 += (1 - wx) * (1 - wy) * p00[2] + wx * (1 - wy) * p01[2] + (1 - wx) * wy * p10[2] + wx * wy * p11[2];
+            /* equirectangular glow, as gaia_sky.sample_equirect */
+            double ra = atan2(k[1], k[0]);
+            if (ra < 0) ra += 2 * PI;                  /* np.remainder(ra, 2*pi) */
+            const double dec = asin(fmin(fmax(k[2], -1.0), 1.0));
+            const double ex = ra / (2 * PI) * gw - 0.5;
+            const double ey = fmin(fmax((PI / 2 - dec) / PI * gh - 0.5, 0.0), (double)(gh - 1));
+            const long ex0 = (long)floor(ex), ey0 = (long)floor(ey);
+            const double vx = ex - ex0, vy = ey - ey0;
+            const long ex0w = ((ex0 % gw) + gw) % gw, ex1w = (((ex0 + 1) % gw) + gw) % gw;
+            const long ey1 = min(ey0 + 1, (long)gh - 1);
+            const float* q00 = glow + (ey0 * gw + ex0w) * 3; const float* q01 = glow + (ey0 * gw + ex1w) * 3;
+            const float* q10 = glow + (ey1 * gw + ex0w) * 3; const float* q11 = glow + (ey1 * gw + ex1w) * 3;
+            g0 += (1 - vx) * (1 - vy) * q00[0] + vx * (1 - vy) * q01[0] + (1 - vx) * vy * q10[0] + vx * vy * q11[0];
+            g1 += (1 - vx) * (1 - vy) * q00[1] + vx * (1 - vy) * q01[1] + (1 - vx) * vy * q10[1] + vx * vy * q11[1];
+            g2 += (1 - vx) * (1 - vy) * q00[2] + vx * (1 - vy) * q01[2] + (1 - vx) * vy * q10[2] + vx * vy * q11[2];
+        }
+    }
+    /* g^4 blueshift and the 1/ss^2 average, applied once as the array path does */
+    stars[idx * 3] = s0 * boost; stars[idx * 3 + 1] = s1 * boost; stars[idx * 3 + 2] = s2 * boost;
+    diffuse[idx * 3] = g0 * boost; diffuse[idx * 3 + 1] = g1 * boost; diffuse[idx * 3 + 2] = g2 * boost;
+    captured[idx] = caught;
+}
+'''
 from ..render import mosaic
 
 
@@ -263,17 +360,96 @@ class BlackHoleDemo(Demo):
         return c, forward, right, up
 
     def render_camera(self, fine, glow, table, axis, forward, right, up, r_camera):
+        """One frame of exact lensing, split into bands of pixel rows.
+
+        Every pixel is independent, so each GPU (or, on the CPU, each group of
+        cores) traces its own band; the bands are stacked on the first GPU.
+        """
+        height = int(self.settings["height"])
+        devices = self.ctx.devices
+        render = lambda sky, rows: (rows, self._render_rows(*sky, table, axis, forward, right, up, r_camera, rows))
+        if devices.count > 1:
+            skies = self._sky_on(devices, fine, glow)
+            parts = split(height, devices.count)
+            bands = devices.run(lambda i: render(skies[i], parts[i]))
+            stack = devices.gather
+        elif not self.ctx.on_gpu and self.ctx.cpu_workers > 1:
+            bands = self.ctx.parallel_slices(height, lambda rows: render((fine, glow), rows),
+                                             min_items=max(4, height // (4 * self.ctx.cpu_workers)))
+            stack = np.concatenate
+        else:
+            return render((fine, glow), slice(0, height))[1]
+        stars = stack([b[1][0] for b in bands])
+        diffuse = stack([b[1][1] for b in bands])
+        captured = sum(b[1][2] * (b[0].stop - b[0].start) for b in bands) / height
+        return stars, diffuse, captured
+
+    def _sky_on(self, devices, fine, glow):
+        """The two sky textures on every GPU, copied once per run."""
+        key = (id(fine), id(glow), tuple(devices.ids))
+        if getattr(self, "_skies", (None,))[0] != key:
+            copies = [(fine, glow)] + [(devices.to(fine, i), devices.to(glow, i)) for i in range(1, devices.count)]
+            self._skies = (key, copies)
+        return self._skies[1]
+
+    _lens_kernel = None
+
+    def _lens_rows_gpu(self, fine, glow, table, axis, forward, right, up, r_camera, rows):
+        """``_render_rows`` as one fused CUDA kernel: one thread per pixel does all
+        its rays (direction, escape angle, sky direction, both sky lookups).
+
+        The array version launches a few hundred small kernels per frame, so
+        the GPU mostly waits for Python; fused, a band is a single launch, and
+        several GPUs each render their band at full speed.
+        """
+        cp = self.ctx.xp
+        if BlackHoleDemo._lens_kernel is None:
+            BlackHoleDemo._lens_kernel = cp.RawKernel(LENS_KERNEL, "lens_band")
+        width, height = int(self.settings["width"]), int(self.settings["height"])
+        ss = max(1, int(self.settings.get("supersample", 1)))
+        half = math.tan(math.radians(float(self.settings.get("fov_deg", 80))) / 2)
+        device = cp.cuda.Device().id
+        key = (id(table), device)
+        cache = self.__dict__.setdefault("_tables_on", {})
+        if key not in cache:
+            if len(cache) > 16:
+                cache.clear()
+            cache[key] = (table, [cp.asarray(np.ascontiguousarray(a, dtype=np.float64))
+                                  for a in (table.psi_out, table.phi_out, table.log_gap, table.phi_in)])
+        psi_out, phi_out, log_gap, phi_in = cache[key][1]
+        fine = cp.ascontiguousarray(fine, dtype=cp.float32)
+        glow = cp.ascontiguousarray(glow, dtype=cp.float32)
+        count = rows.stop - rows.start
+        stars = cp.empty((count, width, 3), dtype=cp.float64)
+        diffuse = cp.empty((count, width, 3), dtype=cp.float64)
+        captured = cp.empty((count, width), dtype=cp.float64)
+        f, rt, u, c = (np.asarray(v, dtype=np.float64) for v in (forward, right, up, axis))
+        d = np.float64
+        threads = 256
+        BlackHoleDemo._lens_kernel(
+            ((count * width + threads - 1) // threads,), (threads,),
+            (fine, np.int32(fine.shape[1]), glow, np.int32(glow.shape[0]), np.int32(glow.shape[1]),
+             psi_out, phi_out, np.int32(len(table.psi_out)), log_gap, phi_in, np.int32(len(table.log_gap)),
+             d(table.psi_edge), d(f[0]), d(f[1]), d(f[2]), d(rt[0]), d(rt[1]), d(rt[2]),
+             d(u[0]), d(u[1]), d(u[2]), d(c[0]), d(c[1]), d(c[2]),
+             np.int32(width), np.int32(height), np.int32(rows.start), np.int32(count), np.int32(ss), d(half),
+             d((1.0 / (1.0 - 2.0 / r_camera)) ** 2 / (ss * ss)), stars, diffuse, captured))
+        return stars, diffuse, float(captured.sum()) / (count * width * ss * ss)
+
+    def _render_rows(self, fine, glow, table, axis, forward, right, up, r_camera, rows):
         from ..gaia_sky import sample_cube, sample_equirect
         from ..schwarzschild import lens_directions
         xp = self.ctx.xp
+        if xp is not np and not self.settings.get("array_lensing"):
+            return self._lens_rows_gpu(fine, glow, table, axis, forward, right, up, r_camera, rows)
         width, height = int(self.settings["width"]), int(self.settings["height"])
         ss = max(1, int(self.settings.get("supersample", 1)))
         half = math.tan(math.radians(float(self.settings.get("fov_deg", 80))) / 2)
         f, rt, upv, ax = (xp.asarray(v, dtype=xp.float64) for v in (forward, right, up, axis))
         px = xp.arange(width, dtype=xp.float64)
-        py = xp.arange(height, dtype=xp.float64)
-        stars = xp.zeros((height, width, 3), dtype=xp.float64)
-        diffuse = xp.zeros((height, width, 3), dtype=xp.float64)
+        py = xp.arange(rows.start, rows.stop, dtype=xp.float64)
+        stars = xp.zeros((len(py), width, 3), dtype=xp.float64)
+        diffuse = xp.zeros((len(py), width, 3), dtype=xp.float64)
         captured_share = 0.0
         for j in range(ss):
             for i in range(ss):

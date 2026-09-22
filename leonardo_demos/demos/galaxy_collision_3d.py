@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from .. import tuning
 from ..backend import PRECISIONS, to_numpy
 from ..base import Demo
+from ..multigpu import split
 from ..render import add_progress, add_title
 from .galaxy_collision import G, MW_M31, TIME_UNIT_GYR
 
@@ -22,6 +23,9 @@ HYBRID_REQUESTS = {"hybrid", "cpu+gpu", "cpu_gpu"}
 # ACC_T the accumulator/output type; BLOCK and EPT (targets per thread) are the
 # tunable launch shape.  Padding records have zero mass, so the inner loop has
 # no bounds test and unrolls cleanly.  The i == j term vanishes because dx = 0.
+# Targets are bodies [target_offset, target_offset + n_targets): with several
+# GPUs each one computes the force on its own share of the bodies, against all
+# of them, and writes it to out[0 .. n_targets).
 NBODY_KERNEL = r'''
 typedef REAL_T real;
 typedef ACC_T acc_t;
@@ -29,7 +33,7 @@ struct __align__(ALIGN) body_t { real x, y, z, m; };
 
 extern "C" __global__ void __launch_bounds__(BLOCK)
 nbody_accel(const body_t* __restrict__ body, acc_t* __restrict__ out,
-            const int n_targets, const int n_sources,
+            const int n_targets, const int n_sources, const int target_offset,
             const real soft2, const acc_t grav)
 {
     __shared__ body_t tile[BLOCK];
@@ -40,7 +44,7 @@ nbody_accel(const body_t* __restrict__ body, acc_t* __restrict__ out,
 #pragma unroll
     for (int k = 0; k < EPT; ++k) {
         const int i = first + k * BLOCK;
-        const body_t b = i < n_targets ? body[i] : zero;
+        const body_t b = i < n_targets ? body[target_offset + i] : zero;
         xi[k] = b.x; yi[k] = b.y; zi[k] = b.z;
         ax[k] = 0; ay[k] = 0; az[k] = 0;
     }
@@ -301,14 +305,14 @@ class GalaxyCollision3DDemo(Demo):
             cls._gpu_kernels[key] = kernel
         return kernel
 
-    def _gpu_launch(self, body, out, count, sources, softening, config):
+    def _gpu_launch(self, body, out, count, sources, softening, config, offset=0):
         xp = self.ctx.xp
         block, per_thread = int(config["block"]), int(config["per_thread"])
         spec = self.ctx.precision_spec
         grid = (count + block * per_thread - 1) // (block * per_thread)
         self.gpu_kernel(xp, self.ctx.precision, block, per_thread)(
             (grid,), (block,),
-            (body, out, np.int32(count), np.int32(sources),
+            (body, out, np.int32(count), np.int32(sources), np.int32(offset),
              spec["compute"](softening * softening), spec["accumulate"](G)))
 
     def _gpu_config(self, body, count, softening):
@@ -344,25 +348,56 @@ class GalaxyCollision3DDemo(Demo):
             # FP32 for the pair arithmetic.
             self._body[:, :3] = positions
             self._body[:, 3] = masses
-            acceleration = xp.empty((count, 3), dtype=spec["accumulate"])
             config = self._gpu_config(self._body, count, softening)
+            devices = self.ctx.devices
+            if devices.count > 1:
+                return self._multi_gpu_acceleration(devices, count, softening, config)
+            acceleration = xp.empty((count, 3), dtype=spec["accumulate"])
             self._gpu_launch(self._body, acceleration, count, count, softening, config)
             return acceleration
         acceleration = xp.zeros_like(positions)
         tile = max(32, int(self.settings.get("force_tile", 160)))
         soft2 = float(softening) ** 2
-        for i0 in range(0, count, tile):
-            i1 = min(count, i0 + tile)
-            target = positions[i0:i1]
-            value = np.zeros_like(target)
-            for j0 in range(0, count, tile):
-                source = positions[j0:j0 + tile]
-                delta = source[None, :, :] - target[:, None, :]
-                radius2 = np.sum(delta * delta, axis=2) + soft2
-                weight = masses[j0:j0 + tile][None, :] / (radius2 * np.sqrt(radius2))
-                value += G * np.sum(delta * weight[:, :, None], axis=1)
-            acceleration[i0:i1] = value
+
+        def targets(part):
+            # Force on the targets in ``part`` from every body; the parts are
+            # disjoint, so the allocated cores fill them concurrently.
+            for i0 in range(part.start, part.stop, tile):
+                i1 = min(part.stop, i0 + tile)
+                target = positions[i0:i1]
+                value = np.zeros_like(target)
+                for j0 in range(0, count, tile):
+                    source = positions[j0:j0 + tile]
+                    delta = source[None, :, :] - target[:, None, :]
+                    radius2 = np.sum(delta * delta, axis=2) + soft2
+                    weight = masses[j0:j0 + tile][None, :] / (radius2 * np.sqrt(radius2))
+                    value += G * np.sum(delta * weight[:, :, None], axis=1)
+                acceleration[i0:i1] = value
+
+        self.ctx.parallel_slices(count, targets, min_items=tile)
         return acceleration
+
+    def _multi_gpu_acceleration(self, devices, count, softening, config):
+        """All-pairs forces split by target body over several GPUs.
+
+        Every GPU receives all bodies (a 16 MB copy at 1M bodies, microseconds
+        over NVLink against a second of force work) and computes the force on
+        its own contiguous share of them; the shares are gathered back onto
+        the first GPU, where the integrator lives.  The same split as MUrB's
+        four-GPU backend, with device-to-device copies instead of MPI.
+        """
+        spec = self.ctx.precision_spec
+        parts = split(count, devices.count)
+        bodies = [self._body] + [devices.to(self._body, i) for i in range(1, devices.count)]
+
+        def share(i):
+            part = parts[i]
+            out = self.ctx.xp.empty((part.stop - part.start, 3), dtype=spec["accumulate"])
+            self._gpu_launch(bodies[i], out, part.stop - part.start, count, softening, config,
+                             offset=part.start)
+            return out
+
+        return devices.gather(devices.run(share))
 
     def step(self, positions, velocities, masses, dt, steps, softening):
         method = self.ctx.method

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import math
+from contextlib import nullcontext
 from functools import lru_cache
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from ..backend import to_numpy
 from ..base import Demo
+from ..multigpu import split
 from ..neuroevo import (Population, action_labels, brain_catalogue, brain_payload, input_labels,
                         load_champion, load_checkpoint, save_champion, save_checkpoint, validate_brain)
 from ..neuro_render import draw_brain
@@ -200,6 +202,165 @@ def _cuda_kernels():
     return _CUDA_KERNELS
 
 
+_GENERATION_KERNEL = {}
+MAX_WIDTH = 64            # widest layer the generation kernel keeps in registers
+CHUNK = 30                # steps per launch; the array path checks for survivors every 30
+
+
+def _generation_kernel():
+    """A whole stretch of a generation in one CUDA kernel, one thread per car.
+
+    Sensing (sphere-traced rays, speed, grip, compass), the car's own network
+    and the car update run inside the kernel for ``step0 .. step1``, exactly
+    as RaceSim.run's array code does step by step, and the samples the array
+    path would record are written in place.  The per-step fused kernels above
+    still launch ~20 times per step from Python, which leaves the GPU mostly
+    idle; this launches once per 30 steps.
+    """
+    if _GENERATION_KERNEL:
+        return _GENERATION_KERNEL["k"]
+    import cupy as cp
+    source = f"""
+    __device__ __forceinline__ bool cell(float px, float py, int nx, int ny, int* ix, int* iy) {{
+        *ix = min(max((int)(px / {SDF_RES!r}f), 0), nx - 1);
+        *iy = min(max((int)(py / {SDF_RES!r}f), 0), ny - 1);
+        return px >= 0.f && px < {WORLD_W}f && py >= 0.f && py < {WORLD_H}f;
+    }}
+
+    extern "C" __global__ void race_generation(
+        const float* __restrict__ genome, const int n_cars, const int glen,
+        const int* __restrict__ layers, const int n_layers,
+        const int* __restrict__ in_type, const float* __restrict__ in_angle,
+        const float* __restrict__ in_reach, const int* __restrict__ in_iters, const int n_in,
+        const int steer_i, const int throttle_i, const int brake_i,
+        const float* __restrict__ sdf, const float* __restrict__ sgrid, const int nx, const int ny,
+        const float* __restrict__ centre, const int n_centre, const float length,
+        float* x_, float* y_, float* h_, float* v_, float* skid_, float* prog_, float* sprev_,
+        int* lap_, int* crash_, bool* alive_,
+        const int step0, const int step1, const int steps, const int every,
+        float* __restrict__ history, float* __restrict__ inputs, float* __restrict__ outputs,
+        float* __restrict__ last_in, float* __restrict__ last_out)
+    {{
+        const int car = blockIdx.x * blockDim.x + threadIdx.x;
+        if (car >= n_cars) return;
+        const float* g = genome + (size_t)car * glen;
+        const int n_out = layers[n_layers];
+        float x = x_[car], y = y_[car], h = h_[car], v = v_[car], skid = skid_[car];
+        float prog = prog_[car], sprev = sprev_[car];
+        int lap = lap_[car], crash = crash_[car];
+        bool alive = alive_[car];
+        float a[{MAX_WIDTH}], b[{MAX_WIDTH}];
+        for (int step = step0; step < step1; ++step) {{
+            /* sense: RaceSim.sense */
+            for (int k = 0; k < n_in; ++k) {{
+                const int t = in_type[k];
+                if (t == 0) {{
+                    const float ang = h + in_angle[k], reach = in_reach[k];
+                    const float dx = cosf(ang), dy = sinf(ang);
+                    float r = 0.02f;
+                    for (int it = 0; it < in_iters[k]; ++it) {{
+                        int ix, iy;
+                        const bool inside = cell(x + r * dx, y + r * dy, nx, ny, &ix, &iy);
+                        const float d = inside ? sdf[iy * nx + ix] : -1.0f;
+                        if (d > 0.01f) r = r + fmaxf(d, 0.03f);
+                        r = fminf(r, reach);
+                    }}
+                    a[k] = r / reach;
+                }} else if (t == 1) a[k] = v / {V_MAX}f;
+                else if (t == 2) a[k] = fminf(fmaxf(skid, 0.f), 1.f);
+                else if (t == 5) a[k] = 1.f;
+                else {{
+                    float s_now = fmodf(prog, length); if (s_now < 0.f) s_now += length;
+                    const int idx = ((int)((s_now + {COMPASS_LOOKAHEAD}f) / length * n_centre)) % n_centre;
+                    const float bearing = atan2f(centre[2 * idx + 1] - y, centre[2 * idx] - x) - h;
+                    a[k] = t == 3 ? sinf(bearing) : cosf(bearing);
+                }}
+            }}
+            /* forward: Population.forward, weights (in, out) row-major then bias */
+            int off = 0;
+            float* src = a; float* dst = b;
+            for (int l = 0; l < n_layers; ++l) {{
+                const int fi = layers[l], fo = layers[l + 1];
+                for (int j = 0; j < fo; ++j) {{
+                    float s = 0.f;
+                    for (int i = 0; i < fi; ++i) s += src[i] * g[off + i * fo + j];
+                    dst[j] = tanhf(s + g[off + fi * fo + j]);
+                }}
+                off += fi * fo + fo;
+                float* tmp = src; src = dst; dst = tmp;
+            }}
+            const float steer = src[steer_i], throttle = src[throttle_i];
+            const float brake = brake_i >= 0 ? (src[brake_i] + 1.f) * .5f : 0.f;
+            /* car update: the neuro_racers_step kernel */
+            if (alive) {{
+                const float accel = throttle > 0.f ? throttle * {A_MAX}f : throttle * {COAST}f;
+                float nv = fminf(fmaxf(v + (accel - {DRAG}f * v - brake * {BRAKE}f) * {DT!r}f, 0.f), {V_MAX}f);
+                float curv = steer * {K_MAX}f;
+                const float lat = nv * nv * fabsf(curv);
+                const float nskid = fmaxf(lat - {GRIP}f, 0.f) / {GRIP}f;
+                if (lat > {GRIP}f) curv = copysignf(1.f, curv) * {GRIP}f / fmaxf(nv * nv, 1e-4f);
+                nv = nv * (1.f - {SKID_LOSS}f * fminf(nskid, 1.f) * {DT!r}f);
+                const float nh = h + nv * curv * {DT!r}f;
+                x = x + nv * cosf(nh) * {DT!r}f;
+                y = y + nv * sinf(nh) * {DT!r}f;
+                h = nh; v = nv; skid = nskid;
+            }} else {{ v = 0.f; skid = 0.f; }}
+            int ix, iy;
+            const bool inside = cell(x, y, nx, ny, &ix, &iy);
+            const float snow = sgrid[iy * nx + ix];
+            float ds = snow - sprev;
+            if (ds < -length / 2.f) ds += length; else if (ds > length / 2.f) ds -= length;
+            if (alive) prog = prog + ds;
+            sprev = snow;
+            if (lap < 0 && prog >= length) lap = step + 1;
+            const float d = inside ? sdf[iy * nx + ix] : -1.0f;
+            if (alive && d < {CAR_RADIUS}f) {{ crash = step + 1; alive = false; }}
+            /* record: RaceSim._record */
+            if (step % every == 0 || step == steps - 1) {{
+                const size_t sample = step / every + (step % every ? 1 : 0);
+                float* hp = history + (sample * n_cars + car) * 3;
+                hp[0] = x; hp[1] = y; hp[2] = h;
+                for (int k = 0; k < n_in; ++k) inputs[(sample * n_cars + car) * n_in + k] = a[k];
+                for (int k = 0; k < n_out; ++k) outputs[(sample * n_cars + car) * n_out + k] = src[k];
+            }}
+            for (int k = 0; k < n_in; ++k) last_in[car * n_in + k] = a[k];
+            for (int k = 0; k < n_out; ++k) last_out[car * n_out + k] = src[k];
+        }}
+        x_[car] = x; y_[car] = y; h_[car] = h; v_[car] = v; skid_[car] = skid;
+        prog_[car] = prog; sprev_[car] = sprev; lap_[car] = lap; crash_[car] = crash; alive_[car] = alive;
+    }}
+    """
+    _GENERATION_KERNEL["k"] = cp.RawKernel(source, "race_generation")
+    return _GENERATION_KERNEL["k"]
+
+
+PER_CAR = ("fitness", "progress", "lap_step", "crash_step")     # axis 0 is the car
+PER_SAMPLE = ("history", "inputs", "outputs")                   # axis 0 time, axis 1 car
+
+
+def merge_race_results(results, xp, devices=None):
+    """Stitch RaceSim.run results for consecutive slices of one population.
+
+    A slice whose cars have all crashed stops early, so recordings differ in
+    length; crashed cars are frozen, so repeating a slice's last sample is
+    exactly what a whole-population run records for them.
+    """
+    length = max(int(r["history"].shape[0]) for r in results)
+
+    def padded(k, key):
+        a = results[k][key]
+        if a.shape[0] == length:
+            return a
+        with devices.device(k) if devices else nullcontext():
+            return xp.concatenate([a, xp.repeat(a[-1:], length - a.shape[0], axis=0)], axis=0)
+
+    join = (lambda parts, axis: devices.gather(parts, axis=axis)) if devices else \
+           (lambda parts, axis: np.concatenate(parts, axis=axis))
+    merged = {key: join([r[key] for r in results], 0) for key in PER_CAR}
+    merged.update({key: join([padded(k, key) for k in range(len(results))], 1) for key in PER_SAMPLE})
+    return merged
+
+
 def rival_label(run_dir: Path, champion_meta: dict) -> str:
     """A saved champion's name tag: the visitor's name, else where it trained.
 
@@ -241,6 +402,91 @@ class RaceSim:
             if sensor["block"] in RAY_RANGE:
                 self.rays.setdefault(sensor["block"], []).append(math.radians(sensor["angle"]))
         self.rays = {k: xp.asarray(np.asarray(v, dtype=np.float32)) for k, v in self.rays.items()}
+        # On CUDA a whole generation runs in _generation_kernel (30 steps per
+        # launch); ``generation_kernel=False`` keeps the per-step kernels.
+        self.generation_kernel = self.fused and max(brain["layer_sizes"]) <= MAX_WIDTH
+        if self.generation_kernel:
+            self._input_spec()
+
+    def _input_spec(self):
+        """The kernel's input columns, in exactly the order RaceSim.sense builds them."""
+        types, angles, reaches, iters, done = [], [], [], [], set()
+        for sensor in self.brain["sensors"]:
+            block = sensor["block"]
+            if block in RAY_RANGE:
+                if block not in done:
+                    done.add(block)
+                    for angle in to_numpy(self.rays[block]):
+                        types.append(0); angles.append(float(angle))
+                        reaches.append(RAY_RANGE[block]); iters.append(RAY_ITERS[block])
+            elif block in ("speed", "grip"):
+                types.append(1 if block == "speed" else 2); angles.append(0.); reaches.append(1.); iters.append(0)
+            elif block == "compass":
+                for t in (3, 4):
+                    types.append(t); angles.append(0.); reaches.append(1.); iters.append(0)
+        if not types:                                   # sense() returns a column of ones
+            types, angles, reaches, iters = [5], [0.], [1.], [0]
+        xp = self.xp
+        self._spec = (xp.asarray(np.asarray(types, np.int32)), xp.asarray(np.asarray(angles, np.float32)),
+                      xp.asarray(np.asarray(reaches, np.float32)), xp.asarray(np.asarray(iters, np.int32)))
+        self._layers = xp.asarray(np.asarray(self.brain["layer_sizes"], np.int32))
+        self._centre32 = xp.ascontiguousarray(self.centre.astype(xp.float32))
+
+    def _run_generation(self, population, steps, record_every, genome, pose, stop_early):
+        """RaceSim.run on CUDA through the generation kernel; same result layout."""
+        xp = self.xp
+        genome = xp.ascontiguousarray((population.genome if genome is None else genome).astype(xp.float32))
+        count = int(genome.shape[0])
+        x0, y0, h0 = pose or self.start_pose()
+        state = {"x": xp.full(count, x0, xp.float32), "y": xp.full(count, y0, xp.float32),
+                 "h": xp.full(count, h0, xp.float32), "v": xp.zeros(count, xp.float32),
+                 "skid": xp.zeros(count, xp.float32), "prog": xp.zeros(count, xp.float32)}
+        iy, ix, _ = self._cell(state["x"], state["y"])
+        state["sprev"] = xp.ascontiguousarray(self.s_grid[iy, ix].astype(xp.float32))
+        lap = xp.full(count, -1, xp.int32)
+        crash = xp.full(count, -1, xp.int32)
+        alive = xp.ones(count, dtype=bool)
+        n_in, n_out = int(self._spec[0].shape[0]), int(self.brain["layer_sizes"][-1])
+        samples = (steps - 1) // record_every + 1 + (1 if (steps - 1) % record_every else 0) + 1
+        history = xp.empty((samples, count, 3), xp.float32)
+        inputs = xp.empty((samples, count, n_in), xp.float32)
+        outputs = xp.empty((samples, count, n_out), xp.float32)
+        last_in = xp.empty((count, n_in), xp.float32)
+        last_out = xp.empty((count, n_out), xp.float32)
+        actions = self.actions
+        brake_i = actions.index("brake") if "brake" in actions else -1
+        kernel, threads = _generation_kernel(), 128
+        recorded = lambda t: t // record_every + 1 + (1 if t == steps - 1 and t % record_every else 0)
+        rows, step = None, 0
+        while step < steps:
+            end = min(steps, (step // CHUNK + 1) * CHUNK)
+            kernel(((count + threads - 1) // threads,), (threads,),
+                   (genome, np.int32(count), np.int32(genome.shape[1]), self._layers,
+                    np.int32(len(self.brain["layer_sizes"]) - 1), *self._spec, np.int32(n_in),
+                    np.int32(actions.index("steer")), np.int32(actions.index("throttle")), np.int32(brake_i),
+                    self.sdf, self.s_grid, np.int32(self.nx), np.int32(self.ny),
+                    self._centre32, np.int32(len(self.centre)), np.float32(self.length),
+                    state["x"], state["y"], state["h"], state["v"], state["skid"], state["prog"], state["sprev"],
+                    lap, crash, alive, np.int32(step), np.int32(end), np.int32(steps), np.int32(record_every),
+                    history, inputs, outputs, last_in, last_out))
+            step = end
+            # The array path's early stop: after a step with step % 30 == 29
+            # and nobody driving, it records that step once more and ends.
+            if stop_early and (end - 1) % CHUNK == CHUNK - 1 and end < steps and not bool(alive.any()):
+                rows = recorded(end - 1)
+                history[rows] = xp.stack([state["x"], state["y"], state["h"]], axis=1)
+                inputs[rows] = last_in
+                outputs[rows] = last_out
+                rows += 1
+                break
+        if rows is None:
+            rows = recorded(steps - 1)
+            if stop_early and (steps - 1) % CHUNK == CHUNK - 1 and not bool(alive.any()):
+                history[rows] = history[rows - 1]; inputs[rows] = last_in; outputs[rows] = last_out
+                rows += 1
+        crashed = crash >= 0
+        return {"fitness": state["prog"] - .35 * crashed, "progress": state["prog"], "lap_step": lap,
+                "crash_step": crash, "history": history[:rows], "inputs": inputs[:rows], "outputs": outputs[:rows]}
 
     def _cell(self, x, y):
         xp = self.xp
@@ -314,12 +560,16 @@ class RaceSim:
         x, y = centre[i] + normal * lateral
         return float(x), float(y), math.atan2(tangent[i, 1], tangent[i, 0]) + jitter
 
-    def run(self, population, steps, record_every=3, genome=None, pose=None):
+    def run(self, population, steps, record_every=3, genome=None, pose=None, stop_early=True):
         """Drive every car for ``steps`` steps and return fitness plus history.
 
         Crashed cars freeze where they hit the wall; the run stops early if no
-        car is still driving.  ``pose`` overrides the start line.
+        car is still driving (``stop_early=False`` drives the full distance,
+        which is what the scaling benchmark times).  ``pose`` overrides the
+        start line.
         """
+        if self.generation_kernel:
+            return self._run_generation(population, steps, record_every, genome, pose, stop_early)
         xp = self.xp
         count = (population.genome if genome is None else genome).shape[0]
         x0, y0, h0 = pose or self.start_pose()
@@ -350,7 +600,7 @@ class RaceSim:
                                         np.int32(self.nx), np.int32(self.ny), np.float32(length), np.int32(step),
                                         x, y, heading, speed, skid, progress, s_prev, lap_step, crash_step, alive)
                 self._record(step, steps, record_every, history, inputs_history, outputs_history, x, y, heading, inputs, out)
-                if step % 30 == 29 and not bool(alive.any()):
+                if stop_early and step % 30 == 29 and not bool(alive.any()):
                     self._record(step, steps, 1, history, inputs_history, outputs_history, x, y, heading, inputs, out)
                     break
                 continue
@@ -378,7 +628,7 @@ class RaceSim:
             crash_step = xp.where(hit, step + 1, crash_step)
             alive = alive & ~hit
             self._record(step, steps, record_every, history, inputs_history, outputs_history, x, y, heading, inputs, out)
-            if step % 30 == 29 and not bool(alive.any()):
+            if stop_early and step % 30 == 29 and not bool(alive.any()):
                 self._record(step, steps, 1, history, inputs_history, outputs_history, x, y, heading, inputs, out)
                 break
         crashed = crash_step >= 0
@@ -394,6 +644,7 @@ class NeuroRacersDemo(Demo):
     title = "Neuro-Racers"
     timing_methods = {"simulate": "simulation", "render_frame": "render"}
     cpu_only_methods = frozenset({"render_frame"})
+    full_drives = False       # the scaling benchmark drives every car the full distance
 
     # ---- setup ---------------------------------------------------------
     def catalogue(self):
@@ -408,7 +659,39 @@ class NeuroRacersDemo(Demo):
         return validate_brain(spec, catalogue)
 
     def simulate(self, sim, population, steps, record_every):
-        return sim.run(population, steps, record_every)
+        """Drive the whole population, split across GPUs or cores when there are several.
+
+        Cars never interact, so the population splits by rows of the genome:
+        each GPU (with its own copy of the track) drives its share, and the
+        shares are stitched back together on the first GPU for selection.
+        """
+        devices, early = self.ctx.devices, not self.full_drives
+        if devices.count > 1:
+            parts = split(population.size, devices.count)
+            sims = self._sims_on(devices, sim)
+            genomes = [devices.to(population.genome[p], i) for i, p in enumerate(parts)]
+            results = devices.run(lambda i: sims[i].run(population, steps, record_every, genome=genomes[i],
+                                                        stop_early=early))
+            return merge_race_results(results, devices.xp, devices)
+        if not self.ctx.on_gpu and self.ctx.cpu_workers > 1:
+            results = self.ctx.parallel_slices(
+                population.size, lambda p: sim.run(population, steps, record_every, genome=population.genome[p],
+                                                   stop_early=early),
+                min_items=max(16, population.size // (2 * self.ctx.cpu_workers)))
+            if len(results) > 1:
+                return merge_race_results(results, np)
+            return results[0]
+        return sim.run(population, steps, record_every, stop_early=early)
+
+    def _sims_on(self, devices, sim):
+        """One RaceSim per GPU, each holding its own copy of the track."""
+        if getattr(self, "_sims", (None,))[0] != tuple(devices.ids):
+            sims = [sim]
+            for i in range(1, devices.count):
+                with devices.device(i):
+                    sims.append(RaceSim(devices.xp, self.track, self.brain, self.catalogue_data))
+            self._sims = (tuple(devices.ids), sims)
+        return self._sims[1]
 
     # ---- rendering -----------------------------------------------------
     def background(self, track):
