@@ -1,11 +1,10 @@
 {
-  "active": "leonardo",
+  "active": "discoverer",
   "machines": {
     "discoverer": {
       "label": "Discoverer",
       "demos": [
         "galaxy_collision_3d",
-        "fluid",
         "neuro_racers",
         "black_hole",
         "molecular_dynamics"
@@ -19,7 +18,8 @@
         "fusion_plasma",
         "cosmic_web",
         "bat_vs_moth",
-        "pacman_agentic"
+        "pacman_agentic",
+        "fluid"
       ]
     }
   },
